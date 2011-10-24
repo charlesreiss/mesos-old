@@ -24,8 +24,11 @@
 #include <map>
 #include <string>
 
+#include <boost/smart_ptr/scoped_ptr.hpp>
+
 #include <master/allocator.hpp>
 #include <master/master.hpp>
+
 #include <mesos/executor.hpp>
 #include <mesos/scheduler.hpp>
 
@@ -182,8 +185,8 @@ MATCHER_P3(MsgMatcher, name, from, to, "")
  * using the message matcher (see above) as well as the MockFilter
  * (see above).
  */
-#define EXPECT_MSG(filter, name, from, to)                \
-  EXPECT_CALL(filter, filter(MsgMatcher(name, from, to)))
+#define EXPECT_MSG(_filter, name, from, to)                \
+  EXPECT_CALL(_filter, filter(MsgMatcher(name, from, to)))
 
 
 /**
@@ -311,6 +314,67 @@ private:
   std::map<ExecutorID, Executor*> executors;
   std::map<ExecutorID, MesosExecutorDriver*> drivers;
   process::PID<slave::Slave> slave;
+};
+
+
+class FakeProtobufProcess
+    : public ProtobufProcess<FakeProtobufProcess> {
+ public:
+  FakeProtobufProcess() : expectAndStorePending(false) {}
+
+  void setFilter(MockFilter* newFilter) {
+    filter = newFilter;
+  }
+
+  void operator()() {
+    std::string what = serve();
+    EXPECT_EQ(what, process::TERMINATE);
+  }
+
+  template <class T>
+  void expect(process::UPID from) {
+    using testing::Eq;
+    T m;
+    EXPECT_MSG(*filter, Eq(m.GetTypeName()), Eq(from), Eq(self())).
+      WillOnce(testing::Return(true));
+  }
+
+  template <class T>
+  void expectAndStoreStart(process::UPID from, T* destination) {
+    using testing::Eq;
+    expectAndStoreDestination = destination;
+    ASSERT_FALSE(expectAndStorePending);
+    EXPECT_MSG(*filter, Eq(destination->GetTypeName()), Eq(from), Eq(self())).
+      WillOnce(DoAll(testing::SaveArgPointee<0>(&expectAndStoreMessage),
+                     Trigger(&expectAndStoreComplete),
+                     testing::Return(true)));
+    expectAndStorePending = true;
+  }
+
+  void expectAndStoreFinish() {
+    ASSERT_TRUE(expectAndStorePending);
+    WAIT_UNTIL(expectAndStoreComplete);
+    expectAndStoreDestination->Clear();
+    expectAndStoreDestination->ParseFromString(expectAndStoreMessage.body);
+    expectAndStorePending = false;
+    expectAndStoreComplete.value = false;
+  }
+
+  template <class T>
+  void expect() {
+    T m;
+    EXPECT_MSG(*filter, testing::Eq(m.GetTypeName()), testing::_, self()).
+      WillOnce(testing::Return(false));
+  }
+
+  using ProtobufProcess<FakeProtobufProcess>::send;
+
+ protected:
+  bool expectAndStorePending;
+  trigger expectAndStoreComplete;
+  process::Message expectAndStoreMessage;
+  google::protobuf::Message* expectAndStoreDestination;
+  MockFilter* filter;
 };
 
 }}} // namespace mesos { namespace internal { namespace test {
