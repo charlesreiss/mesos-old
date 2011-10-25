@@ -25,6 +25,7 @@
 #include <string>
 
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/bind.hpp>
 
 #include <master/allocator.hpp>
 #include <master/master.hpp>
@@ -316,11 +317,16 @@ private:
   process::PID<slave::Slave> slave;
 };
 
+template <class T>
+void storeProtoMessage(T* protobuf, process::Message message) {
+  protobuf->Clear();
+  protobuf->ParseFromString(message.body);
+}
 
 class FakeProtobufProcess
     : public ProtobufProcess<FakeProtobufProcess> {
  public:
-  FakeProtobufProcess() : expectAndStorePending(false) {}
+  FakeProtobufProcess() {}
 
   void setFilter(MockFilter* newFilter) {
     filter = newFilter;
@@ -340,24 +346,12 @@ class FakeProtobufProcess
   }
 
   template <class T>
-  void expectAndStoreStart(process::UPID from, T* destination) {
+  void expectAndStore(process::UPID from, T* destination, trigger* done) {
     using testing::Eq;
-    expectAndStoreDestination = destination;
-    ASSERT_FALSE(expectAndStorePending);
     EXPECT_MSG(*filter, Eq(destination->GetTypeName()), Eq(from), Eq(self())).
-      WillOnce(DoAll(testing::SaveArgPointee<0>(&expectAndStoreMessage),
-                     Trigger(&expectAndStoreComplete),
+      WillOnce(DoAll(Invoke(boost::bind(storeProtoMessage<T>, destination)),
+                     Trigger(done),
                      testing::Return(true)));
-    expectAndStorePending = true;
-  }
-
-  void expectAndStoreFinish() {
-    ASSERT_TRUE(expectAndStorePending);
-    WAIT_UNTIL(expectAndStoreComplete);
-    expectAndStoreDestination->Clear();
-    expectAndStoreDestination->ParseFromString(expectAndStoreMessage.body);
-    expectAndStorePending = false;
-    expectAndStoreComplete.value = false;
   }
 
   template <class T>

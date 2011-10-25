@@ -141,10 +141,11 @@ protected:
     message.mutable_task()->CopyFrom(getDefaultTask(frameworkName));
 
     StatusUpdateMessage update;
-    master.expectAndStoreStart(slavePid, &update);
+    trigger gotUpdate;
+    master.expectAndStore(slavePid, &update, &gotUpdate);
     master.send(slavePid, message);
 
-    master.expectAndStoreFinish();
+    WAIT_UNTIL(gotUpdate);
 
     StatusUpdateAcknowledgementMessage ack;
     ack.mutable_slave_id()->CopyFrom(getDefaultSlaveID());
