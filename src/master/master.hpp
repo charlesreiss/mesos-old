@@ -110,6 +110,8 @@ public:
                                 double reregisteredTime);
   void exited();
 
+  void updateUsage(const UsageMessage& update);
+
   // Return connected frameworks that are not in the process of being removed
   std::vector<Framework*> getActiveFrameworks() const;
 
