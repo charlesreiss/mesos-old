@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <sstream>
+#include <fstream>
 #include <map>
 
 #include <process/dispatch.hpp>
@@ -131,6 +132,9 @@ void LxcIsolationModule::launchExecutor(
   info->executorId = executorId;
   info->container = container;
   info->pid = -1;
+  info->haveSample = false;
+  info->lastSample = 0;
+  info->lastCpu = 0;
 
   infos[frameworkId][executorId] = info;
 
@@ -343,6 +347,58 @@ void LxcIsolationModule::processExited(pid_t pid, int status)
   }
 }
 
+void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
+                                     const ExecutorID& executorId) {
+  if (!infos.contains(frameworkId) ||
+      !infos[frameworkId].contains(executorId)) {
+    LOG(INFO) << "Asked to sample usage of unknown (dead?) executor";
+  }
+
+  ContainerInfo* info = infos[frameworkId][executorId];
+
+  int64_t curCpu;
+  int64_t curMemBytes;
+
+  bool haveCpu = getControlGroupValue(info->container, "cpuacct", "usage",
+                                      &curCpu);
+  bool haveMem = getControlGroupValue(info->container, "memory", 
+				      "usage_in_bytes", &curMemBytes);
+
+  double now = process::Clock::now();
+  double duration = now - info->lastSample;
+  info->lastSample = now;
+  Resources result;
+  if (haveMem) {
+    Resource mem;
+    mem.set_name("mem");
+    mem.set_type(Resource::SCALAR);
+    mem.mutable_scalar()->set_value(curMemBytes / 1024.0 / 1024.0);
+    result += mem;
+  }
+  if (haveCpu) {
+    if (info->haveSample) {
+      double cpuRate = (curCpu - info->lastCpu) / duration / 1e9;
+      Resource cpu;
+      cpu.set_name("cpus");
+      cpu.set_type(Resource::SCALAR);
+      cpu.mutable_scalar()->set_value(cpuRate);
+      result += cpu;
+      info->lastCpu = curCpu;
+    }
+  }
+  info->haveSample = true;
+  if (result.size() > 0) {
+    UsageMessage message;
+    message.mutable_framework_id()->MergeFrom(frameworkId);
+    message.mutable_executor_id()->MergeFrom(executorId);
+    message.mutable_resources()->MergeFrom(result);
+    message.set_timestamp(now);
+    if (info->haveSample) {
+      message.set_duration(duration);
+    }
+    process::dispatch(slave, &Slave::sendUsageUpdate, message);
+  }
+}
 
 bool LxcIsolationModule::setControlGroupValue(
     const string& container,
@@ -371,6 +427,30 @@ bool LxcIsolationModule::setControlGroupValue(
 
   return true;
 }
+
+bool LxcIsolationModule::getControlGroupValue(
+    const string& container,
+    const string& group,
+    const string& property,
+    int64_t *value)
+{
+  *value = 0;
+  std::string controlFile = "/sys/fs/cgroup/" +
+    group + "/" + container + "/" + group + "." + property;
+  std::ifstream in(controlFile.c_str());
+  if (!in) {
+    LOG(ERROR) << "Couldn't open " << controlFile;
+    return false;
+  } else {
+    if (in >> *value) {
+      return true;
+    } else {
+      *value = 0;
+      return false;
+    }
+  }
+}
+
 
 
 vector<string> LxcIsolationModule::getControlGroupOptions(

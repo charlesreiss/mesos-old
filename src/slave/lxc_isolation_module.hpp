@@ -58,6 +58,9 @@ public:
 
   virtual void processExited(pid_t pid, int status);
 
+  virtual void sampleUsage(const FrameworkID& frameworkId,
+                           const ExecutorID& executorId);
+
 private:
   // No copying, no assigning.
   LxcIsolationModule(const LxcIsolationModule&);
@@ -69,6 +72,11 @@ private:
                             const std::string& property,
                             int64_t value);
 
+  bool getControlGroupValue(const std::string& container,
+			    const std::string& group,
+                            const std::string& property,
+                            int64_t *value);
+
   std::vector<std::string> getControlGroupOptions(const ResourceHints& resources);
 
   // Per-framework information object maintained in info hashmap.
@@ -78,6 +86,11 @@ private:
     ExecutorID executorId;
     std::string container; // Name of Linux container used for this framework.
     pid_t pid; // PID of lxc-execute command running the executor.
+    Resources curLimit; // Last set limit.
+
+    bool haveSample;
+    double lastSample;
+    int64_t lastCpu;
   };
 
   // TODO(benh): Make variables const by passing them via constructor.
