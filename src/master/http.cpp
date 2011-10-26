@@ -177,11 +177,11 @@ Promise<HttpResponse> stats(
   // compute capacity of scalar resources.
   Resources totalResources;
   Resources usedResources;
-  Resources observedUsedResources;
+  Resources resourcesObservedUsed;
   foreach (Slave* slave, master.getActiveSlaves()) {
     totalResources += slave->info.resources();
     usedResources += slave->resourcesInUse;
-    observedUsedResources += slave->observedUsedResources;
+    resourcesObservedUsed += slave->resourcesObservedUsed;
   }
 
   foreach (const Resource& resource, totalResources) {
@@ -193,7 +193,7 @@ Promise<HttpResponse> stats(
       CHECK(!option.isSome() || option.get().has_scalar());
       double used = option.isSome() ? option.get().scalar().value() : 0.0;
       object.values[resource.name() + "_used"] = used;
-      option = observedUsedResources.get(resource);
+      option = resourcesObservedUsed.get(resource);
       if (option.isSome()) {
         object.values[resource.name() + "_observed_used"] =
             option.get().scalar().value();

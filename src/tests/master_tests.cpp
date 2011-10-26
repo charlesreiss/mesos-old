@@ -370,9 +370,9 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
 TEST_F(MasterSlaveTest, AccumulateUsage) {
   startMasterAndSlave();
   OfferID offerId;
-  vector<SlaveOffer> offers;
-  getOffers(&offerId, &offers);
-  launchTaskForOffer(offerId, offers[0], "testTaskId");
+  vector<Offer> offers;
+  getOffers(&offers);
+  launchTaskForOffer(offers[0], "testTaskId");
   UsageMessage usage;
   usage.mutable_slave_id()->MergeFrom(m->getActiveSlaves()[0]->id);
   usage.mutable_framework_id()->MergeFrom(frameworkId);
