@@ -110,7 +110,7 @@ protected:
     trigger resourceOfferCall;
 
     EXPECT_CALL(sched, registered(schedDriver.get(),_))
-      .Times(1);
+      .WillOnce(SaveArg<1>(&frameworkId));
 
     EXPECT_CALL(sched, resourceOffers(schedDriver.get(), _))
       .WillOnce(DoAll(SaveArg<1>(offers),
@@ -184,6 +184,7 @@ protected:
   PID<Slave> slave;
   scoped_ptr<BasicMasterDetector> detector;
   MockScheduler sched;
+  FrameworkID frameworkId;
   scoped_ptr<MesosSchedulerDriver> schedDriver;
 };
 
@@ -366,6 +367,29 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
   stopMasterAndSlave();
 }
 
+TEST_F(MasterSlaveTest, AccumulateUsage) {
+  startMasterAndSlave();
+  OfferID offerId;
+  vector<SlaveOffer> offers;
+  getOffers(&offerId, &offers);
+  launchTaskForOffer(offerId, offers[0], "testTaskId");
+  UsageMessage usage;
+  usage.mutable_slave_id()->MergeFrom(m->getActiveSlaves()[0]->id);
+  usage.mutable_framework_id()->MergeFrom(frameworkId);
+  usage.mutable_executor_id()->MergeFrom(DEFAULT_EXECUTOR_ID);
+  usage.mutable_resources()->MergeFrom(Resources::parse("cpus:1.5;mem:800"));
+  usage.set_timestamp(1000.0);
+  usage.set_duration(250.0);
+  process::dispatch(master, &Master::updateUsage, usage);
+  // force dispatch to finish FIXME
+  process::wait(master, 0.1);
+  EXPECT_EQ(Resources::parse("cpus:1.5;mem:800"),
+            m->getActiveSlaves()[0]->resourcesObservedUsed);
+  stopScheduler();
+  EXPECT_EQ(Resources::parse("cpus:0;mem:0"),
+            m->getActiveSlaves()[0]->resourcesObservedUsed);
+  stopMasterAndSlave();
+}
 
 // FrameworksManager test cases.
 
