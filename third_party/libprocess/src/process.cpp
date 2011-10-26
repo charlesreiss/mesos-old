@@ -54,6 +54,8 @@
 #include "synchronized.hpp"
 #include "tokenize.hpp"
 
+#include <valgrind/valgrind.h>
+
 
 using boost::tuple;
 
@@ -1868,6 +1870,12 @@ UPID ProcessManager::spawn(ProcessBase *process, bool manage)
     /* Disallow all memory access to the last page. */
     if (mprotect(stack, getpagesize(), PROT_NONE) != 0)
       fatalerror("mprotect failed (spawn)");
+
+    if (RUNNING_ON_VALGRIND) {
+      VALGRIND_STACK_REGISTER(stack, (char*) stack + PROCESS_STACK_SIZE);
+      VALGRIND_MALLOCLIKE_BLOCK((char*) stack + getpagesize(), PROCESS_STACK_SIZE,
+          getpagesize(), 1);
+    }
   }
 
   /* Set up the ucontext. */
