@@ -225,9 +225,11 @@ struct Executor
     t->mutable_task_id()->MergeFrom(task.task_id());
     t->mutable_slave_id()->MergeFrom(task.slave_id());
     t->mutable_resources()->MergeFrom(task.resources());
+    t->mutable_min_resources()->MergeFrom(task.min_resources());
 
     launchedTasks[task.task_id()] = t;
     resources += task.resources();
+    minResources += task.min_resources();
   }
 
   void removeTask(const TaskID& taskId)
@@ -267,6 +269,7 @@ struct Executor
   bool shutdown; // Indicates if executor is being shut down.
 
   Resources resources; // Currently consumed resources.
+  Resources minResources;
 
   hashmap<TaskID, TaskDescription> queuedTasks;
   hashmap<TaskID, Task*> launchedTasks;

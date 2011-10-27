@@ -114,8 +114,9 @@ message TaskDescription {
   required TaskID task_id = 2;
   required SlaveID slave_id = 3;
   repeated Resource resources = 4;
-  optional ExecutorInfo executor = 5;
-  optional bytes data = 6;
+  repeated Resource min_resources = 5;
+  optional ExecutorInfo executor = 6;
+  optional bytes data = 7;
 }
 
 
@@ -134,6 +135,8 @@ message TaskStatus {
   required TaskState state = 2;
   optional string message = 4; // Possible message explaining state.
   optional bytes data = 3;
+
+  optional bool out_of_resources = 5 [default = false];
 }
 
 
@@ -165,6 +168,7 @@ message SlaveInfo {
 message ResourceRequest {
   optional SlaveID slave_id = 1;
   repeated Resource resources = 2;
+  repeated Resource min_resources = 3;
 }
 
 
@@ -175,6 +179,10 @@ message Offer {
   required string hostname = 4;
   repeated Resource resources = 5;
   repeated ExecutorID executor_ids = 6;
+  
+  repeated Resource min_resources = 7;
+
+  optional int32 suggested_tasks = 8;
 }
 
 

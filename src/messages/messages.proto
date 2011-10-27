@@ -42,6 +42,7 @@ message Task {
   required SlaveID slave_id = 5;
   required TaskState state = 6;
   repeated Resource resources = 7;
+  repeated Resource min_resources = 8;
 }
 
 
