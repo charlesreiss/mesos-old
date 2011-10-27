@@ -86,4 +86,14 @@ private:
   T* t;
 };
 
+template <class T>
+inline bool
+operator==(Option<T> first, Option<T> second) {
+  if (first.isSome()) {
+    return second.isSome() && first.get() == second.get();
+  } else {
+    return second.isNone();
+  }
+}
+
 #endif // __OPTION_HPP__
