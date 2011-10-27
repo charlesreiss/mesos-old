@@ -55,8 +55,21 @@ struct Framework;
 struct Slave;
 class SlaveObserver;
 
+class AllocatorMasterInterface
+{
+public:
+  // TODO(charles): These should all be const or all be non-const
+  virtual Slave* getSlave(const SlaveID& slaveId) = 0;
+  virtual Framework* getFramework(const FrameworkID& frameworkId) = 0;
+  virtual std::vector<Framework*> getActiveFrameworks() const = 0;
+  virtual std::vector<Slave*> getActiveSlaves() const = 0;
 
-class Master : public ProtobufProcess<Master>
+  virtual void makeOffers(Framework* framework,
+                          const hashmap<Slave*, ResourceHints>& offered) = 0;
+};
+
+
+class Master : public ProtobufProcess<Master>, AllocatorMasterInterface
 {
 public:
   Master(Allocator* _allocator);
@@ -119,7 +132,7 @@ public:
   std::vector<Slave*> getActiveSlaves() const;
 
   void makeOffers(Framework* framework,
-                  const hashmap<Slave*, Resources>& offered);
+                  const hashmap<Slave*, ResourceHints>& offered);
 
 protected:
   virtual void operator () ();
@@ -158,9 +171,9 @@ protected:
 
   // Launch a task from a task description, and returned the consumed
   // resources for the task and possibly it's executor.
-  Resources launchTask(const TaskDescription& task,
-                       Framework* framework,
-                       Slave* slave);
+  ResourceHints launchTask(const TaskDescription& task,
+                            Framework* framework,
+                            Slave* slave);
 
   // Remove a task.
   void removeTask(Task* task);
@@ -287,14 +300,14 @@ struct Slave
   {
     CHECK(!offers.contains(offer));
     offers.insert(offer);
-    resourcesOffered += offer->resources();
+    resourcesOffered += ResourceHints::forOffer(*offer);
   }
 
   void removeOffer(Offer* offer)
   {
     CHECK(offers.contains(offer));
     offers.erase(offer);
-    resourcesOffered -= offer->resources();
+    resourcesOffered -= ResourceHints::forOffer(*offer);
   }
 
   bool hasExecutor(const FrameworkID& frameworkId,
@@ -349,7 +362,8 @@ struct Slave
 
   Resources resourcesFree()
   {
-    return info.resources() - (resourcesOffered + resourcesInUse);
+    return info.resources() - (resourcesOffered.expectedResources +
+                               resourcesInUse);
   }
 
   const SlaveID id;
@@ -361,7 +375,7 @@ struct Slave
   double registeredTime;
   double lastHeartbeat;
 
-  Resources resourcesOffered; // Resources currently in offers.
+  ResourceHints resourcesOffered; // Resources currently in offers.
   Resources resourcesInUse;   // Resources currently used by tasks.
   Resources resourcesObservedUsed; // Used resources based on last usage
                                    // message.

@@ -47,6 +47,7 @@ using mesos::internal::master::FrameworksStorage;
 
 using mesos::internal::master::Master;
 using mesos::internal::master::SimpleAllocator;
+using mesos::internal::master::Allocator;
 
 using mesos::internal::slave::Slave;
 

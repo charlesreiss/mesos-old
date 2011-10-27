@@ -151,10 +151,10 @@ public:
                                         const std::vector<ResourceRequest>&));
   MOCK_METHOD3(resourcesUnused, void(const FrameworkID&,
                                      const SlaveID&,
-                                     const Resources&));
+                                     const ResourceHints&));
   MOCK_METHOD3(resourcesRecovered, void(const FrameworkID&,
                                         const SlaveID&,
-                                        const Resources&));
+                                        const ResourceHints&));
   MOCK_METHOD1(offersRevived, void(master::Framework*));
   MOCK_METHOD0(timerTick, void());
 };

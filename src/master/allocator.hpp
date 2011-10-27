@@ -58,7 +58,7 @@ public:
   virtual void resourcesUnused(
       const FrameworkID& frameworkId,
       const SlaveID& slaveId,
-      const Resources& resources) {}
+      const ResourceHints& offerResources) {}
 
   // Whenever resources are "recovered" in the cluster (e.g., a task
   // finishes, an offer is removed because a framework has failed or
@@ -66,7 +66,7 @@ public:
   virtual void resourcesRecovered(
       const FrameworkID& frameworkId,
       const SlaveID& slaveId,
-      const Resources& resources) {}
+      const ResourceHints& offerResources) {}
 
   // Whenever a framework that has filtered resources want's to revive
   // offers for those resources the master invokes this callback.

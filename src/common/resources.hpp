@@ -24,6 +24,8 @@
 
 #include <mesos/mesos.hpp>
 
+#include "messages/messages.hpp"  // for mesos::internal::Task
+
 #include "common/foreach.hpp"
 #include "common/option.hpp"
 
@@ -472,6 +474,75 @@ inline bool operator == (
 {
   return Resources(left) == right;
 }
+
+struct ResourceHints {
+  ResourceHints() : expectedResources(), minResources() {}
+  ResourceHints(const Resources& _expectedResources,
+                 const Resources& _minResources)
+    : expectedResources(_expectedResources), minResources(_minResources) {}
+  Resources expectedResources;
+  Resources minResources;
+
+  static ResourceHints forOffer(const Offer& offer) {
+    return ResourceHints(offer.resources(), offer.min_resources());
+  }
+
+  static ResourceHints forTask(const mesos::internal::Task& task) {
+    return ResourceHints(task.resources(), task.min_resources());
+  }
+
+  static ResourceHints forTaskDescription(const TaskDescription& task) {
+    return ResourceHints(task.resources(), task.min_resources());
+  }
+
+  static ResourceHints forExecutorInfo(const ExecutorInfo& info) {
+    return ResourceHints(info.resources(), Resources()); // FIXME
+  }
+
+  bool empty() const {
+    return expectedResources.size() == 0 && minResources.size() == 0;
+  }
+
+  ResourceHints& operator+=(const ResourceHints& other) {
+    expectedResources += other.expectedResources;
+    minResources += other.minResources;
+    return *this;
+  }
+
+  ResourceHints& operator-=(const ResourceHints& other) {
+    expectedResources -= other.expectedResources;
+    minResources -= other.minResources;
+  }
+
+  ResourceHints operator-(const ResourceHints& other) const {
+    ResourceHints result = *this;
+    result -= other;
+    return result;
+  }
+
+  ResourceHints operator+(const ResourceHints& other) const {
+    ResourceHints result = *this;
+    result += other;
+    return result;
+  }
+
+  bool operator==(const ResourceHints& other) const {
+    return expectedResources == other.expectedResources &&
+           minResources == other.minResources;
+  }
+
+  bool operator<=(const ResourceHints& other) const {
+    return expectedResources <= other.expectedResources &&
+           minResources <= other.minResources;
+  }
+};
+
+inline
+std::ostream& operator<<(std::ostream& out, const ResourceHints& o)
+{
+  return out << o.expectedResources << " / min: " << o.minResources;
+}
+
 
 } // namespace internal {
 } // namespace mesos {

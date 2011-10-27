@@ -55,12 +55,12 @@ public:
   virtual void resourcesUnused(
     const FrameworkID& frameworkId,
     const SlaveID& slaveId,
-    const Resources& resources);
+    const ResourceHints& resources);
 
   virtual void resourcesRecovered(
     const FrameworkID& frameworkId,
     const SlaveID& slaveId,
-    const Resources& resources);
+    const ResourceHints& resources);
 
   virtual void offersRevived(Framework* framework);
 

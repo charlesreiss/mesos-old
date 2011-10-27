@@ -100,9 +100,11 @@ void SimpleAllocator::resourcesRequested(
 void SimpleAllocator::resourcesUnused(
     const FrameworkID& frameworkId,
     const SlaveID& slaveId,
-    const Resources& resources)
+    const ResourceHints& offerResources)
 {
   CHECK(initialized);
+
+  const Resources& resources = offerResources.expectedResources;
 
   if (resources.allocatable().size() > 0) {
     VLOG(1) << "Framework " << frameworkId
@@ -118,9 +120,11 @@ void SimpleAllocator::resourcesUnused(
 void SimpleAllocator::resourcesRecovered(
     const FrameworkID& frameworkId,
     const SlaveID& slaveId,
-    const Resources& resources)
+    const ResourceHints& offerResources)
 {
   CHECK(initialized);
+
+  const Resources& resources = offerResources.expectedResources;
 
   if (resources.allocatable().size() > 0) {
     VLOG(1) << "Recovered " << resources.allocatable()
@@ -285,14 +289,14 @@ void SimpleAllocator::makeNewOffers(const vector<Slave*>& slaves)
 
   foreach (Framework* framework, ordering) {
     // Check if we should offer resources to this framework.
-    hashmap<Slave*, Resources> offerable;
+    hashmap<Slave*, ResourceHints> offerable;
     foreachpair (Slave* slave, const Resources& resources, available) {
       if (!refusers.contains(slave->id, framework->id) &&
           !framework->filters(slave, resources)) {
         VLOG(1) << "Offering " << resources
                 << " on slave " << slave->id
                 << " to framework " << framework->id;
-        offerable[slave] = resources;
+        offerable[slave].expectedResources = resources;
       }
     }
 

@@ -581,7 +581,7 @@ void Master::reregisterFramework(const FrameworkID& frameworkId,
       foreach (Offer* offer, utils::copy(framework->offers)) {
         allocator->resourcesRecovered(offer->framework_id(),
                                       offer->slave_id(),
-                                      offer->resources());
+                                      ResourceHints::forOffer(*offer));
         removeOffer(offer);
       }
 
@@ -1133,7 +1133,7 @@ void Master::exited()
       foreach (Offer* offer, utils::copy(framework->offers)) {
         allocator->resourcesRecovered(offer->framework_id(),
                                       offer->slave_id(),
-                                      offer->resources());
+                                      ResourceHints::forOffer(*offer));
         removeOffer(offer);
       }
       return;
@@ -1151,18 +1151,23 @@ void Master::exited()
 
 
 void Master::makeOffers(Framework* framework,
-                        const hashmap<Slave*, Resources>& offered)
+                        const hashmap<Slave*, ResourceHints>& offered)
 {
   // Create an offer for each slave and add it to the message.
   ResourceOffersMessage message;
 
-  foreachpair (Slave* slave, const Resources& resources, offered) {
+  foreachpair (Slave* slave, const ResourceHints& offerRes, offered) {
     Offer* offer = new Offer();
     offer->mutable_id()->MergeFrom(newOfferId());
     offer->mutable_framework_id()->MergeFrom(framework->id);
     offer->mutable_slave_id()->MergeFrom(slave->id);
     offer->set_hostname(slave->info.hostname());
-    offer->mutable_resources()->MergeFrom(resources);
+    if (framework->info.allocates_min()) {
+      offer->mutable_resources()->MergeFrom(offerRes.expectedResources);
+    } else {
+      offer->mutable_resources()->MergeFrom(offerRes.expectedResources);
+      offer->mutable_min_resources()->MergeFrom(offerRes.minResources);
+    }
 
     // Add all framework's executors running on this slave.
     if (slave->executors.contains(framework->id)) {
@@ -1334,7 +1339,7 @@ void Master::processTasks(Offer* offer,
                           const vector<TaskDescription>& tasks,
                           const Filters& filters)
 {
-  Resources usedResources; // Accumulated resources used from this offer.
+  ResourceHints usedResources; // Accumulated resources used from this offer.
 
   // Create task visitors.
   list<TaskDescriptionVisitor*> visitors;
@@ -1381,10 +1386,14 @@ void Master::processTasks(Offer* offer,
   } while (!visitors.empty());
 
   // All used resources should be allocatable, enforced by our validators.
-  CHECK(usedResources == usedResources.allocatable());
+  CHECK_EQ(usedResources.expectedResources,
+           usedResources.expectedResources.allocatable());
+  CHECK_EQ(usedResources.minResources,
+           usedResources.minResources.allocatable());
 
   // Calculate unused resources.
-  Resources unusedResources = offer->resources() - usedResources;
+  ResourceHints offerResources = ResourceHints::forOffer(*offer);
+  ResourceHints unusedResources = offerResources - usedResources;
 
   if (unusedResources.allocatable().size() > 0) {
     // Tell the allocator about the unused (e.g., refused) resources.
@@ -1413,9 +1422,9 @@ void Master::processTasks(Offer* offer,
 }
 
 
-Resources Master::launchTask(const TaskDescription& task,
-                             Framework* framework,
-                             Slave* slave)
+ResourceHints Master::launchTask(const TaskDescription& task,
+                                 Framework* framework,
+                                 Slave* slave)
 {
   CHECK(framework != NULL);
   CHECK(slave != NULL);
@@ -1468,7 +1477,7 @@ Resources Master::launchTask(const TaskDescription& task,
   // makes sure transitions are valid.
   stats.tasks[TASK_STARTING]++;
 
-  return resources;
+  return ResourceHints(resources, minResources);
 }
 
 
@@ -1499,7 +1508,7 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
   foreach (Offer* offer, utils::copy(framework->offers)) {
     allocator->resourcesRecovered(offer->framework_id(),
                                   offer->slave_id(),
-                                  offer->resources());
+                                  ResourceHints::forOffer(*offer));
     removeOffer(offer);
   }
 
@@ -1549,7 +1558,7 @@ void Master::removeFramework(Framework* framework)
   foreach (Offer* offer, utils::copy(framework->offers)) {
     allocator->resourcesRecovered(offer->framework_id(),
                                   offer->slave_id(),
-                                  offer->resources());
+                                  ResourceHints::forOffer(*offer));
     removeOffer(offer);
   }
 
@@ -1763,7 +1772,8 @@ void Master::removeTask(Task* task)
   slave->removeTask(task);
 
   // Tell the allocator about the recovered resources.
-  allocator->resourcesRecovered(framework->id, slave->id, task->resources());
+  allocator->resourcesRecovered(framework->id, slave->id,
+      ResourceHints::forTask(*task));
 
   delete task;
 }
