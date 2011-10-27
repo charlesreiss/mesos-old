@@ -53,7 +53,7 @@ ifneq (@top_srcdir@,@top_builddir@)
 	mkdir -p @top_builddir@/$(LEVELDB)
 	cp -r @top_srcdir@/$(LEVELDB) @top_builddir@/`dirname $(LEVELDB)`
 endif
-	$(MAKE) -C $(LEVELDB)
+	$(MAKE) -C $(LEVELDB) CXX='@CXX@'
 ifeq ($(WITH_INCLUDED_ZOOKEEPER),1)
 	$(MAKE) -C $(ZOOKEEPER)
 endif
