@@ -68,6 +68,13 @@ public:
       const SlaveID& slaveId,
       const ResourceHints& offerResources) {}
 
+  // For allocators that want to track actual resource usage to determine
+  // what offers to make. taskRemoved() is called _in addition_ to
+  // resourcesRecovered
+  // TODO(charles): do we need these?
+  virtual void taskAdded(Task* task) {}
+  virtual void taskRemoved(Task* task) {}
+
   // Whenever a framework that has filtered resources want's to revive
   // offers for those resources the master invokes this callback.
   virtual void offersRevived(Framework* framework) {}

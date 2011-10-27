@@ -1502,6 +1502,8 @@ ResourceHints Master::launchTask(const TaskDescription& task,
   // makes sure transitions are valid.
   stats.tasks[TASK_STARTING]++;
 
+  allocator->taskAdded(t);
+
   return ResourceHints(resources, minResources);
 }
 
@@ -1795,6 +1797,9 @@ void Master::removeTask(Task* task)
   Slave* slave = getSlave(task->slave_id());
   CHECK(slave != NULL);
   slave->removeTask(task);
+
+  // TODO(charles): remove??
+  allocator->taskRemoved(task);
 
   // Tell the allocator about the recovered resources.
   allocator->resourcesRecovered(framework->id, slave->id,
