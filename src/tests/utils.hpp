@@ -24,8 +24,9 @@
 #include <map>
 #include <string>
 
+#include <tr1/functional>
+
 #include <boost/smart_ptr/scoped_ptr.hpp>
-#include <boost/bind.hpp>
 
 #include <master/allocator.hpp>
 #include <master/master.hpp>
@@ -318,9 +319,13 @@ private:
 };
 
 template <class T>
-void storeProtoMessage(T* protobuf, process::Message message) {
+bool expectAndStoreHelper(T* protobuf, const process::Message* message,
+                          trigger* trigger) {
+  LOG(INFO) << "store into " << protobuf->GetTypeName();
   protobuf->Clear();
-  protobuf->ParseFromString(message.body);
+  protobuf->ParseFromString(message->body);
+  trigger->value = true;
+  return true;
 }
 
 class FakeProtobufProcess
@@ -338,32 +343,63 @@ class FakeProtobufProcess
   }
 
   template <class T>
-  void expect(process::UPID from) {
+  void expect(process::UPID from = process::UPID(), int times = 1) {
     using testing::Eq;
     T m;
-    EXPECT_MSG(*filter, Eq(m.GetTypeName()), Eq(from), Eq(self())).
-      WillOnce(testing::Return(true));
+    EXPECT_MSG(*filter, Eq(m.GetTypeName()), match(from), Eq(self())).
+      Times(times).
+      WillRepeatedly(testing::Return(true));
+  }
+
+  template <class T>
+  void expectMany() {
+    using testing::Eq;
+    T m;
+    EXPECT_MSG(*filter, Eq(m.GetTypeName()), testing::_, Eq(self())).
+      WillRepeatedly(testing::Return(true));
   }
 
   template <class T>
   void expectAndStore(process::UPID from, T* destination, trigger* done) {
     using testing::Eq;
-    EXPECT_MSG(*filter, Eq(destination->GetTypeName()), Eq(from), Eq(self())).
-      WillOnce(DoAll(Invoke(boost::bind(storeProtoMessage<T>, destination)),
-                     Trigger(done),
-                     testing::Return(true)));
+    using testing::Invoke;
+    EXPECT_MSG(*filter, Eq(destination->GetTypeName()), match(from),
+                        Eq(self())).
+      WillOnce(Invoke(std::tr1::bind(&expectAndStoreHelper<T>, destination,
+                                     std::tr1::placeholders::_1, done)));
   }
 
   template <class T>
-  void expect() {
-    T m;
-    EXPECT_MSG(*filter, testing::Eq(m.GetTypeName()), testing::_, self()).
-      WillOnce(testing::Return(false));
+  void expectAndWait(process::UPID from, trigger* done, int times = 1) {
+    using testing::Eq;
+    using testing::DoAll;
+    using testing::Return;
+    T dummy;
+    if (times > 1) {
+      EXPECT_MSG(*filter, Eq(dummy.GetTypeName()), match(from), Eq(self())).
+        WillRepeatedly(Return(true)).
+        Times(times - 1);
+    }
+    if (times > 0) {
+      EXPECT_MSG(*filter, Eq(dummy.GetTypeName()), match(from), Eq(self())).
+        WillOnce(DoAll(Trigger(done), Return(true)));
+    } else {
+      done->value = true;
+    }
   }
 
   using ProtobufProcess<FakeProtobufProcess>::send;
 
- protected:
+private:
+  testing::Matcher<process::UPID> match(process::UPID pid) {
+    if (pid) {
+     return testing::Eq(pid);
+    } else {
+     return testing::_;
+    }
+  }
+
+protected:
   bool expectAndStorePending;
   trigger expectAndStoreComplete;
   process::Message expectAndStoreMessage;
