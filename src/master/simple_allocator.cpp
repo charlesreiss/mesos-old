@@ -18,9 +18,9 @@
 
 #include <algorithm>
 
-#include <glog/logging.h>
+#include <string>
 
-#include <algorithm>
+#include <glog/logging.h>
 
 #include "common/utils.hpp"
 

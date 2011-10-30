@@ -18,7 +18,7 @@
 
 #include <gmock/gmock.h>
 
-#include "boost/smart_ptr/scoped_ptr.hpp"
+#include <boost/smart_ptr/scoped_ptr.hpp>
 
 #include <mesos/executor.hpp>
 #include <mesos/scheduler.hpp>
