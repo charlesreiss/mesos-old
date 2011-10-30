@@ -232,7 +232,7 @@ ACTION_P(SendStatusUpdate, state)
     int sleeps = 0;                                                     \
     do {                                                                \
       __sync_synchronize();                                             \
-      if (trigger.value)                                                \
+      if ((trigger).value)                                                \
         break;                                                          \
       usleep(10);                                                       \
       if (sleeps++ >= 200000) {                                         \
