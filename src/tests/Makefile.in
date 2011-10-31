@@ -150,7 +150,8 @@ TESTS_OBJ = main.o utils.o master_tests.o resource_offers_tests.o	\
 	    zookeeper_server_tests.o zookeeper_tests.o			\
 	    url_processor_tests.o killtree_tests.o exception_tests.o    \
             slave_tests.o \
-	    master_allocator_tests.o
+	    master_allocator_tests.o \
+            norequest/usage_tracker_test.o
 
 ALLTESTS_EXE = $(BINDIR)/tests/all-tests
 
