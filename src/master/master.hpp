@@ -69,7 +69,7 @@ public:
 };
 
 
-class Master : public ProtobufProcess<Master>, AllocatorMasterInterface
+class Master : public ProtobufProcess<Master>, public AllocatorMasterInterface
 {
 public:
   Master(Allocator* _allocator);

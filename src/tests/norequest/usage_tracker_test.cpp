@@ -207,6 +207,10 @@ TEST_F(UsageTrackerTest, FrameworkAccountingTwoSlaves) {
             tracker->nextUsedForExecutor(slave("slave2"),
                                          framework("testFramework"),
                                          executor("testExecutor")));
+  EXPECT_EQ(Resources::parse("cpus:5.5:;mem:1024"),
+            tracker->gaurenteedForExecutor(slave("slave1"),
+                                           framework("testFramework"),
+                                           executor("testExecutor")));
 }
 
 TEST_F(UsageTrackerTest, RecordUsageIncomplete) {
