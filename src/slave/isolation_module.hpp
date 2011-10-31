@@ -53,7 +53,7 @@ public:
                               const FrameworkInfo& frameworkInfo,
                               const ExecutorInfo& executorInfo,
                               const std::string& directory,
-                              const Resources& resources) = 0;
+                              const ResourceHints& resources) = 0;
 
   // Terminate a framework's executor, if it is still running.
   // The executor is expected to be gone after this method exits.
@@ -64,7 +64,7 @@ public:
   // be called only after an executor for the framework is started.
   virtual void resourcesChanged(const FrameworkID& frameworkId,
                                 const ExecutorID& executorId,
-                                const Resources& resources) = 0;
+                                const ResourceHints& resources) = 0;
 
   // Sample the resource usage for a given executor. Should asynchronously
   // callback the slave.

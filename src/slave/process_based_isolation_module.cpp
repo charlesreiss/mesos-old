@@ -82,7 +82,7 @@ void ProcessBasedIsolationModule::launchExecutor(
     const FrameworkInfo& frameworkInfo,
     const ExecutorInfo& executorInfo,
     const string& directory,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   CHECK(initialized) << "Cannot launch executors before initialization!";
 
@@ -171,7 +171,7 @@ void ProcessBasedIsolationModule::killExecutor(
 void ProcessBasedIsolationModule::resourcesChanged(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   CHECK(initialized) << "Cannot do resourcesChanged before initialization!";
   // Do nothing; subclasses may override this.

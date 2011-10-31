@@ -451,7 +451,7 @@ void Slave::runTask(const FrameworkInfo& frameworkInfo,
       // Now update the resources.
       dispatch(isolationModule,
                &IsolationModule::resourcesChanged,
-               framework->id, executor->id, executor->resources);
+               framework->id, executor->id, executor->isolationResources());
     }
   } else {
     // Launch an executor for this task.
@@ -473,7 +473,7 @@ void Slave::runTask(const FrameworkInfo& frameworkInfo,
     dispatch(isolationModule,
              &IsolationModule::launchExecutor,
              framework->id, framework->info, executor->info,
-             directory, executor->resources);
+             directory, executor->isolationResources());
   }
 }
 
@@ -530,7 +530,7 @@ void Slave::killTask(const FrameworkID& frameworkId,
     // Tell the isolation module to update the resources.
     dispatch(isolationModule,
              &IsolationModule::resourcesChanged,
-             framework->id, executor->id, executor->resources);
+             framework->id, executor->id, executor->isolationResources());
 
     StatusUpdateMessage message;
     StatusUpdate* update = message.mutable_update();
@@ -750,7 +750,7 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
     // Now that the executor is up, set its resource limits.
     dispatch(isolationModule,
              &IsolationModule::resourcesChanged,
-             framework->id, executor->id, executor->resources);
+             framework->id, executor->id, executor->isolationResources());
 
     // Tell executor it's registered and give it any queued tasks.
     ExecutorRegisteredMessage message;
@@ -926,7 +926,7 @@ void Slave::statusUpdate(const StatusUpdate& update)
 
         dispatch(isolationModule,
                  &IsolationModule::resourcesChanged,
-                 framework->id, executor->id, executor->resources);
+                 framework->id, executor->id, executor->isolationResources());
       }
 
       // Send message and record the status for possible resending.

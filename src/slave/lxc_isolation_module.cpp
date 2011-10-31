@@ -107,7 +107,7 @@ void LxcIsolationModule::launchExecutor(
     const FrameworkInfo& frameworkInfo,
     const ExecutorInfo& executorInfo,
     const string& directory,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   CHECK(initialized) << "Cannot launch executors before initialization!";
 
@@ -271,7 +271,7 @@ void LxcIsolationModule::killExecutor(
 void LxcIsolationModule::resourcesChanged(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   CHECK(initialized) << "Cannot change resources before initialization!";
   if (!infos.contains(frameworkId) ||
@@ -294,7 +294,7 @@ void LxcIsolationModule::resourcesChanged(
   string property;
   uint64_t value;
 
-  double cpu = resources.get("cpu", Resource::Scalar()).value();
+  double cpu = resources.minResources.get("cpu", Resource::Scalar()).value();
   int32_t cpu_shares = max(CPU_SHARES_PER_CPU * (int32_t) cpu, MIN_CPU_SHARES);
 
   property = "cpu.shares";
@@ -306,10 +306,10 @@ void LxcIsolationModule::resourcesChanged(
     return;
   }
 
-  double mem = resources.get("mem", Resource::Scalar()).value();
+  double mem = resources.minResources.get("mem", Resource::Scalar()).value();
   int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
 
-  property = "memory.limit_in_bytes";
+  property = "memory.soft_limit_in_bytes";
   value = limit_in_bytes;
 
   if (!setControlGroupValue(container, property, value)) {
@@ -317,6 +317,9 @@ void LxcIsolationModule::resourcesChanged(
     // slave finds out about it exiting.
     return;
   }
+
+  // TODO(charles): We need to handle OOM better since setting the soft limit
+  //                surely isn't enough.
 }
 
 
@@ -371,13 +374,13 @@ bool LxcIsolationModule::setControlGroupValue(
 
 
 vector<string> LxcIsolationModule::getControlGroupOptions(
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   vector<string> options;
 
   std::ostringstream out;
 
-  double cpu = resources.get("cpu", Resource::Scalar()).value();
+  double cpu = resources.minResources.get("cpu", Resource::Scalar()).value();
   int32_t cpu_shares = max(CPU_SHARES_PER_CPU * (int32_t) cpu, MIN_CPU_SHARES);
 
   options.push_back("-s");
@@ -386,11 +389,11 @@ vector<string> LxcIsolationModule::getControlGroupOptions(
 
   out.str("");
 
-  double mem = resources.get("mem", Resource::Scalar()).value();
+  double mem = resources.minResources.get("mem", Resource::Scalar()).value();
   int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
 
   options.push_back("-s");
-  out << "lxc.cgroup.memory.limit_in_bytes=" << limit_in_bytes;
+  out << "lxc.cgroup.memory.soft_limit_in_bytes=" << limit_in_bytes;
   options.push_back(out.str());
 
   return options;

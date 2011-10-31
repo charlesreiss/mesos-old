@@ -271,6 +271,10 @@ struct Executor
   Resources resources; // Currently consumed resources.
   Resources minResources;
 
+  ResourceHints isolationResources() {
+    return ResourceHints(resources, minResources);
+  }
+
   hashmap<TaskID, TaskDescription> queuedTasks;
   hashmap<TaskID, Task*> launchedTasks;
 };

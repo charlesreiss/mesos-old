@@ -47,14 +47,14 @@ public:
                               const FrameworkInfo& frameworkInfo,
                               const ExecutorInfo& executorInfo,
                               const std::string& directory,
-                              const Resources& resources);
+                              const ResourceHints& _resources);
 
   virtual void killExecutor(const FrameworkID& frameworkId,
                             const ExecutorID& executorId);
 
   virtual void resourcesChanged(const FrameworkID& frameworkId,
                                 const ExecutorID& executorId,
-                                const Resources& resources);
+                                const ResourceHints& _resources);
 
   virtual void processExited(pid_t pid, int status);
 
@@ -69,7 +69,7 @@ private:
                             const std::string& property,
                             int64_t value);
 
-  std::vector<std::string> getControlGroupOptions(const Resources& resources);
+  std::vector<std::string> getControlGroupOptions(const ResourceHints& resources);
 
   // Per-framework information object maintained in info hashmap.
   struct ContainerInfo
