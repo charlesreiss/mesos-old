@@ -45,15 +45,18 @@ default: all
 src: third_party
 	$(MAKE) -C src
 
-third_party: setuptools
-	$(MAKE) -C $(LIBPROCESS)
-	$(MAKE) -C $(PROTOBUF)
-	$(MAKE) -C $(GLOG)
+@top_builddir@/$(LEVELDB)/libleveldb.a:
 ifneq (@top_srcdir@,@top_builddir@)
 	mkdir -p @top_builddir@/$(LEVELDB)
 	cp -r @top_srcdir@/$(LEVELDB) @top_builddir@/`dirname $(LEVELDB)`
 endif
 	$(MAKE) -C $(LEVELDB) CXX='@CXX@'
+	
+
+third_party: setuptools @top_builddir@/$(LEVELDB)/libleveldb.a
+	$(MAKE) -C $(LIBPROCESS)
+	$(MAKE) -C $(PROTOBUF)
+	$(MAKE) -C $(GLOG)
 ifeq ($(WITH_INCLUDED_ZOOKEEPER),1)
 	$(MAKE) -C $(ZOOKEEPER)
 endif
