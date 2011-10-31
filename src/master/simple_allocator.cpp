@@ -69,7 +69,7 @@ void SimpleAllocator::slaveAdded(Slave* slave)
   CHECK(initialized);
 
   LOG(INFO) << "Added slave " << slave->id
-            << " with " << slave->info.resources();
+            << " with " << Resources(slave->info.resources());
 
   totalResources += slave->info.resources();
   makeNewOffers(slave);

@@ -1615,7 +1615,7 @@ void Master::addSlave(Slave* slave, bool reregister)
 
   LOG(INFO) << "Adding slave " << slave->id
             << " at " << slave->info.hostname()
-            << " with " << slave->info.resources();
+            << " with " << Resources(slave->info.resources());
 
   slaves[slave->id] = slave;
 
