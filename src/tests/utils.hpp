@@ -121,6 +121,12 @@ public:
                                       const std::string&));
   MOCK_METHOD2(slaveLost, void(SchedulerDriver*, const SlaveID&));
   MOCK_METHOD3(error, void(SchedulerDriver*, int, const std::string&));
+  MOCK_METHOD0(allocatesMin, bool());
+
+  MockScheduler() {
+    ON_CALL(*this, allocatesMin())
+      .WillByDefault(testing::Return(false));
+  }
 };
 
 

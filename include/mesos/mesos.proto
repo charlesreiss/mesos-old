@@ -153,6 +153,8 @@ message FrameworkInfo {
   required string user = 1;
   required string name = 2;
   required ExecutorInfo executor = 3;
+
+  optional bool allocates_min = 4 [default = false];
 }
 
 

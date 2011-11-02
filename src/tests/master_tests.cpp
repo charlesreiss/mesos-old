@@ -72,6 +72,10 @@ using testing::SaveArg;
 
 class MasterSlaveTest : public testing::Test {
 protected:
+  MasterSlaveTest() {
+    useMockAllocator = false;
+  }
+
   void setupExecutors() {
     EXPECT_CALL(exec, init(_, _))
       .WillOnce(DoAll(SaveArg<0>(&execDriver), SaveArg<1>(&execArgs)));
@@ -86,15 +90,23 @@ protected:
   }
 
   void startMasterAndSlave() {
+    trigger gotSlave;
     ASSERT_TRUE(GTEST_IS_THREADSAFE);
-    if (!m.get()) {
-      m.reset(new Master(&allocator));
+    Allocator* allocPtr = &allocator;
+    if (useMockAllocator) {
+      allocPtr = &mockAllocator;
     }
+    m.reset(new Master(allocPtr));
     master = process::spawn(m.get());
     Resources resources = Resources::parse("cpus:2;mem:1024");
 
     if (!isolationModule.get()) {
       setupExecutors();
+    }
+
+    if (useMockAllocator) {
+      EXPECT_CALL(mockAllocator, slaveAdded(_)).
+        WillOnce(Trigger(&gotSlave));
     }
 
     s.reset(new Slave(resources, true, isolationModule.get()));
@@ -105,6 +117,21 @@ protected:
     schedDriver.reset(new MesosSchedulerDriver(&sched, "",
                                                DEFAULT_EXECUTOR_INFO,
                                                master));
+
+    if (useMockAllocator) {
+      WAIT_UNTIL(gotSlave);
+    }
+  }
+
+  void dispatchMakeOffer() {
+    hashmap<master::Slave*, ResourceHints> offers;
+    foreach (master::Slave* slave, m->getActiveSlaves()) {
+      offers[slave] = ResourceHints(slave->info.resources(),
+                                    slave->info.resources());
+    }
+    CHECK_NE(0, offers.size());
+    process::dispatch(master, &Master::makeOffers,
+        m->getActiveFrameworks()[0], offers);
   }
 
   void getOffers(vector<Offer>* offers) {
@@ -118,11 +145,18 @@ protected:
                       Trigger(&resourceOfferCall)))
       .WillRepeatedly(Return());
 
+    if (useMockAllocator) {
+      Offer fullOffer;
+      EXPECT_CALL(mockAllocator, frameworkAdded(_)).
+        WillOnce(testing::InvokeWithoutArgs(this,
+              &MasterSlaveTest::dispatchMakeOffer));
+    }
+
     schedDriver->start();
 
     WAIT_UNTIL(resourceOfferCall);
 
-    EXPECT_NE(0, offers->size());
+    ASSERT_NE(0, offers->size());
   }
 
   void launchTaskForOffer(const Offer& offer,
@@ -153,11 +187,17 @@ protected:
   }
 
   void stopScheduler() {
+    if (useMockAllocator) {
+      EXPECT_CALL(mockAllocator, frameworkRemoved(_)).Times(1);
+    }
     schedDriver->stop();
     schedDriver->join();
   }
 
   void stopMasterAndSlave() {
+    if (useMockAllocator) {
+      EXPECT_CALL(mockAllocator, slaveRemoved(_)).Times(1);
+    }
     LOG(INFO) << "Asking slave to terminate";
 
     process::post(slave, process::TERMINATE);
@@ -175,6 +215,8 @@ protected:
   }
 
   SimpleAllocator allocator;
+  MockAllocator mockAllocator;
+  bool useMockAllocator;
   scoped_ptr<Master> m;
   PID<Master> master;
   MockExecutor exec;
@@ -197,8 +239,40 @@ TEST_F(MasterSlaveTest, TaskRunning)
   launchTaskForOffer(offers[0], "testTaskId");
   stopScheduler();
   stopMasterAndSlave();
+  ASSERT_TRUE(isolationModule->launchedResources.isSome());
+  // FIXME TODO(charles): is this the behavior we want?
+  EXPECT_EQ(ResourceHints(), isolationModule->launchedResources.get());
 }
 
+TEST_F(MasterSlaveTest, AllocateMinimumIfMarked)
+{
+  useMockAllocator = true;
+  EXPECT_CALL(sched, allocatesMin()).
+    WillRepeatedly(testing::Return(true));
+  startMasterAndSlave();
+  vector<Offer> offers;
+  getOffers(&offers);
+  launchTaskForOffer(offers[0], "testTaskId");
+  stopScheduler();
+  stopMasterAndSlave();
+  ASSERT_TRUE(isolationModule->launchedResources.isSome());
+  EXPECT_EQ(ResourceHints(Resources::parse(""),
+                          Resources::parse("cpus:2;mem:1024")),
+      isolationModule->launchedResources.get());
+}
+
+TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered) {
+  FAIL() << "unimplemented test";
+  useMockAllocator = true;
+  EXPECT_CALL(sched, allocatesMin()).
+    WillRepeatedly(testing::Return(true));
+  startMasterAndSlave();
+  vector<Offer> offers;
+  getOffers(&offers);
+  offers[0].mutable_resources()->MergeFrom(
+      Resources::parse("cpus:4;mem:4096"));
+  launchTaskForOffer(offers[0], "testTaskId");
+}
 
 TEST_F(MasterSlaveTest, KillTask)
 {

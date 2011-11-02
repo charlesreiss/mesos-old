@@ -1162,12 +1162,8 @@ void Master::makeOffers(Framework* framework,
     offer->mutable_framework_id()->MergeFrom(framework->id);
     offer->mutable_slave_id()->MergeFrom(slave->id);
     offer->set_hostname(slave->info.hostname());
-    if (framework->info.allocates_min()) {
-      offer->mutable_resources()->MergeFrom(offerRes.expectedResources);
-    } else {
-      offer->mutable_resources()->MergeFrom(offerRes.expectedResources);
-      offer->mutable_min_resources()->MergeFrom(offerRes.minResources);
-    }
+    offer->mutable_resources()->MergeFrom(offerRes.expectedResources);
+    offer->mutable_min_resources()->MergeFrom(offerRes.minResources);
 
     // Add all framework's executors running on this slave.
     if (slave->executors.contains(framework->id)) {
@@ -1184,7 +1180,13 @@ void Master::makeOffers(Framework* framework,
     slave->addOffer(offer);
 
     // Add the offer *AND* the corresponding slave's PID.
-    message.add_offers()->MergeFrom(*offer);
+    Offer* messageOffer = message.add_offers();
+    messageOffer->MergeFrom(*offer);
+    if (framework->info.allocates_min()) {
+      messageOffer->clear_resources();
+      messageOffer->clear_min_resources();
+      messageOffer->mutable_resources()->MergeFrom(offerRes.minResources);
+    }
     message.add_pids(slave->pid);
   }
 
@@ -1362,6 +1364,20 @@ void Master::processTasks(Offer* offer,
                           const Filters& filters)
 {
   ResourceHints usedResources; // Accumulated resources used from this offer.
+
+  vector<TaskDescription> tasks = _tasks;
+  if (framework->info.allocates_min()) {
+    foreach (TaskDescription& task, tasks) {
+      if (0 != task.min_resources_size()) {
+        LOG(ERROR) << "Framework " << framework->id
+                   << " requested min resources but it is allocates_min";
+      }
+      task.mutable_min_resources()->MergeFrom(task.resources());
+      task.clear_resources();
+    }
+  }
+
+  LOG(INFO) << "processing " << tasks.size() << " tasks";
 
   // Create task visitors.
   list<TaskDescriptionVisitor*> visitors;

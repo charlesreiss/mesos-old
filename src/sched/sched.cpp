@@ -700,6 +700,7 @@ Status MesosSchedulerDriver::start()
   framework.set_user(utils::os::user());
   framework.set_name(frameworkName);
   framework.mutable_executor()->MergeFrom(executorInfo);
+  framework.set_allocates_min(sched->allocatesMin());
 
   CHECK(process == NULL);
 

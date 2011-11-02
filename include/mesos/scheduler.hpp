@@ -70,6 +70,10 @@ public:
   virtual void error(SchedulerDriver* driver,
                      int code,
                      const std::string& message) = 0;
+
+  virtual bool allocatesMin() {
+    return false;
+ }
 };
 
 
