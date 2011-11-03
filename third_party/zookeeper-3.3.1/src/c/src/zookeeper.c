@@ -452,7 +452,7 @@ int getaddrs(zhandle_t *zh)
     while(host) {
         char *port_spec = strrchr(host, ':');
         char *end_port_spec;
-        int port;
+        int port __attribute__((unused));
         if (!port_spec) {
             LOG_ERROR(("no port in %s", host));
             errno=EINVAL;

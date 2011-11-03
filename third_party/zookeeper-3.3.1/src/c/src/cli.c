@@ -562,7 +562,7 @@ int main(int argc, char **argv) {
         int interest;
         int events;
         struct timeval tv;
-        int rc;
+        int rc __attribute__((unused));
         zookeeper_interest(zh, &fd, &interest, &tv);
         if (fd != -1) {
             if (interest&ZOOKEEPER_READ) {
