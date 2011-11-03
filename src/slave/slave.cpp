@@ -747,6 +747,13 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
     // Save the pid for the executor.
     executor->pid = from();
 
+    foreachvalue (const TaskDescription& task, executor->queuedTasks) {
+      // Add the task to the executor.
+      executor->addTask(task);
+
+      stats.tasks[TASK_STARTING]++;
+    }
+
     // Now that the executor is up, set its resource limits.
     dispatch(isolationModule,
              &IsolationModule::resourcesChanged,
@@ -765,11 +772,6 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
     LOG(INFO) << "Flushing queued tasks for framework " << framework->id;
 
     foreachvalue (const TaskDescription& task, executor->queuedTasks) {
-      // Add the task to the executor.
-      executor->addTask(task);
-
-      stats.tasks[TASK_STARTING]++;
-
       RunTaskMessage message;
       message.mutable_framework_id()->MergeFrom(framework->id);
       message.mutable_framework()->MergeFrom(framework->info);
