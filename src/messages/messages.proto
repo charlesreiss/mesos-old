@@ -217,7 +217,8 @@ message HeartbeatMessage {
 
 
 message UsageMessage {
-  required SlaveID slave_id = 1;
+  // optional because this can be left blank between isolation module and slave
+  optional SlaveID slave_id = 1;
   required FrameworkID framework_id = 2;
   required ExecutorID executor_id = 3;
   repeated Resource resources = 4;

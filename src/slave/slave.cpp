@@ -1430,4 +1430,10 @@ void Slave::queueUsageUpdates() {
   }
 }
 
+void Slave::sendUsageUpdate(const UsageMessage& _update) {
+  UsageMessage update = _update;
+  update.mutable_slave_id()->MergeFrom(id);
+  send(master, update);
+}
+
 }}} // namespace mesos { namespace internal { namespace slave {
