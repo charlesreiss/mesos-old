@@ -257,7 +257,7 @@ SCRIPT_FILES = $(BINDIR)/killtree.sh
 # Create rules for building the directories that aren't created
 # automagically by configure.
 OBJ_DIRECTORIES = common configurator detector exec launcher local log	\
-                  master messages sched slave zookeeper
+                  master messages sched slave zookeeper norequest
 
 WEBUI_DIRECTORIES = $(BINDIR)/webui/common $(BINDIR)/webui/master	\
                     $(BINDIR)/webui/slave $(BINDIR)/webui/static

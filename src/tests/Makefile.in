@@ -177,7 +177,9 @@ EXTERNAL_SCRIPTS =							\
 DIRECTORIES = $(BINDIR)/tests                                   \
 	      $(BINDIR)/tests/external/LxcIsolation		\
               $(BINDIR)/tests/external/SampleFrameworks         \
-              $(BINDIR)/tests/external/KillTree
+              $(BINDIR)/tests/external/KillTree 		\
+	      $(BINDIR)/tests/norequest				\
+	      norequest
 
 
 default: all
