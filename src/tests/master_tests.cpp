@@ -78,6 +78,7 @@ protected:
 
   void setupExecutors() {
     EXPECT_CALL(exec, init(_, _))
+      .Times(AtMost(1))
       .WillOnce(DoAll(SaveArg<0>(&execDriver), SaveArg<1>(&execArgs)));
 
     EXPECT_CALL(exec, shutdown(_))
@@ -160,13 +161,17 @@ protected:
   }
 
   void launchTaskForOffer(const Offer& offer,
-                          const std::string& taskId) {
+                          const std::string& taskId,
+                          bool expectLaunch = true,
+                          TaskState expectState = TASK_RUNNING) {
     trigger statusUpdateCall;
     TaskStatus status;
     EXPECT_CALL(sched, statusUpdate(schedDriver.get(), _))
       .WillOnce(DoAll(SaveArg<1>(&status), Trigger(&statusUpdateCall)));
-    EXPECT_CALL(exec, launchTask(_, _))
-      .WillOnce(SendStatusUpdate(TASK_RUNNING));
+    if (expectLaunch) {
+      EXPECT_CALL(exec, launchTask(_, _))
+        .WillOnce(SendStatusUpdate(expectState));
+    }
 
     TaskDescription task;
     task.set_name("");
@@ -181,9 +186,11 @@ protected:
 
     WAIT_UNTIL(statusUpdateCall);
 
-    EXPECT_EQ(TASK_RUNNING, status.state());
+    EXPECT_EQ(expectState, status.state());
 
-    ASSERT_TRUE(execDriver);
+    if (expectLaunch) {
+      ASSERT_TRUE(execDriver);
+    }
   }
 
   void stopScheduler() {
@@ -239,9 +246,9 @@ TEST_F(MasterSlaveTest, TaskRunning)
   launchTaskForOffer(offers[0], "testTaskId");
   stopScheduler();
   stopMasterAndSlave();
-  ASSERT_TRUE(isolationModule->launchedResources.isSome());
   // FIXME TODO(charles): is this the behavior we want?
-  EXPECT_EQ(ResourceHints(), isolationModule->launchedResources.get());
+  EXPECT_EQ(ResourceHints(),
+            isolationModule->lastResources[DEFAULT_EXECUTOR_ID]);
 }
 
 TEST_F(MasterSlaveTest, AllocateMinimumIfMarked)
@@ -255,23 +262,24 @@ TEST_F(MasterSlaveTest, AllocateMinimumIfMarked)
   launchTaskForOffer(offers[0], "testTaskId");
   stopScheduler();
   stopMasterAndSlave();
-  ASSERT_TRUE(isolationModule->launchedResources.isSome());
   EXPECT_EQ(ResourceHints(Resources::parse(""),
                           Resources::parse("cpus:2;mem:1024")),
-      isolationModule->launchedResources.get());
+      isolationModule->lastResources[DEFAULT_EXECUTOR_ID]);
 }
 
 TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered) {
-  FAIL() << "unimplemented test";
   useMockAllocator = true;
   EXPECT_CALL(sched, allocatesMin()).
     WillRepeatedly(testing::Return(true));
   startMasterAndSlave();
   vector<Offer> offers;
   getOffers(&offers);
+  offers[0].clear_resources();
   offers[0].mutable_resources()->MergeFrom(
       Resources::parse("cpus:4;mem:4096"));
-  launchTaskForOffer(offers[0], "testTaskId");
+  launchTaskForOffer(offers[0], "testTaskId", false, TASK_FAILED);
+  stopScheduler();
+  stopMasterAndSlave();
 }
 
 TEST_F(MasterSlaveTest, KillTask)
@@ -341,7 +349,6 @@ TEST_F(MasterSlaveTest, FrameworkMessage)
   stopScheduler();
   stopMasterAndSlave();
 }
-
 
 TEST_F(MasterSlaveTest, MultipleExecutors)
 {

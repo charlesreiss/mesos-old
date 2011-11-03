@@ -264,7 +264,6 @@ public:
                           const process::PID<slave::Slave>& _slave)
   {
     slave = _slave;
-    launchedResources = Option<ResourceHints>::none();
   }
 
   virtual void launchExecutor(const FrameworkID& frameworkId,
@@ -273,8 +272,7 @@ public:
                               const std::string& directory,
                               const ResourceHints& resources)
   {
-    LOG(INFO) << "setting launched resources to " << resources;
-    launchedResources = resources;
+    lastResources[executorInfo.executor_id()] = resources;
     if (executors.count(executorInfo.executor_id()) > 0) {
       Executor* executor = executors[executorInfo.executor_id()];
       MesosExecutorDriver* driver = new MesosExecutorDriver(executor);
@@ -317,11 +315,13 @@ public:
   virtual void resourcesChanged(const FrameworkID& frameworkId,
                                 const ExecutorID& executorId,
                                 const ResourceHints& resources)
-  {}
+  {
+    lastResources[executorId] = resources;
+  }
 
   std::map<ExecutorID, std::string> directories;
 
-  Option<ResourceHints> launchedResources;
+  std::map<ExecutorID, ResourceHints> lastResources;
 
 private:
   std::map<ExecutorID, Executor*> executors;
