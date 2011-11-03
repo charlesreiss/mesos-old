@@ -62,8 +62,7 @@ public:
   MockTestingIsolationModule(const std::map<ExecutorID, Executor*>& execs)
     : TestingIsolationModule(execs) {}
   MOCK_METHOD3(resourcesChanged, void(const FrameworkID&,
-        const ExecutorID&, const Resources&));
-  Resources use_resources;
+        const ExecutorID&, const ResourceHints&));
 };
 
 class SlaveTest : public ::testing::Test {
@@ -126,13 +125,25 @@ protected:
     master.send(slavePid, registered);
   }
 
+  void acknowledgeUpdate(const std::string& frameworkName,
+                   StatusUpdateMessage update) {
+    StatusUpdateAcknowledgementMessage ack;
+    ack.mutable_slave_id()->CopyFrom(getDefaultSlaveID());
+    ack.mutable_framework_id()->set_value("testFrameworkId");
+    ack.mutable_task_id()->set_value("testId-" + frameworkName);
+    ack.set_uuid(update.update().uuid());
+    master.send(slavePid, ack);
+  }
+
   void runTask(const std::string& frameworkName) {
     EXPECT_CALL(executor, init(_, _)).Times(1);
 
     EXPECT_CALL(executor, launchTask(_, _))
       .WillOnce(SendStatusUpdate(TASK_RUNNING));
 
-    EXPECT_CALL(*isolationModule, resourcesChanged(_, _, _)).Times(1);
+    trigger gotResourcesChanged;
+    EXPECT_CALL(*isolationModule, resourcesChanged(_, _, _)).
+      WillOnce(Trigger(&gotResourcesChanged));
 
     RunTaskMessage message;
     message.mutable_framework_id()->set_value(frameworkName);
@@ -140,19 +151,18 @@ protected:
     message.set_pid("testFrameworkPid");
     message.mutable_task()->CopyFrom(getDefaultTask(frameworkName));
 
-    StatusUpdateMessage update;
-    trigger gotUpdate;
-    master.expectAndStore(slavePid, &update, &gotUpdate);
+    StatusUpdateMessage updates[2];
+    trigger gotUpdates[2];
+    // TASK_STARTING
+    master.expectAndStore(slavePid, &updates[0], &gotUpdates[0]);
     master.send(slavePid, message);
+    WAIT_UNTIL(gotUpdates[0]);
+    master.expectAndStore(slavePid, &updates[1], &gotUpdates[1]);
+    acknowledgeUpdate(frameworkName, updates[0]);
+    WAIT_UNTIL(gotUpdates[1]);
+    acknowledgeUpdate(frameworkName, updates[1]);
 
-    WAIT_UNTIL(gotUpdate);
-
-    StatusUpdateAcknowledgementMessage ack;
-    ack.mutable_slave_id()->CopyFrom(getDefaultSlaveID());
-    ack.mutable_framework_id()->set_value("testFrameworkId");
-    ack.mutable_task_id()->set_value("testId-" + frameworkName);
-    ack.set_uuid(update.update().uuid());
-    master.send(slavePid, ack);
+    WAIT_UNTIL(gotResourcesChanged);
   }
 
   void shutdown() {
