@@ -1,5 +1,6 @@
 #include <limits.h>
-
+#include <stdio.h>
+#include <unistd.h>
 #include <iostream>
 #include <climits>
 #include <cstdio>
