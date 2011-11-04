@@ -15,7 +15,7 @@ const int MAX_OFFERS_PER_FRAMEWORK = 50;
 const double UNUSED_RESOURCES_TIMEOUT = 5.0;
 
 // Minimum number of cpus / task.
-const int32_t MIN_CPUS = 1;
+const double MIN_CPUS = 0.01;
 
 // Minimum amount of memory / task.
 const int32_t MIN_MEM = 32 * Megabyte;
