@@ -1913,6 +1913,7 @@ SlaveID Master::newSlaveId()
 
 
 void Master::updateUsage(const UsageMessage& message) {
+  LOG(INFO) << "Got usage message " << message.DebugString();
   Slave* slave = getSlave(message.slave_id());
   if (slave && slave->active) {
     slave->addUsageMessage(message);
