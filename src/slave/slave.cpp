@@ -287,6 +287,7 @@ void Slave::operator () ()
   dispatch(isolationModule,
            &IsolationModule::initialize,
            conf, local, self());
+  delay(1.0, self(), &Slave::queueUsageUpdates);
 
   while (true) {
     serve(1);
@@ -1428,6 +1429,7 @@ void Slave::queueUsageUpdates() {
       isolationModule->sampleUsage(frameworkId, executorId);
     }
   }
+  delay(1.0, self(), &Slave::queueUsageUpdates);
 }
 
 void Slave::sendUsageUpdate(const UsageMessage& _update) {
