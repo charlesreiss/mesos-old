@@ -1495,12 +1495,12 @@ ResourceHints Master::launchTask(const TaskDescription& task,
     slave->addExecutor(framework->id, executorInfo);
     framework->addExecutor(slave->id, executorInfo);
     resources += executorInfo.resources();
-    minResources += t->min_resources();
   }
 
   slave->addTask(t);
 
   resources += task.resources();
+  minResources += t->min_resources();
 
   LOG(INFO) << "Launching task " << task.task_id()
             << " on slave " << slave->id;
