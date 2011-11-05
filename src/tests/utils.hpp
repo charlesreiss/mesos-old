@@ -163,6 +163,13 @@ public:
                                         const ResourceHints&));
   MOCK_METHOD1(offersRevived, void(master::Framework*));
   MOCK_METHOD0(timerTick, void());
+
+  MOCK_METHOD1(taskAdded, void(Task*));
+  MOCK_METHOD1(taskRemoved, void(Task*));
+  MOCK_METHOD3(executorAdded, void(const FrameworkID&, const SlaveID&,
+                                   const ExecutorInfo&));
+  MOCK_METHOD3(executorRemoved, void(const FrameworkID&, const SlaveID&,
+                                     const ExecutorInfo&));
 };
 
 

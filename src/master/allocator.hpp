@@ -74,6 +74,13 @@ public:
   // TODO(charles): do we need these?
   virtual void taskAdded(Task* task) {}
   virtual void taskRemoved(Task* task) {}
+  // Because executors have usage, too
+  virtual void executorAdded(const FrameworkID& frameworkId,
+                             const SlaveID& slaveId,
+                             const ExecutorInfo& executorInfo) {}
+  virtual void executorRemoved(const FrameworkID& frameworkId,
+                               const SlaveID& slaveId,
+                               const ExecutorInfo& executorInfo) {}
 
   // Whenever a framework that has filtered resources want's to revive
   // offers for those resources the master invokes this callback.

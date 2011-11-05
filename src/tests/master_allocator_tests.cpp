@@ -49,6 +49,10 @@ MATCHER_P2(WithResourceHints, resources, minResources, "") {
           testing::Matcher<Resources>(minResources).Matches(arg.minResources));
 }
 
+MATCHER_P(EqProto, otherProto, "") {
+  return arg.SerializeAsString() == otherProto.SerializeAsString();
+}
+
 class MasterAllocatorTest : public testing::Test {
 protected:
   void SetUp()
@@ -132,6 +136,7 @@ protected:
     slave->send(masterPid, registerMessage);
     WAIT_UNTIL(doneRegister);
     WAIT_UNTIL(slaveAdded);
+    slaveId.MergeFrom(registeredMessage.slave_id());
     CHECK_GT(master->getActiveSlaves().size(), 0);
   }
 
@@ -148,10 +153,36 @@ protected:
     RegisterFrameworkMessage registerMessage;
     registerMessage.mutable_framework()->MergeFrom(frameworkInfo);
     trigger doneRegister;
-    framework->expectAndWait<FrameworkRegisteredMessage>(
-        masterPid, &doneRegister);
+    FrameworkRegisteredMessage registeredMessage;
+    framework->expectAndStore<FrameworkRegisteredMessage>(
+        masterPid, &registeredMessage, &doneRegister);
     framework->send(masterPid, registerMessage);
     WAIT_UNTIL(doneRegister);
+    frameworkId.MergeFrom(registeredMessage.framework_id());
+  }
+
+  void unregisterFramework()
+  {
+    EXPECT_CALL(allocator, frameworkRemoved(_)).Times(1);
+    UnregisterFrameworkMessage unregisterMessage;
+    unregisterMessage.mutable_framework_id()->MergeFrom(frameworkId);
+    framework->send(masterPid, unregisterMessage);
+    process::terminate(frameworkPid);
+    process::wait(frameworkPid);
+    framework.reset(0);
+    frameworkPid = PID<FakeProtobufProcess>();
+  }
+
+  void unregisterSlave()
+  {
+    EXPECT_CALL(allocator, slaveRemoved(_)).Times(1);
+    UnregisterSlaveMessage unregisterMessage;
+    unregisterMessage.mutable_slave_id()->MergeFrom(slaveId);
+    slave->send(masterPid, unregisterMessage);
+    process::terminate(slavePid);
+    process::wait(slavePid);
+    slave.reset(0);
+    slavePid = PID<FakeProtobufProcess>();
   }
 
   void makeFullOffer(Offer* offer)
@@ -230,6 +261,8 @@ protected:
   PID<FakeProtobufProcess> frameworkPid;
   scoped_ptr<Master> master;
   PID<Master> masterPid;
+  FrameworkID frameworkId;
+  SlaveID slaveId;
 };
 
 TEST_F(MasterAllocatorTest, ReturnOffer) {
@@ -261,6 +294,8 @@ TEST_F(MasterAllocatorTest, ReturnOfferMinOnly) {
                   Resources::parse("cpus:0;mem:0"),
                   Resources::parse("cpus:32;mem:1024")))).
     WillOnce(Trigger(&gotResourcesUnused));
+  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   vector<TaskDescription> tasks;
   addTask(theOffer, theOffer.resources(), Resources(), "taskId", &tasks);
   launchTasks(theOffer, tasks);
@@ -286,6 +321,8 @@ TEST_F(MasterAllocatorTest, KillTask) {
   registerFramework();
   makeFullOffer(&theOffer);
   vector<TaskDescription> tasks;
+  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
@@ -295,8 +332,51 @@ TEST_F(MasterAllocatorTest, KillTask) {
                   Resources(theOffer.resources()),
                   Resources(theOffer.min_resources())))).
     WillOnce(Trigger(&gotReturned));
+  EXPECT_CALL(allocator, taskRemoved(_));
+  EXPECT_CALL(allocator, executorRemoved(_, _,
+                                         EqProto(DEFAULT_EXECUTOR_INFO)));
   sendTaskUpdate(theOffer, tasks[0], TASK_KILLED);
   WAIT_UNTIL(gotReturned);
+}
+
+TEST_F(MasterAllocatorTest, UnregisterFramework) {
+  detectMaster();
+  Offer theOffer;
+  registerSlave();
+  registerFramework();
+  makeFullOffer(&theOffer);
+  vector<TaskDescription> tasks;
+  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
+  addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
+          "taskId", &tasks);
+  launchTasks(theOffer, tasks);
+  EXPECT_CALL(allocator, taskRemoved(_));
+  EXPECT_CALL(allocator, executorRemoved(_, _,
+                                         EqProto(DEFAULT_EXECUTOR_INFO)));
+  unregisterFramework();
+}
+
+TEST_F(MasterAllocatorTest, UnregisterSlave) {
+  detectMaster();
+  Offer theOffer;
+  registerSlave();
+  registerFramework();
+  makeFullOffer(&theOffer);
+  vector<TaskDescription> tasks;
+  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
+  addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
+          "taskId", &tasks);
+  launchTasks(theOffer, tasks);
+  EXPECT_CALL(allocator, taskRemoved(_));
+  EXPECT_CALL(allocator, executorRemoved(_, _,
+                                         EqProto(DEFAULT_EXECUTOR_INFO)));
+  unregisterSlave();
+}
+
+TEST_F(MasterAllocatorTest, ExitedExecutor) {
+  FAIL() << "unimplemented test";
 }
 
 }}} // namespace mesos { namespace internal { namespace test {
