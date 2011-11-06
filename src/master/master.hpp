@@ -181,6 +181,11 @@ protected:
   // Remove an offer and optionally rescind the offer as well.
   void removeOffer(Offer* offer, bool rescind = false);
 
+  void addExecutor(const FrameworkID& frameworkId, const SlaveID& slaveId,
+                   const ExecutorInfo& info);
+  void removeExecutor(Slave* slave, Framework* framework,
+                      const ExecutorInfo& info);
+
   Framework* getFramework(const FrameworkID& frameworkId);
   Slave* getSlave(const SlaveID& slaveId);
   Offer* getOffer(const OfferID& offerId);

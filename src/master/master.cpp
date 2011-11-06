@@ -608,12 +608,10 @@ void Master::reregisterFramework(const FrameworkID& frameworkId,
         if (framework->id == task->framework_id()) {
           framework->addTask(task);
           // Also add the task's executor for resource accounting.
-          if (!framework->hasExecutor(slave->id, task->executor_id())) {
-            CHECK(slave->hasExecutor(framework->id, task->executor_id()));
-            const ExecutorInfo& executorInfo =
-              slave->executors[framework->id][task->executor_id()];
-            framework->addExecutor(slave->id, executorInfo);
-          }
+          CHECK(slave->hasExecutor(framework->id, task->executor_id()));
+          const ExecutorInfo& info = slave->executors[framework->id][
+            task->executor_id()];
+          addExecutor(framework->id, slave->id, info);
         }
       }
     }
@@ -1043,8 +1041,8 @@ void Master::exitedExecutor(const SlaveID& slaveId,
       }
 
       // Remove executor from slave.
-      slave->removeExecutor(frameworkId, executorId);
-      framework->removeExecutor(slave->id, executorId);
+      removeExecutor(slave, framework,
+                     slave->executors[frameworkId][executorId]);
 
       // TODO(benh): Send the framework it's executor's exit status?
       // Or maybe at least have something like
@@ -1491,9 +1489,7 @@ ResourceHints Master::launchTask(const TaskDescription& task,
 
   // TODO(benh): Refactor this code into Slave::addTask.
   if (!slave->hasExecutor(framework->id, executorInfo.executor_id())) {
-    CHECK(!framework->hasExecutor(slave->id, executorInfo.executor_id()));
-    slave->addExecutor(framework->id, executorInfo);
-    framework->addExecutor(slave->id, executorInfo);
+    addExecutor(framework->id, slave->id, executorInfo);
     resources += executorInfo.resources();
   }
 
@@ -1606,11 +1602,13 @@ void Master::removeFramework(Framework* framework)
   }
 
   // Remove the framework's executors for correct resource accounting.
-  foreachkey (const SlaveID& slaveId, framework->executors) {
+  hashmap<SlaveID, hashmap<ExecutorID, ExecutorInfo> > executors;
+  swap(executors, framework->executors);
+  foreachkey (const SlaveID& slaveId, executors) {
     Slave* slave = getSlave(slaveId);
     if (slave != NULL) {
-      foreachkey (const ExecutorID& executorId, framework->executors[slaveId]) {
-        slave->removeExecutor(framework->id, executorId);
+      foreachvalue (const ExecutorInfo& executorInfo, executors[slaveId]) {
+        removeExecutor(slave, framework, executorInfo);
       }
     }
   }
@@ -1677,16 +1675,7 @@ void Master::readdSlave(Slave* slave,
     // Find the executor running this task and add it to the slave.
     foreach (const ExecutorInfo& executorInfo, executorInfos) {
       if (executorInfo.executor_id() == task.executor_id()) {
-	if (!slave->hasExecutor(task.framework_id(), task.executor_id())) {
-	  slave->addExecutor(task.framework_id(), executorInfo);
-	}
-
-        // Also add it to the framework if it has re-registered with us.
-        Framework* framework = getFramework(task.framework_id());
-        if (framework != NULL) {
-          CHECK(!framework->hasExecutor(slave->id, task.executor_id()));
-          framework->addExecutor(slave->id, executorInfo);
-        }
+        addExecutor(task.framework_id(), task.slave_id(),  executorInfo);
 	break;
       }
     }
@@ -1760,11 +1749,13 @@ void Master::removeSlave(Slave* slave)
   }
 
   // Remove executors from the slave for proper resource accounting.
-  foreachkey (const FrameworkID& frameworkId, slave->executors) {
+  hashmap<FrameworkID, hashmap<ExecutorID, ExecutorInfo> > executors;
+  swap(executors, slave->executors);
+  foreachkey (const FrameworkID& frameworkId, executors) {
     Framework* framework = getFramework(frameworkId);
     if (framework != NULL) {
-      foreachkey (const ExecutorID& executorId, slave->executors[frameworkId]) {
-        framework->removeExecutor(slave->id, executorId);
+      foreachvalue (const ExecutorInfo& executorInfo, executors[frameworkId]) {
+        removeExecutor(slave, framework, executorInfo);
       }
     }
   }
@@ -1824,6 +1815,36 @@ void Master::removeTask(Task* task)
   delete task;
 }
 
+void Master::addExecutor(const FrameworkID& frameworkId,
+                         const SlaveID& slaveId,
+                         const ExecutorInfo& info) {
+  bool hadSlave = false;
+  bool hadFramework = false;
+  Slave* slave = getSlave(slaveId);
+  if (slave) {
+    hadSlave = slave->hasExecutor(frameworkId, info.executor_id());
+    if (!hadSlave) {
+      slave->addExecutor(frameworkId, info);
+    }
+  }
+  Framework* framework = getFramework(frameworkId);
+  if (framework) {
+    hadFramework = framework->hasExecutor(slaveId, info.executor_id());
+    if (!hadFramework) {
+      framework->addExecutor(slave->id, info);
+    }
+  }
+  if (!hadSlave && !hadFramework) {
+    allocator->executorAdded(framework->id, slave->id, info);
+  }
+}
+
+void Master::removeExecutor(Slave* slave, Framework* framework,
+                            const ExecutorInfo& info) {
+  framework->removeExecutor(slave->id, info.executor_id());
+  slave->removeExecutor(framework->id, info.executor_id());
+  allocator->executorRemoved(framework->id, slave->id, info);
+}
 
 void Master::removeOffer(Offer* offer, bool rescind)
 {

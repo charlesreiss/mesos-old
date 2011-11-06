@@ -166,6 +166,7 @@ protected:
     EXPECT_CALL(allocator, frameworkRemoved(_)).Times(1);
     UnregisterFrameworkMessage unregisterMessage;
     unregisterMessage.mutable_framework_id()->MergeFrom(frameworkId);
+    slave->expect<ShutdownFrameworkMessage>();
     framework->send(masterPid, unregisterMessage);
     process::terminate(frameworkPid);
     process::wait(frameworkPid);
@@ -253,6 +254,20 @@ protected:
     WAIT_UNTIL(frameworkGotUpdate);
   }
 
+  void sendExecutorExited(int status) {
+    trigger gotRemoved;
+    EXPECT_CALL(allocator,
+                executorRemoved(_, _, EqProto(DEFAULT_EXECUTOR_INFO))).
+      WillOnce(Trigger(&gotRemoved));
+    ExitedExecutorMessage exitedMessage;
+    exitedMessage.mutable_slave_id()->MergeFrom(slaveId);
+    exitedMessage.mutable_framework_id()->MergeFrom(frameworkId);
+    exitedMessage.mutable_executor_id()->MergeFrom(DEFAULT_EXECUTOR_ID);
+    exitedMessage.set_status(status);
+    slave->send(masterPid, exitedMessage);
+    WAIT_UNTIL(gotRemoved);
+  }
+
   MockFilter filter;
   MockAllocator allocator;
   scoped_ptr<FakeProtobufProcess> slave;
@@ -333,8 +348,6 @@ TEST_F(MasterAllocatorTest, KillTask) {
                   Resources(theOffer.min_resources())))).
     WillOnce(Trigger(&gotReturned));
   EXPECT_CALL(allocator, taskRemoved(_));
-  EXPECT_CALL(allocator, executorRemoved(_, _,
-                                         EqProto(DEFAULT_EXECUTOR_INFO)));
   sendTaskUpdate(theOffer, tasks[0], TASK_KILLED);
   WAIT_UNTIL(gotReturned);
 }
@@ -354,6 +367,7 @@ TEST_F(MasterAllocatorTest, UnregisterFramework) {
   EXPECT_CALL(allocator, taskRemoved(_));
   EXPECT_CALL(allocator, executorRemoved(_, _,
                                          EqProto(DEFAULT_EXECUTOR_INFO)));
+  EXPECT_CALL(allocator, resourcesRecovered(_, _, _));
   unregisterFramework();
 }
 
@@ -372,11 +386,26 @@ TEST_F(MasterAllocatorTest, UnregisterSlave) {
   EXPECT_CALL(allocator, taskRemoved(_));
   EXPECT_CALL(allocator, executorRemoved(_, _,
                                          EqProto(DEFAULT_EXECUTOR_INFO)));
+  framework->expect<StatusUpdateMessage>();
+  framework->expect<LostSlaveMessage>();
   unregisterSlave();
 }
 
 TEST_F(MasterAllocatorTest, ExitedExecutor) {
-  FAIL() << "unimplemented test";
+  detectMaster();
+  Offer theOffer;
+  registerSlave();
+  registerFramework();
+  makeFullOffer(&theOffer);
+  vector<TaskDescription> tasks;
+  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
+  addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
+          "taskId", &tasks);
+  launchTasks(theOffer, tasks);
+  EXPECT_CALL(allocator, taskRemoved(_));
+  framework->expect<StatusUpdateMessage>();
+  sendExecutorExited(1);
 }
 
 }}} // namespace mesos { namespace internal { namespace test {
