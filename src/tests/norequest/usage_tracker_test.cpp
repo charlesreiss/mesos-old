@@ -26,6 +26,7 @@ using namespace mesos::internal;
 using namespace mesos::internal::norequest;
 
 const double kStartTime = 100.0;
+const Resources kDefaultSlaveResources(Resources::parse("cpus:32;mem:4096"));
 
 TEST(MaxResourcesTest, MaxSimple) {
   EXPECT_EQ(Resources::parse("mem:2000;cpus:12.5"),
@@ -70,20 +71,20 @@ protected:
   }
 
   void placeSimple(const std::string& frameworkId, const std::string& slaveId,
-      Resources min, Resources estimated) {
+      Resources min, Option<Resources> estimated, int tasks = 1) {
     tracker->placeUsage(framework(frameworkId), executor("testExecutor"),
-        slave(slaveId), min, estimated, 1);
+        slave(slaveId), min, estimated, tasks);
   }
 
   void removeTaskSimple(const std::string& frameworkId,
-                        const std::string& slaveId) {
+                        const std::string& slaveId,
+                        int tasksLeft = 0) {
     tracker->placeUsage(framework(frameworkId), executor("testExecutor"),
-        slave(slaveId), Resources(), Resources(), 0);
+        slave(slaveId), Resources(), Resources(), tasksLeft);
   }
 
   void setupSlave(const std::string& slaveId) {
-    tracker->setCapacity(slave(slaveId),
-        Resources::parse("cpus:32.0;mem:4096"));
+    tracker->setCapacity(slave(slaveId), kDefaultSlaveResources);
   }
 
   UsageMessage getUpdate(const std::string& slaveId,
@@ -221,4 +222,77 @@ TEST_F(UsageTrackerTest, RecordUsageIncomplete) {
                     Resources::parse("mem:768"));
   EXPECT_EQ(Resources::parse("cpus:1.0;mem:768"),
             tracker->nextUsedForFramework(framework("testFramework")));
+}
+
+// TODO(charles): do we need to make this prediction mode configurable?
+TEST_F(UsageTrackerTest, ReduceTasksFreesUsage) {
+  setupSlave("slave1");
+  placeSimple("testFramework", "slave1", Resources(),
+      Resources::parse("cpus:1.0;mem:1024"), 2);
+  recordUsageSimple("slave1", "testFramework", 0.1,
+                    Resources::parse("cpus:3.0;mem:768"));
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 1);
+  EXPECT_EQ(Resources::parse("cpus:1.5;mem:384"),
+            tracker->nextUsedForFramework(framework("testFramework")));
+  EXPECT_EQ(kDefaultSlaveResources - Resources::parse("cpus:1.5;mem:384"),
+            tracker->freeForSlave(slave("slave1")));
+}
+
+TEST_F(UsageTrackerTest, ReduceTaskFreesUsageZeroBase) {
+  setupSlave("slave1");
+  placeSimple("testFramework", "slave1", Resources(),
+      Resources::parse("cpus:1.0;mem:1024"), 2);
+  recordUsageSimple("slave1", "testFramework", 0.1,
+                    Resources::parse("cpus:3.0;mem:768"));
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 0);
+  recordUsageSimple("slave1", "testFramework", 0.2,
+                    Resources::parse("cpus:0.0;mem:256"));
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 1);
+  recordUsageSimple("slave1", "testFramework", 0.3,
+                    Resources::parse("cpus:4.0;mem:512"));
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 0);
+  EXPECT_EQ(Resources::parse("cpus:0.0;mem:256"),
+            tracker->nextUsedForFramework(framework("testFramework")));
+  EXPECT_EQ(kDefaultSlaveResources - Resources::parse("cpus:0.0;mem:256"),
+            tracker->freeForSlave(slave("slave1")));
+
+}
+
+TEST_F(UsageTrackerTest, AddTasksUsesPredictionNoZero) {
+  setupSlave("slave1");
+  placeSimple("testFramework", "slave1", Resources(),
+      Resources::parse("cpus:1.0;mem:1024"), 2);
+  recordUsageSimple("slave1", "testFramework", 0.1,
+                    Resources::parse("cpus:3.0;mem:768"));
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 0);
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 4);
+  EXPECT_EQ(Resources::parse("cpus:6.0;mem:1536"),
+            tracker->nextUsedForFramework(framework("testFramework")));
+  EXPECT_EQ(kDefaultSlaveResources - Resources::parse("cpus:6.0;mem:1536"),
+            tracker->freeForSlave(slave("slave1")));
+}
+
+TEST_F(UsageTrackerTest, AddTasksUsesPredictionZeroBase) {
+  setupSlave("slave1");
+  placeSimple("testFramework", "slave1", Resources(),
+      Resources::parse("cpus:1.0;mem:1024"), 2);
+  recordUsageSimple("slave1", "testFramework", 0.1,
+                    Resources::parse("cpus:3.0;mem:768"));
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 0);
+  // TODO(charles): will we actually get cpus:0 or just no cpu field?
+  recordUsageSimple("slave1", "testFramework", 0.2,
+                    Resources::parse("cpus:0.0;mem:256"));
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 4);
+  EXPECT_EQ(Resources::parse("cpus:6.0;mem:1280"),
+            tracker->nextUsedForFramework(framework("testFramework")));
+  EXPECT_EQ(kDefaultSlaveResources - Resources::parse("cpus:6.0;mem:1280"),
+            tracker->freeForSlave(slave("slave1")));
 }
