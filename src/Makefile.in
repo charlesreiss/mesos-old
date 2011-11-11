@@ -121,7 +121,8 @@ MASTER_OBJ = master/master.o master/http.o master/slaves_manager.o	\
 	     master/frameworks_manager.o master/allocator_factory.o	\
 	     master/simple_allocator.o
 
-MASTER_OBJ += norequest/usage_tracker.o norequest/allocator.o
+MASTER_OBJ += norequest/usage_tracker.o norequest/allocator.o \
+	      norequest/usage_tracker_impl.o
 
 SLAVE_OBJ = slave/slave.o slave/http.o slave/isolation_module.o		\
 	    slave/process_based_isolation_module.o slave/reaper.o	\

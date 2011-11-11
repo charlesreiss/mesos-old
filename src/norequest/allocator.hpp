@@ -41,7 +41,7 @@ using master::Slave;
 class NoRequestAllocator : public Allocator {
 public:
   NoRequestAllocator() :
-    dontMakeOffers(false), tracker(new UsageTrackerImpl), master(0) { }
+    dontMakeOffers(false), tracker(getUsageTracker()), master(0) { }
   NoRequestAllocator(AllocatorMasterInterface* _master,
                      UsageTracker* _tracker) :
     dontMakeOffers(false), tracker(_tracker), master(_master) { }

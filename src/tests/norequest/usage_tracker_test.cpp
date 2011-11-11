@@ -28,16 +28,10 @@ using namespace mesos::internal::norequest;
 const double kStartTime = 100.0;
 const Resources kDefaultSlaveResources(Resources::parse("cpus:32;mem:4096"));
 
-TEST(MaxResourcesTest, MaxSimple) {
-  EXPECT_EQ(Resources::parse("mem:2000;cpus:12.5"),
-            maxResources(Resources::parse("mem:1000;cpus:12.5"),
-                         Resources::parse("mem:2000;cpus:6.3")));
-}
-
 class UsageTrackerTest : public ::testing::Test {
 protected:
   void SetUp() {
-    tracker.reset(new UsageTrackerImpl);
+    tracker.reset(getUsageTracker());
     tracker->timerTick(kStartTime);
   }
   void TearDown() {
@@ -61,13 +55,6 @@ protected:
     SlaveID slave_id;
     slave_id.set_value(id);
     return slave_id;
-  }
-
-  ResourceEstimates usageForFramework(const std::string& id) {
-    hashmap<FrameworkID, ResourceEstimates> usage =
-      tracker->usageByFramework();
-    EXPECT_EQ(1, usage.count(framework(id)));
-    return usage[framework(id)];
   }
 
   void placeSimple(const std::string& frameworkId, const std::string& slaveId,
@@ -112,15 +99,14 @@ TEST_F(UsageTrackerTest, PlaceUsageOnce) {
   placeSimple("testFramework", "testSlave",
       Resources::parse("cpus:5.5;mem:1024"),
       Resources::parse("cpus:15.0;mem:512"));
-  ResourceEstimates initialEstimates = usageForFramework("testFramework");
-  EXPECT_EQ(initialEstimates.nextUsedResources,
+  EXPECT_EQ(tracker->nextUsedForFramework(framework("testFramework")),
       Resources::parse("cpus:15.0;mem:512"));
-  EXPECT_EQ(initialEstimates.chargedResources,
+  EXPECT_EQ(tracker->chargeForFramework(framework("testFramework")),
       Resources::parse("cpus:5.5;mem:1024"));
-  EXPECT_EQ(initialEstimates.usedResources, Resources::parse(""));
-  EXPECT_EQ(initialEstimates.minResources,
+  EXPECT_EQ(tracker->usedForFramework(framework("testFramework")),
+      Resources::parse(""));
+  EXPECT_EQ(tracker->gaurenteedForFramework(framework("testFramework")),
       Resources::parse("cpus:5.5;mem:1024"));
-  EXPECT_EQ(initialEstimates.estimateTime, kStartTime);
 }
 
 TEST_F(UsageTrackerTest, ForgetPlaced) {
@@ -132,7 +118,8 @@ TEST_F(UsageTrackerTest, ForgetPlaced) {
   tracker->timerTick(kStartTime + 2.0);
   tracker->timerTick(kStartTime + 3.0);
   tracker->timerTick(kStartTime + 4.0);
-  EXPECT_EQ(0, tracker->usageByFramework().count(framework("testFramework")));
+  EXPECT_EQ(Resources::parse(""),
+      tracker->gaurenteedForFramework(framework("testFramework")));
 }
 
 TEST_F(UsageTrackerTest, FreeBySlaveSimple) {
@@ -263,6 +250,20 @@ TEST_F(UsageTrackerTest, ReduceTaskFreesUsageZeroBase) {
 }
 
 TEST_F(UsageTrackerTest, AddTasksUsesPredictionNoZero) {
+  setupSlave("slave1");
+  placeSimple("testFramework", "slave1", Resources(),
+      Resources::parse("cpus:1.0;mem:1024"), 2);
+  recordUsageSimple("slave1", "testFramework", 0.1,
+                    Resources::parse("cpus:3.0;mem:768"));
+  placeSimple("testFramework", "slave1", Resources(),
+      Option<Resources>::none(), 4);
+  EXPECT_EQ(Resources::parse("cpus:6.0;mem:1536"),
+            tracker->nextUsedForFramework(framework("testFramework")));
+  EXPECT_EQ(kDefaultSlaveResources - Resources::parse("cpus:6.0;mem:1536"),
+            tracker->freeForSlave(slave("slave1")));
+}
+
+TEST_F(UsageTrackerTest, AddTasksUsesPredictionAfterZero) {
   setupSlave("slave1");
   placeSimple("testFramework", "slave1", Resources(),
       Resources::parse("cpus:1.0;mem:1024"), 2);

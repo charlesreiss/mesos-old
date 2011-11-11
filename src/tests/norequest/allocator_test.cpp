@@ -76,11 +76,10 @@ public:
                                     const SlaveID&));
   MOCK_METHOD2(setCapacity, void(const SlaveID&, const Resources&));
   MOCK_METHOD1(timerTick, void(double));
-  typedef hashmap<FrameworkID, ResourceEstimates> UsageByFrameworkReturn;
-  MOCK_CONST_METHOD0(usageByFramework,
-                     UsageByFrameworkReturn());
   MOCK_CONST_METHOD1(chargeForFramework, Resources(const FrameworkID&));
+  MOCK_CONST_METHOD1(gaurenteedForFramework, Resources(const FrameworkID&));
   MOCK_CONST_METHOD1(nextUsedForFramework, Resources(const FrameworkID&));
+  MOCK_CONST_METHOD1(usedForFramework, Resources(const FrameworkID&));
   MOCK_CONST_METHOD1(freeForSlave, Resources(const SlaveID&));
   MOCK_CONST_METHOD1(gaurenteedFreeForSlave, Resources(const SlaveID&));
   MOCK_CONST_METHOD3(nextUsedForExecutor, Resources(const SlaveID&,
