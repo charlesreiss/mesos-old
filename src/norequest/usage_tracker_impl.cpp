@@ -97,6 +97,42 @@ void assignResourcesKeepOthers(const Resources& newResources,
 void
 ResourceEstimates::observeUsage(double now, double duration,
                                 const Resources& usage) {
+  LOG(INFO) << "observeUsage on \n" << *this;
+  if (now - duration > setTaskTime && curTasks > 0) {
+    LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+    Resources tasksUsage = usage;
+    if (lastUsedForZero.isSome()) {
+      tasksUsage -= lastUsedForZero.get();
+    }
+    lastUsedPerTask = multiplyResources(tasksUsage, 1.0 / curTasks);
+    lastUsedPerTaskTasks = curTasks;
+    lastUsedPerTaskTime = now;
+  } else if (now - duration > setTaskTime && curTasks == 0) {
+    Resources lastUsedForZeroDiff = usage;
+    if (lastUsedForZero.isSome()) {
+      lastUsedForZeroDiff -= lastUsedForZero.get();
+    }
+    LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+    LOG(INFO) << "lastUsedForZeroDiff = " << lastUsedForZeroDiff;
+    lastUsedForZero = usage;
+    LOG(INFO) << "lastUsedForZero = " << usage;
+    if (lastUsedPerTask.isSome()) {
+      Resources lastUsedPerTaskDiff =
+        multiplyResources(lastUsedForZeroDiff, 1.0 / lastUsedPerTaskTasks);
+      Resources newUsedPerTask = lastUsedPerTask.get();
+      LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
+      newUsedPerTask += lastUsedPerTaskDiff;
+      LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
+      LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+      lastUsedPerTask.get() = newUsedPerTask;
+      LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+      LOG(INFO) << " (delta: " << lastUsedPerTaskDiff << ")";
+    }
+  } else {
+    LOG(INFO) << "Not updating per-task estimate; tasks = " << curTasks
+              << "; now - duration = " << (now - duration)
+              << "; setTaskTime = " << setTaskTime;
+  }
   LOG(INFO) << "set observed usage to " << usage << " from\n" << *this;
   Resources usageDiff = usage - usedResources;
   usedResources = usage;
@@ -125,8 +161,10 @@ ResourceEstimates::setGuess(double now, const Resources& guess) {
 
 void
 ResourceEstimates::setTasks(double now, int newTasks) {
-  if (curTasks > 0) {
-    // TODO(charles): use the average # of tasks during the measurement period
+  if (lastUsedPerTask.isSome()) {
+    // TODO(charles): expire these estimates???
+    setGuess(now, multiplyResources(lastUsedPerTask.get(), newTasks));
+  } else if (curTasks > 0 && newTasks > 0) {
     setGuess(now, multiplyResources(nextUsedResources,
                                     double(newTasks) / curTasks));
   }
@@ -191,8 +229,9 @@ UsageTrackerImpl::estimateFor(const FrameworkID& frameworkId,
 void
 UsageTrackerImpl::recordUsage(const UsageMessage& update) {
   LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
+  Resources usage = update.resources();
   estimateFor(update.framework_id(), update.executor_id(), update.slave_id())->
-    observeUsage(update.timestamp(), update.duration(), update.resources());
+    observeUsage(update.timestamp(), update.duration(), usage);
 }
 
 void

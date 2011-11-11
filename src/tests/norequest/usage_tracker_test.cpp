@@ -89,6 +89,7 @@ protected:
   void recordUsageSimple(const std::string& slaveId,
       const std::string& frameworkId,
       double time, const Resources& resources) {
+    time += kStartTime;
     tracker->recordUsage(getUpdate(slaveId, frameworkId, time, resources));
   }
 

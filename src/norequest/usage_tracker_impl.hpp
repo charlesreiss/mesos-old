@@ -47,6 +47,11 @@ struct ResourceEstimates {
   double estimateTime;
   double usageDuration;
 
+  Option<Resources> lastUsedPerTask;
+  double lastUsedPerTaskTime;
+  int lastUsedPerTaskTasks;
+  Option<Resources> lastUsedForZero;
+  double lastUsedForZeroTime;
 
   ResourceEstimates* linked[2];
 
@@ -62,9 +67,14 @@ struct ResourceEstimates {
   void setMin(double now, const Resources& min);
   void setTime(double now);
 
-  ResourceEstimates() : estimateTime(0.0), setTaskTime(0.0),
-                        usageDuration(0.0), curTasks(0) {}
+  ResourceEstimates() : estimateTime(0.0), curTasks(0), setTaskTime(0.0),
+                        usageDuration(0.0), lastUsedPerTask(),
+                        lastUsedPerTaskTasks(0), lastUsedForZero(),
+                        lastUsedPerTaskTime(0.0) {
+    linked[0] = linked[1] = 0;
+  }
 private:
+  void adjustLastUsedPerTask();
   Resources updateNextWithGuess(double now, Resources guess);
   Resources updateCharged();
 
@@ -92,11 +102,6 @@ inline std::size_t hash_value(const ExecutorKey& value) {
   boost::hash_combine(seed, value.v.get<2>());
   return seed;
 }
-
-struct AllEstimates {
-  ResourceEstimates* executor;
-  ResourceEstimates* aggregates[2];
-};
 
 class UsageTrackerImpl : public UsageTracker {
 public:
