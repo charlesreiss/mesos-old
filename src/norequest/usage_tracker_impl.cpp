@@ -86,8 +86,6 @@ void assignResourcesKeepOthers(const Resources& newResources,
       extraResources += oldResource;
     }
   }
-  LOG(INFO) << *oldResources << " <-- " << newResources << " (extra: "
-            << extraResources << ")";
   *oldResources = newResources;
   *oldResources += extraResources;
 }
