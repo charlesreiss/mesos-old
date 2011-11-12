@@ -121,10 +121,10 @@ ResourceEstimates::observeUsage(double now, double duration,
         multiplyResources(lastUsedForZeroDiff, 1.0 / lastUsedPerTaskTasks);
       Resources newUsedPerTask = lastUsedPerTask.get();
       LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
-      newUsedPerTask += lastUsedPerTaskDiff;
+      newUsedPerTask -= lastUsedPerTaskDiff;
       LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
       LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-      lastUsedPerTask.get() = newUsedPerTask;
+      lastUsedPerTask = newUsedPerTask;
       LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
       LOG(INFO) << " (delta: " << lastUsedPerTaskDiff << ")";
     }
@@ -163,7 +163,12 @@ void
 ResourceEstimates::setTasks(double now, int newTasks) {
   if (lastUsedPerTask.isSome()) {
     // TODO(charles): expire these estimates???
-    setGuess(now, multiplyResources(lastUsedPerTask.get(), newTasks));
+    Resources zeroTasks;
+    if (lastUsedForZero.isSome()) {
+      zeroTasks = lastUsedForZero.get();
+    }
+    setGuess(now, zeroTasks +
+                  multiplyResources(lastUsedPerTask.get(), newTasks));
   } else if (curTasks > 0 && newTasks > 0) {
     setGuess(now, multiplyResources(nextUsedResources,
                                     double(newTasks) / curTasks));
