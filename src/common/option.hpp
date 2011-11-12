@@ -96,4 +96,14 @@ operator==(Option<T> first, Option<T> second) {
   }
 }
 
+template <class T>
+inline std::ostream&
+operator<<(std::ostream& out, const Option<T>& value) {
+  if (value.isSome()) {
+    out << "Some(" << value.get() << ")";
+  } else {
+    out << "None";
+  }
+}
+
 #endif // __OPTION_HPP__
