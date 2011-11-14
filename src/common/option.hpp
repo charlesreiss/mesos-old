@@ -104,6 +104,7 @@ operator<<(std::ostream& out, const Option<T>& value) {
   } else {
     out << "None";
   }
+  return out;
 }
 
 #endif // __OPTION_HPP__
