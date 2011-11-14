@@ -377,7 +377,7 @@ TEST_F(NoRequestAllocatorTest, TaskAddedTwicePlaceUsageCountTwo) {
           Resources::parse("cpus:4;mem:32"));
 }
 
-TEST_F(NoRequestAllocatorTest, TaskRemovedCallsPlaceUsage) {
+TEST_F(NoRequestAllocatorTest, TaskRemovedCallsPlaceUsageAndOffers) {
   initTwoFrameworksOneSlave();
   expectPlaceUsage("framework1", "slave0",
                    Option<Resources>(Resources::parse("cpus:24;mem:768")),
@@ -386,7 +386,12 @@ TEST_F(NoRequestAllocatorTest, TaskRemovedCallsPlaceUsage) {
                        Resources::parse("cpus:24;mem:768"));
   task->set_state(TASK_FINISHED);
   // TODO(charles): how does this interact with executorRemoved?
+  setSlaveFree("slave0", Resources::parse("cpus:32;mem:1024"),
+                         Resources::parse("cpus:16;mem:1024"));
   expectPlaceUsage("framework1", "slave0", Resources(), Resources(), 0);
+  expectOffer(&frameworks[0], &slaves[0],
+              Resources::parse("cpus:32;mem:1024"),
+              Resources::parse("cpus:16;mem:1024"));
   removeTask(task, &slaves[0]);
 }
 

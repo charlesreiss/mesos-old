@@ -69,6 +69,9 @@ void
 NoRequestAllocator::taskRemoved(Task* task) {
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              0, task, Option<ExecutorInfo>::none());
+  std::vector<Slave*> slave_alone;
+  slave_alone.push_back(master->getSlave(task->slave_id()));
+  makeNewOffers(slave_alone);
 }
 
 void
