@@ -69,8 +69,10 @@ void
 NoRequestAllocator::taskRemoved(Task* task) {
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              0, task, Option<ExecutorInfo>::none());
+  Slave* slave = master->getSlave(task->slave_id());
+  refusers.erase(slave);
   std::vector<Slave*> slave_alone;
-  slave_alone.push_back(master->getSlave(task->slave_id()));
+  slave_alone.push_back(slave);
   makeNewOffers(slave_alone);
 }
 
@@ -257,6 +259,9 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
                   << offerRes << " on slave " << slave->id;
       } else {
         LOG(INFO) << framework->id << " not accepting offer on " << slave->id;
+        LOG(INFO) << "refuser? " << (refuers.count(slave) ? "yes" : "no");
+        LOG(INFO) << "filtered "
+                  << framework->filters(slave, offerRes.expectedResources);
       }
     }
 
