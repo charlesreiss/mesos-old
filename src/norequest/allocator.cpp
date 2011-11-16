@@ -259,7 +259,7 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
                   << offerRes << " on slave " << slave->id;
       } else {
         LOG(INFO) << framework->id << " not accepting offer on " << slave->id;
-        LOG(INFO) << "refuser? " << (refuers.count(slave) ? "yes" : "no");
+        LOG(INFO) << "refuser? " << (refusers.count(slave) ? "yes" : "no");
         LOG(INFO) << "filtered "
                   << framework->filters(slave, offerRes.expectedResources);
       }
