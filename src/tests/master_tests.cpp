@@ -296,7 +296,8 @@ TEST_F(MasterSlaveTest, AllocateMinimumIfMarked)
       isolationModule->lastResources[DEFAULT_EXECUTOR_ID]);
 }
 
-TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered) {
+TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered)
+{
   useMockAllocator = true;
   EXPECT_CALL(sched, allocatesMin()).
     WillRepeatedly(testing::Return(true));
@@ -336,6 +337,7 @@ TEST_F(MasterSlaveTest, KillTask)
 
 TEST_F(MasterSlaveTest, ClearFilterOnEndTask)
 {
+  process::Clock::pause();
   vector<std::string> taskIds;
   taskIds.push_back("task0");
   taskIds.push_back("task1");
@@ -391,6 +393,7 @@ TEST_F(MasterSlaveTest, ClearFilterOnEndTask)
 
   stopScheduler();
   stopMasterAndSlave();
+  process::Clock::resume();
 }
 
 TEST_F(MasterSlaveTest, FrameworkMessage)
