@@ -234,6 +234,16 @@ ACTION_P(SendStatusUpdate, state)
   arg0->sendStatusUpdate(status);
 }
 
+/**
+ * Definition of the SendStatusUpdate action where the second arg is the
+ * TaskID instead of a TaskDescription.
+ */
+ACTION_P(SendStatusUpdateForId, state) {
+  TaskStatus status;
+  status.mutable_task_id()->MergeFrom(arg1);
+  status.set_state(state);
+  arg0->sendStatusUpdate(status);
+}
 
 /**
  * This macro can be used to wait until some trigger has

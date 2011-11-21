@@ -70,6 +70,10 @@ using testing::SaveArg;
 
 // Master and Slave together test cases.
 
+MATCHER_P(UpdateForTaskId, id, "") {
+  return testing::Matcher<std::string>(id).Matches(arg.task_id().value());
+}
+
 class MasterSlaveTest : public testing::Test {
 protected:
   MasterSlaveTest() {
@@ -160,33 +164,58 @@ protected:
     ASSERT_NE(0, offers->size());
   }
 
-  void launchTaskForOffer(const Offer& offer,
-                          const std::string& taskId,
-                          bool expectLaunch = true,
-                          TaskState expectState = TASK_RUNNING) {
-    trigger statusUpdateCall;
-    TaskStatus status;
-    EXPECT_CALL(sched, statusUpdate(schedDriver.get(), _))
-      .WillOnce(DoAll(SaveArg<1>(&status), Trigger(&statusUpdateCall)));
-    if (expectLaunch) {
-      EXPECT_CALL(exec, launchTask(_, _))
-        .WillOnce(SendStatusUpdate(expectState));
-    }
+  void getMoreOffers(vector<Offer>* offers, trigger* gotOffers)
+  {
+    EXPECT_CALL(sched, resourceOffers(schedDriver.get(), _))
+      .WillOnce(DoAll(SaveArg<1>(offers),
+                      Trigger(gotOffers)));
+  }
 
-    TaskDescription task;
-    task.set_name("");
-    task.mutable_task_id()->set_value(taskId);
-    task.mutable_slave_id()->MergeFrom(offer.slave_id());
-    task.mutable_resources()->MergeFrom(offer.resources());
+  void launchTaskForOffer(const Offer& offer, const std::string& taskId,
+                          TaskState expectState = TASK_RUNNING)
+  {
+    vector<std::string> taskIds;
+    taskIds.push_back(taskId);
+    launchTasksForOffer(offer, taskIds, offer.resources(), expectState);
+  }
+
+  void launchTasksForOffer(const Offer& offer,
+                           const vector<std::string>& taskIds,
+                           const Resources& perTaskResources,
+                           TaskState expectState = TASK_RUNNING)
+  {
+    vector<trigger> statusUpdateCalls;
+    statusUpdateCalls.resize(taskIds.size());
+    vector<TaskStatus> statuses;
+    statuses.resize(taskIds.size());
 
     vector<TaskDescription> tasks;
-    tasks.push_back(task);
+
+    EXPECT_CALL(exec, launchTask(_, _))
+      .Times(taskIds.size())
+      .WillRepeatedly(SendStatusUpdate(expectState));
+    for (int i = 0; i < taskIds.size(); ++i) {
+      const std::string& taskId = taskIds[i];
+
+      TaskDescription task;
+      task.set_name("");
+      task.mutable_task_id()->set_value(taskId);
+      task.mutable_slave_id()->MergeFrom(offer.slave_id());
+      task.mutable_resources()->MergeFrom(perTaskResources);
+      tasks.push_back(task);
+
+      EXPECT_CALL(sched, statusUpdate(schedDriver.get(),
+                                      UpdateForTaskId(taskId)))
+        .WillOnce(DoAll(SaveArg<1>(&statuses[i]),
+                        Trigger(&statusUpdateCalls[i])));
+    }
 
     schedDriver->launchTasks(offer.id(), tasks);
 
-    WAIT_UNTIL(statusUpdateCall);
-
-    EXPECT_EQ(expectState, status.state());
+    for (int i = 0; i < statusUpdateCalls.size(); ++i) {
+      WAIT_UNTIL(statusUpdateCalls[i]);
+      EXPECT_EQ(expectState, statuses[i].state()) << statuses[i].DebugString();
+    }
 
     if (expectLaunch) {
       ASSERT_TRUE(execDriver);
@@ -300,6 +329,65 @@ TEST_F(MasterSlaveTest, KillTask)
   schedDriver->killTask(taskId);
 
   WAIT_UNTIL(killTaskCall);
+
+  stopScheduler();
+  stopMasterAndSlave();
+}
+
+TEST_F(MasterSlaveTest, ClearFilterOnEndTask)
+{
+  vector<std::string> taskIds;
+  taskIds.push_back("task0");
+  taskIds.push_back("task1");
+  taskIds.push_back("task2");
+
+  startMasterAndSlave();
+
+  // Launch 3 tasks.
+  vector<Offer> offers;
+  getOffers(&offers);
+  launchTasksForOffer(offers[0], taskIds,
+                      Resources::parse("cpus:0.5;mem:256"));
+
+  // Kill one of them.
+  {
+    trigger gotMoreOffers;
+    trigger killTaskCall;
+    EXPECT_CALL(exec, killTask(_, _))
+      .WillOnce(DoAll(SendStatusUpdateForId(TASK_KILLED),
+                      Trigger(&killTaskCall)));
+    TaskID taskId;
+    taskId.set_value("task0");
+    EXPECT_CALL(sched, statusUpdate(schedDriver.get(),
+                                    UpdateForTaskId("task0")));
+    getMoreOffers(&offers, &gotMoreOffers);
+    schedDriver->killTask(taskId);
+
+    WAIT_UNTIL(killTaskCall);
+    WAIT_UNTIL(gotMoreOffers);
+  }
+
+  // We should get a new offer; after we get it, don't launch any tasks in it;
+  // this should create a filter.
+  vector<TaskDescription> empty;
+  schedDriver->launchTasks(offers[0].id(), empty);
+
+  // Kill a second task. Dispite the filter, we should get more offers because
+  // we have freed up resources.
+  {
+    trigger gotMoreOffers;
+    trigger killTaskCall;
+    EXPECT_CALL(exec, killTask(_, _))
+      .WillOnce(DoAll(SendStatusUpdateForId(TASK_KILLED),
+                      Trigger(&killTaskCall)));
+    TaskID taskId;
+    taskId.set_value("task1");
+    EXPECT_CALL(sched, statusUpdate(schedDriver.get(),
+                                    UpdateForTaskId("task1")));
+    getMoreOffers(&offers, &gotMoreOffers);
+    schedDriver->killTask(taskId);
+    WAIT_UNTIL(gotMoreOffers);
+  }
 
   stopScheduler();
   stopMasterAndSlave();

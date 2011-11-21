@@ -487,13 +487,21 @@ struct Framework
   bool filters(Slave* slave, Resources resources)
   {
     // TODO: Implement other filters
-    return slaveFilter.find(slave) != slaveFilter.end();
+    hashmap<Slave*, FilterInfo>::iterator iter = slaveFilter.find(slave);
+    if (iter != slaveFilter.end()) {
+      DLOG(INFO) << "Checking filter " << resources << " versus "
+                 << iter->second.upToResources;
+      return resources <= iter->second.upToResources;
+    } else {
+      return false;
+    }
   }
 
   void removeExpiredFilters(double now)
   {
-    foreachpair (Slave* slave, double removalTime, utils::copy(slaveFilter)) {
-      if (removalTime != 0 && removalTime <= now) {
+    foreachpair (Slave* slave, const FilterInfo& filterInfo,
+                 utils::copy(slaveFilter)) {
+      if (filterInfo.untilTime != 0 && filterInfo.untilTime <= now) {
         slaveFilter.erase(slave);
       }
     }
@@ -514,9 +522,17 @@ struct Framework
   Resources resources; // Total resources (tasks + offers + executors).
   hashmap<SlaveID, hashmap<ExecutorID, ExecutorInfo> > executors;
 
+  struct FilterInfo {
+    FilterInfo() : untilTime(0), upToResources() {}
+    FilterInfo(double _untilTime, const Resources& _upToResources)
+      : untilTime(_untilTime), upToResources(_upToResources) {}
+    double untilTime;
+    Resources upToResources;
+  };
+
   // Contains a time of unfiltering for each slave we've filtered,
   // or 0 for slaves that we want to keep filtered forever
-  hashmap<Slave*, double> slaveFilter;
+  hashmap<Slave*, FilterInfo> slaveFilter;
 };
 
 } // namespace master {

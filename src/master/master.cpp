@@ -1449,9 +1449,10 @@ void Master::processTasks(Offer* offer,
   if (timeout != 0 && usedResources.empty()) {
     LOG(INFO) << "Filtered slave " << slave->id
               << " for framework " << framework->id
-              << " for " << timeout << " seconds";
-    framework->slaveFilter[slave] =
-      (timeout == -1) ? 0 : elapsedTime() + timeout;
+              << " for " << timeout << " seconds "
+              << " at " << usedResources;
+    double time = (timeout == -1) ? 0 : elapsedTime() + timeout;
+    framework->slaveFilter[slave] = Framework::FilterInfo(time, usedResources);
   }
 
   removeOffer(offer);
