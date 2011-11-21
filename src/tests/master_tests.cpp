@@ -217,7 +217,7 @@ protected:
       EXPECT_EQ(expectState, statuses[i].state()) << statuses[i].DebugString();
     }
 
-    if (expectLaunch) {
+    if (expectState == TASK_RUNNING) {
       ASSERT_TRUE(execDriver);
     }
   }
@@ -306,7 +306,7 @@ TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered) {
   offers[0].clear_resources();
   offers[0].mutable_resources()->MergeFrom(
       Resources::parse("cpus:4;mem:4096"));
-  launchTaskForOffer(offers[0], "testTaskId", false, TASK_FAILED);
+  launchTaskForOffer(offers[0], "testTaskId", TASK_FAILED);
   stopScheduler();
   stopMasterAndSlave();
 }

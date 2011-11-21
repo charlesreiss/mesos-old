@@ -486,6 +486,11 @@ struct Framework
 
   bool filters(Slave* slave, Resources resources)
   {
+    return filters(slave, ResourceHints(resources, Resources()));
+  }
+
+  bool filters(Slave* slave, ResourceHints resources)
+  {
     // TODO: Implement other filters
     hashmap<Slave*, FilterInfo>::iterator iter = slaveFilter.find(slave);
     if (iter != slaveFilter.end()) {
@@ -524,10 +529,10 @@ struct Framework
 
   struct FilterInfo {
     FilterInfo() : untilTime(0), upToResources() {}
-    FilterInfo(double _untilTime, const Resources& _upToResources)
+    FilterInfo(double _untilTime, const ResourceHints& _upToResources)
       : untilTime(_untilTime), upToResources(_upToResources) {}
     double untilTime;
-    Resources upToResources;
+    ResourceHints upToResources;
   };
 
   // Contains a time of unfiltering for each slave we've filtered,
