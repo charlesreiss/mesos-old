@@ -48,6 +48,8 @@ libgmock_la_CPPFLAGS = -I$(top_srcdir)/$(GTEST)/include         \
                        -I$(top_srcdir)/$(GTEST)                 \
                        -I$(top_srcdir)/$(GMOCK)
 
+EXTRA_DIST = support/colors.sh
+
 # Since we generate several files in src/ with config.status, make
 # sure they're regenerated before we recurse into the src directory.
 all-recursive: src/config/config.hpp src/python/setup.py src/java/mesos.pom

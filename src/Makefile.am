@@ -151,7 +151,15 @@ libmesos_no_third_party_la_SOURCES = sched/sched.cpp local/local.cpp	\
 	common/logging.cpp common/utils.cpp common/date_utils.cpp	\
 	common/resources.cpp common/attributes.cpp common/values.cpp	\
 	zookeeper/zookeeper.cpp zookeeper/authentication.cpp		\
-	zookeeper/group.cpp
+	zookeeper/group.cpp						\
+        messages/log.proto messages/messages.proto
+
+pkginclude_HEADERS = $(top_srcdir)/include/mesos/executor.hpp \
+		     $(top_srcdir)/include/mesos/scheduler.hpp \
+		     $(top_srcdir)/include/mesos/mesos.hpp \
+		     $(top_srcdir)/include/mesos/mesos.proto
+
+nodist_pkginclude_HEADERS = mesos.pb.h
 
 if OS_LINUX
   libmesos_no_third_party_la_SOURCES += slave/lxc_isolation_module.cpp
@@ -161,15 +169,17 @@ endif
 
 EXTRA_DIST += slave/solaris_project_isolation_module.cpp
 
-libmesos_no_third_party_la_SOURCES += common/build.hpp			\
+libmesos_no_third_party_la_SOURCES += \
+	common/attributes.hpp common/build.hpp				\
 	common/date_utils.hpp common/factory.hpp common/fatal.hpp	\
 	common/foreach.hpp common/hashmap.hpp common/hashset.hpp	\
 	common/json.hpp common/lock.hpp common/logging.hpp		\
 	common/lambda.hpp common/option.hpp common/resources.hpp	\
 	common/result.hpp common/multihashmap.hpp			\
 	common/process_utils.hpp common/seconds.hpp common/try.hpp	\
-	common/type_utils.hpp common/units.hpp common/uuid.hpp		\
-	common/strings.hpp common/values.hpp common/attributes.hpp	\
+	common/type_utils.hpp common/thread.hpp common/timer.hpp	\
+	common/utils.hpp common/units.hpp common/uuid.hpp               \
+	common/strings.hpp  common/values.hpp                           \
 	configurator/configuration.hpp configurator/configurator.hpp	\
 	configurator/option.hpp detector/detector.hpp			\
 	detector/url_processor.hpp launcher/launcher.hpp		\
@@ -346,16 +356,35 @@ $(PROTOBUF_JAR): # TODO(charles): Specify dependencies for the jar.
 	@$(JAVA_HOME)/bin/jar cf $@ -C ../$(PROTOBUF)/java/src/main/java com
 
 CLEANFILES += $(PROTOBUF_JAR)
+endif
 
+# Java related files are listed outside if HAS_JAVA so we can add them to
+# EXTRA_DIST unconditionally.
 
 # Mesos JAR.
 MESOS_JAR = mesos.jar
 MESOS_JAR_SRCROOT = $(srcdir)/java/src
 MESOS_JAR_SRCDIR = $(srcdir)/java/src/org/apache/mesos
-MESOS_JAR_SRC = $(MESOS_JAR_SRCDIR)/*.java
+MESOS_JAR_SRC = \
+		$(MESOS_JAR_SRCDIR)/ExecutorDriver.java \
+		$(MESOS_JAR_SRCDIR)/Executor.java \
+		$(MESOS_JAR_SRCDIR)/Log.java \
+		$(MESOS_JAR_SRCDIR)/MesosExecutorDriver.java \
+		$(MESOS_JAR_SRCDIR)/MesosSchedulerDriver.java \
+		$(MESOS_JAR_SRCDIR)/SchedulerDriver.java \
+		$(MESOS_JAR_SRCDIR)/Scheduler.java
 
 EXTRA_DIST += $(MESOS_JAR_SRC)
 
+# We build all the Java examples into their own JAR.
+EXAMPLES_JAR = examples.jar
+JAVA_EXAMPLES_SRC = $(srcdir)/examples/java/TestExceptionFramework.java	\
+	$(srcdir)/examples/java/TestExecutor.java			\
+	$(srcdir)/examples/java/TestFramework.java			\
+	$(srcdir)/examples/java/TestMultipleExecutorsFramework.java
+EXTRA_DIST += $(JAVA_EXAMPLES_SRC)
+
+if HAS_JAVA
 $(MESOS_JAR): $(MESOS_JAR_SRC) $(JAVA_PROTOS) $(PROTOBUF_JAR)
 	@echo "Building mesos.jar ..."
 	@rm -f java/classes/org/apache/mesos/*
@@ -434,15 +463,6 @@ java/jni/org_apache_mesos_Log.h: $(MESOS_JAR)
 	@$(JAVA_HOME)/bin/javah -d java/jni -classpath		\
           $(PROTOBUF_JAR):java/classes org.apache.mesos.Log
 
-# We build all the Java examples into their own JAR.
-EXAMPLES_JAR = examples.jar
-JAVA_EXAMPLES_SRC = $(srcdir)/examples/TestExceptionFramework.java	\
-	$(srcdir)/examples/TestExecutor.java				\
-	$(srcdir)/examples/TestFramework.java				\
-	$(srcidr)/examples/TestMultipleExecutorsFramework.java
-
-EXTRA_DIST += $(JAVA_EXAMPLES_SOURCES)
-
 $(EXAMPLES_JAR): $(JAVA_EXAMPLES_SOURCES)
 	@echo "Building examples.jar ..."
 	@$(MKDIR_P) examples/java
@@ -459,6 +479,18 @@ maven-install: $(MESOS_JAR) $(MESOS_SOURCES_JAR) java/mesos.pom
 PHONY_TARGETS += maven-install
 endif # HAS_JAVA
 
+
+EXTRA_DIST += python/src/mesos.py \
+	      python/native/mesos_executor_driver_impl.cpp \
+	      python/native/mesos_executor_driver_impl.hpp \
+	      python/native/mesos_scheduler_driver_impl.cpp \
+	      python/native/mesos_scheduler_driver_impl.hpp \
+	      python/native/module.cpp \
+	      python/native/module.hpp \
+	      python/native/proxy_executor.cpp \
+	      python/native/proxy_executor.hpp \
+	      python/native/proxy_scheduler.cpp \
+	      python/native/proxy_scheduler.hpp
 
 if HAS_PYTHON
 # TODO(Charles Reiss): Figure out how to do a proper out-of-source
