@@ -115,6 +115,9 @@ AC_ARG_VAR([JAVA_CPPFLAGS], [preprocessor flags for JNI])
 
 AC_ARG_VAR([JAVA_LDFLAGS], [linker flags for JNI])
 
+AC_ARG_VAR([PYTHON_JAVA_LDFLAGS],
+           [linker flags for JNI, when linking python extenstion])
+
 
 # Determine the current OS (TODO(benh): Does autotools do this for us?).
 case "${target_os}" in
@@ -220,7 +223,8 @@ __EOF__
       JAVA_LDFLAGS=""
       for arch in amd64 i386; do
         if test -e "$JAVA_HOME/jre/lib/$arch"; then
-          JAVA_LDFLAGS="-L$JAVA_HOME/jre/lib/$arch/server -ljvm"
+          JAVA_LDFLAGS="-L$JAVA_HOME/jre/lib/$arch/server -R$JAVA_HOME/jre/lib/$arch/server -Wl,-ljvm"
+          PYTHON_JAVA_LDFLAGS="-L$JAVA_HOME/jre/lib/$arch/server -Wl,-rpath,$JAVA_HOME/jre/lib/$arch/server -ljvm"
           break;
           fi
       done
@@ -229,6 +233,10 @@ __EOF__
 
   if test -z "$JAVA_LDFLAGS"; then
     AC_MSG_ERROR([failed to determine linker flags for using Java (bad JAVA_HOME or missing support for your architecture?)])
+  fi
+
+  if test -z "$PYTHON_JAVA_LDFLAGS"; then
+    PYTHON_JAVA_LDFLAGS="$JAVA_LDFLAGS"
   fi
 
     AC_MSG_CHECKING([whether or not we can build using the JDK])
@@ -265,7 +273,9 @@ __EOF__
                   [chmod +x src/examples/java/test-multiple-executors-framework])
   AC_CONFIG_FILES([src/java/mesos.pom])
 
+  AC_SUBST([JAVA_CPPFLAGS])
   AC_SUBST([JAVA_LDFLAGS])
+  AC_SUBST([PYTHON_JAVA_LDFLAGS])
   AC_SUBST([HAS_JAVA], [1]) # Used to decide whether to run Java tests.
   has_java=yes
 fi

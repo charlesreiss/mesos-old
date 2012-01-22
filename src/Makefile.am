@@ -429,6 +429,8 @@ libjava_la_CXXFLAGS = $(MESOS_CXXFLAGS)
 libjava_la_DEPENDENCIES = $(MESOS_PROTO)
 
 libjava_la_LIBADD = $(JAVA_LDFLAGS)
+# Also add to libmesos.la so on Linux we set the rpath for libmesos.so
+libmesos_la_LIBADD += $(JAVA_LDFLAGS)
 
 libmesos_no_third_party_la_LIBADD += libjava.la
 
@@ -520,9 +522,9 @@ $(MESOS_EGG): python/setup.py $(srcdir)/python/src/mesos.py	\
 	@$(MKDIR_P) python/src
 	@cp -pf $(srcdir)/python/src/mesos.py python/src
 	@cp -pf $(PYTHON_PROTOS) python/src
-	@PYTHONPATH=$(SETUPTOOLS) LDFLAGS="$(LDFLAGS) $(JAVA_LDFLAGS)" $(PYTHON) python/setup.py bdist_egg
+	@PYTHONPATH=$(SETUPTOOLS) LDFLAGS="$(LDFLAGS) $(PYTHON_JAVA_LDFLAGS)" $(PYTHON) python/setup.py bdist_egg
 
-CLEANFILES += $(MESOS_EGG)
+CLEANFILES += $(MESOS_EGG) python/build/temp.*/native/*.o python/build/lib.*/*
 
 # TODO(Charles Reiss): Don't hard code this verison number.
 PROTOBUF_EGG =								\
