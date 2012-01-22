@@ -15,6 +15,12 @@ PYTHON=@PYTHON@
 # Use colors for errors.
 source ${MESOS_SOURCE_DIR}/support/colors.sh
 
+DISTRIBUTE_EGG=`echo ${MESOS_SOURCE_DIR}/third_party/distribute-*/*.egg`
+
+test ! -e ${DISTRIBUTE_EGG} && \
+  echo "${RED}Failed to find ${DISTRIBUTE_EGG}${NORMAL}" && \
+  exit 1
+
 PROTOBUF=${MESOS_BUILD_DIR}/third_party/protobuf-2.3.0
 PROTOBUF_EGG=`ls ${PROTOBUF}/python/dist/protobuf*.egg`
 
@@ -34,4 +40,6 @@ test ! -e ${SCRIPT} && \
   echo "${RED}Failed to find ${SCRIPT}${NORMAL}" && \
   exit 1
 
-PYTHONPATH=${MESOS_EGG}:${PROTOBUF_EGG} exec ${PYTHON} ${SCRIPT} "${@}"
+cd `dirname ${0}`
+
+PYTHONPATH="${DISTRIBUTE_EGG}:${MESOS_EGG}:${PROTOBUF_EGG}" exec ${PYTHON} ${SCRIPT} "${@}"

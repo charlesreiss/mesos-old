@@ -520,7 +520,7 @@ $(MESOS_EGG): python/setup.py $(srcdir)/python/src/mesos.py	\
 	@$(MKDIR_P) python/src
 	@cp -pf $(srcdir)/python/src/mesos.py python/src
 	@cp -pf $(PYTHON_PROTOS) python/src
-	@PYTHONPATH=../$(SETUPTOOLS) $(PYTHON) python/setup.py bdist_egg
+	@PYTHONPATH=$(SETUPTOOLS) LDFLAGS="$(LDFLAGS) $(JAVA_LDFLAGS)" $(PYTHON) python/setup.py bdist_egg
 
 CLEANFILES += $(MESOS_EGG)
 
