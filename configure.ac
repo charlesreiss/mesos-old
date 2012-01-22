@@ -50,26 +50,12 @@ AS_IF([test "x${ac_cv_env_CFLAGS_set}" = "x"],
 AS_IF([test "x${ac_cv_env_CXXFLAGS_set}" = "x"],
       [CXXFLAGS=""])
 
-# Force all third_party libraries to only build static libraries so
-# that we can produce a final shared library which includes everything
-# necessary.
-ac_configure_args_pre="$ac_configure_args"
-ac_configure_args_post="$ac_configure_args --enable-shared=no --with-pic"
-ac_configure_args="$ac_configure_args_post"
-
-# Make sure config.status doesn't get the changed configure arguments,
-# so it can rerun configure in the root directory correctly. This is
-# necessary for Makefile rules which would regenerate files (e.g.,
-# 'Makefile') after configure.ac was updated.
-AC_CONFIG_COMMANDS_PRE([ac_configure_args="$ac_configure_args_pre"])
-AC_CONFIG_COMMANDS_POST([ac_configure_args="$ac_configure_args_post"])
-
-AC_CONFIG_SUBDIRS([third_party/libprocess])
-AC_CONFIG_SUBDIRS([third_party/protobuf-2.3.0])
-AC_CONFIG_SUBDIRS([third_party/glog-0.3.1])
+SUBCONFIG_ARGS="$ac_configure_args --enable-shared=no --with-pic"
+AC_SUBST(SUBCONFIG_ARGS)
 
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([src/Makefile])
+AC_CONFIG_FILES([third_party/Makefile])
 AC_CONFIG_FILES([src/config/config.hpp])
 AC_CONFIG_FILES([bin/mesos-build-env.sh])
 AC_CONFIG_FILES([bin/mesos-master.sh], [chmod +x bin/mesos-master.sh])
@@ -343,13 +329,6 @@ if test "x$enable_webui" = "xyes"; then
 fi
 
 AM_CONDITIONAL([WEBUI], [test "x$webui" = "xyes"])
-
-
-# Configure the included ZooKeeper if necessary, if not consider
-# checking the installed ZooKeeper version.
-if test "x$with_included_zookeeper" = "xyes"; then
-  AC_CONFIG_SUBDIRS([third_party/zookeeper-3.3.1/src/c])
-fi
 
 AM_CONDITIONAL([WITH_INCLUDED_ZOOKEEPER],
                [test "x$with_included_zookeeper" = "xyes"])
