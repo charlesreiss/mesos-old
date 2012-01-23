@@ -98,7 +98,7 @@ MESOS_PROTO = $(top_srcdir)/include/mesos/mesos.proto
 
 CXX_PROTOS = mesos.pb.cc mesos.pb.h
 JAVA_PROTOS = java/generated/org/apache/mesos/Protos.java
-PYTHON_PROTOS = python/mesos_pb2.py
+PYTHON_PROTOS = python/src/mesos_pb2.py
 
 BUILT_SOURCES += $(CXX_PROTOS) $(JAVA_PROTOS) $(PYTHON_PROTOS)
 CLEANFILES += $(CXX_PROTOS) $(JAVA_PROTOS) $(PYTHON_PROTOS)
@@ -129,7 +129,7 @@ $(JAVA_PROTOS): $(MESOS_PROTO)
 
 $(PYTHON_PROTOS): $(MESOS_PROTO)
 	@$(MKDIR_P) $(@D)
-	@$(PROTOC) $(PROTOCFLAGS) --python_out=python $^
+	@$(PROTOC) $(PROTOCFLAGS) --python_out=python/src $^
 
 # We even use a convenience library for most of Mesos so that we can
 # exclude third party libraries so setuptools/distribute can build a
@@ -384,6 +384,15 @@ JAVA_EXAMPLES_SRC = $(srcdir)/examples/java/TestExceptionFramework.java	\
 	$(srcdir)/examples/java/TestMultipleExecutorsFramework.java
 EXTRA_DIST += $(JAVA_EXAMPLES_SRC)
 
+CLEANFILES += $(MESOS_JAR) $(EXAMPLES_JAR)
+
+clean-java:
+	-rm -rf java/classes
+	-rm -f examples/java/*.class
+	-rm -f java/jni/org_apache_mesos*.h
+
+PHONY_TARGETS += clean-java
+
 if HAS_JAVA
 $(MESOS_JAR): $(MESOS_JAR_SRC) $(JAVA_PROTOS) $(PROTOBUF_JAR)
 	@echo "Building mesos.jar ..."
@@ -494,6 +503,14 @@ EXTRA_DIST += python/src/mesos.py \
 	      python/native/proxy_scheduler.cpp \
 	      python/native/proxy_scheduler.hpp
 
+clean-python:
+	test "$(top_srcdir)" = "$(top_builddir)" || \
+	  (chmod -R u+w python/native; \
+	   rm -rf python/src/mesos.py python/native)
+	-rm -rf python/src/mesos.egg-info python/build
+
+PHONY_TARGETS += clean-python
+
 if HAS_PYTHON
 # TODO(Charles Reiss): Figure out how to do a proper out-of-source
 # build of these Python eggs. Right now we copy the entire source
@@ -521,7 +538,6 @@ $(MESOS_EGG): python/setup.py $(srcdir)/python/src/mesos.py	\
 	@echo "Building Mesos Python egg ..."
 	@$(MKDIR_P) python/src
 	@cp -pf $(srcdir)/python/src/mesos.py python/src
-	@cp -pf $(PYTHON_PROTOS) python/src
 	@PYTHONPATH=$(SETUPTOOLS) LDFLAGS="$(LDFLAGS) $(PYTHON_JAVA_LDFLAGS)" $(PYTHON) python/setup.py bdist_egg
 
 CLEANFILES += $(MESOS_EGG) python/build/temp.*/native/*.o python/build/lib.*/*
@@ -656,6 +672,13 @@ dist_check_SCRIPTS += $(EXTERNALSCRIPTS)
 
 TESTS += mesos-tests
 
+clean-check:
+	-rm -rf $(top_builddir)/test_output
+
+PHONY_TARGETS += clean-check
+
 FORCE:
+
+clean-local: clean-java clean-python clean-check
 
 .PHONY: $(PHONY_TARGETS)
