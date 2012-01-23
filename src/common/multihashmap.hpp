@@ -41,6 +41,11 @@ public:
   bool remove(const K& key, const V& value);
   bool contains(const K& key) const;
   bool contains(const K& key, const V& value) const;
+
+  const multihashmap<K, V>& operator=(const multihashmap<K, V>& other) {
+    boost::unordered_multimap<K, V>::operator=(other);
+    return *this;
+  }
 };
 
 
