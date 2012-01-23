@@ -19,15 +19,17 @@
 # master/http.cpp and slave/http.cpp.
 AUTOMAKE_OPTIONS = subdir-objects
 
+include $(top_srcdir)/third_party/versions.am
+
 # TODO(charles): move these into an included automakefile and have them include
 # 		 $(top_builddir) as appropriate.
-BOOST = third_party/boost-1.37.0
-PROTOBUF = third_party/protobuf-2.3.0
-GLOG = third_party/glog-0.3.1
-GMOCK = third_party/gmock-1.6.0
+BOOST = third_party/boost_$(BOOST_VERSION)
+PROTOBUF = third_party/protobuf-$(PROTOBUF_VERSION)
+GLOG = third_party/glog-$(GLOG_VERSION)
+GMOCK = third_party/gmock-$(GMOCK_VERSION)
 GTEST = $(GMOCK)/gtest
 LEVELDB = third_party/leveldb
-ZOOKEEPER = third_party/zookeeper-3.3.1/src/c
+ZOOKEEPER = third_party/zookeeper-$(ZOOKEEPER_VERSION)/src/c
 LIBPROCESS = third_party/libprocess
 LIBEV = $(LIBPROCESS)/third_party/libev-3.8
 
