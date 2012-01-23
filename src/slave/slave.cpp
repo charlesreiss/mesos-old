@@ -24,6 +24,7 @@
 #include <process/timer.hpp>
 
 #include "common/build.hpp"
+#include "common/option.hpp"
 #include "common/type_utils.hpp"
 #include "common/utils.hpp"
 
@@ -90,6 +91,9 @@ Slave::Slave(const Configuration& _conf,
 {
   resources =
     Resources::parse(conf.get<string>("resources", "cpus:1;mem:1024"));
+
+  attributes =
+    Attributes::parse(conf.get<string>("attributes", ""));
 
   initialize();
 }
@@ -270,15 +274,17 @@ void Slave::operator () ()
   // this is our hostname, but on EC2 we look for the MESOS_PUBLIC_DNS
   // environment variable. This allows the master to display our
   // public name in its web UI.
-  string public_hostname = hostname;
+  string webui_hostname = hostname;
   if (getenv("MESOS_PUBLIC_DNS") != NULL) {
-    public_hostname = getenv("MESOS_PUBLIC_DNS");
+    webui_hostname = getenv("MESOS_PUBLIC_DNS");
   }
 
   // Initialize slave info.
   info.set_hostname(hostname);
-  info.set_public_hostname(public_hostname);
+  info.set_webui_hostname(webui_hostname);
+  info.set_webui_port(conf.get<int>("webui_port", 8081));
   info.mutable_resources()->MergeFrom(resources);
+  info.mutable_attributes()->MergeFrom(attributes);
 
   // Spawn and initialize the isolation module.
   // TODO(benh): Seems like the isolation module should really be
@@ -442,17 +448,19 @@ void Slave::runTask(const FrameworkInfo& frameworkInfo,
 
       stats.tasks[TASK_STARTING]++;
 
+      // Update the resources.
+      // TODO(Charles Reiss): The isolation module is not guaranteed to update
+      // the resources before the executor acts on its RunTaskMessage.
+      dispatch(isolationModule,
+               &IsolationModule::resourcesChanged,
+               framework->id, executor->id, executor->isolationResources());
+
       RunTaskMessage message;
       message.mutable_framework()->MergeFrom(framework->info);
       message.mutable_framework_id()->MergeFrom(framework->id);
       message.set_pid(framework->pid);
       message.mutable_task()->MergeFrom(task);
       send(executor->pid, message);
-
-      // Now update the resources.
-      dispatch(isolationModule,
-               &IsolationModule::resourcesChanged,
-               framework->id, executor->id, executor->isolationResources());
     }
   } else {
     // Launch an executor for this task.
@@ -748,14 +756,17 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
     // Save the pid for the executor.
     executor->pid = from();
 
+    // First account for the tasks we're about to start.
     foreachvalue (const TaskDescription& task, executor->queuedTasks) {
       // Add the task to the executor.
       executor->addTask(task);
-
-      stats.tasks[TASK_STARTING]++;
     }
 
-    // Now that the executor is up, set its resource limits.
+    // Now that the executor is up, set its resource limits including the
+    // currently queued tasks.
+    // TODO(Charles Reiss): We don't actually have a guarantee that this will
+    // be delivered or (where necessary) acted on before the executor gets its
+    // RunTaskMessages.
     dispatch(isolationModule,
              &IsolationModule::resourcesChanged,
              framework->id, executor->id, executor->isolationResources());
@@ -773,6 +784,8 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
     LOG(INFO) << "Flushing queued tasks for framework " << framework->id;
 
     foreachvalue (const TaskDescription& task, executor->queuedTasks) {
+      stats.tasks[TASK_STARTING]++;
+
       RunTaskMessage message;
       message.mutable_framework_id()->MergeFrom(framework->id);
       message.mutable_framework()->MergeFrom(framework->info);
@@ -1381,14 +1394,19 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
   LOG(INFO) << "Generating a unique work directory for executor '"
             << executorId << "' of framework " << frameworkId;
 
-  string workDir = ".";
-  if (conf.contains("work_dir")) {
-    workDir = conf.get("work_dir", workDir);
-  } else if (conf.contains("home")) {
-    workDir = conf.get("home", workDir);
-  }
+  string workDir = "work";  // Default work directory.
 
-  workDir = workDir + "/work";
+  // Now look for configured work directory.
+  Option<string> option = conf.get("work_dir");
+  if (option.isNone()) {
+    // Okay, then look for a home directory instead.
+    option = conf.get("home");
+    if (option.isSome()) {
+      workDir = option.get() + "/work";
+    }
+  } else {
+    workDir = option.get();
+  }
 
   std::ostringstream out(std::ios_base::app | std::ios_base::out);
   out << workDir << "/slaves/" << id
@@ -1405,11 +1423,11 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
 
   for (int i = 0; i < INT_MAX; i++) {
     out << i;
-    if (opendir(out.str().c_str()) == NULL && errno == ENOENT)
+    DIR* d = opendir(out.str().c_str());
+    if (d == NULL && errno == ENOENT) {
       break;
-
-    // TODO(benh): Does one need to do any sort of closedir?
-
+    }
+    closedir(d);
     out.str(dir);
   }
 

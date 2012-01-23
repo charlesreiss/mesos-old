@@ -234,6 +234,10 @@ private:
   hashmap<SlaveID, Slave*> slaves;
   hashmap<OfferID, Offer*> offers;
 
+  std::list<Framework> completedFrameworks;
+
+  double failoverTimeout; // Failover timeout for frameworks, in seconds.
+
   int64_t nextFrameworkId; // Used to give each framework a unique ID.
   int64_t nextOfferId;     // Used to give each slot offer a unique ID.
   int64_t nextSlaveId;     // Used to give each slave a unique ID.
@@ -247,11 +251,7 @@ private:
     uint64_t invalidFrameworkMessages;
   } stats;
 
-  // Start time used to calculate uptime.
-  double startTime;
-
-  // Failover timeout for frameworks, in seconds.
-  int failoverTimeout;
+  double startTime; // Start time used to calculate uptime.
 };
 
 
@@ -289,6 +289,8 @@ struct Slave
       std::make_pair(task->framework_id(), task->task_id());
     CHECK(tasks.count(key) == 0);
     tasks[key] = task;
+    VLOG(1) << "Adding task with resources " << task->resources()
+	    << " on slave " << id;
     resourcesInUse += task->resources();
   }
 
@@ -298,6 +300,8 @@ struct Slave
       std::make_pair(task->framework_id(), task->task_id());
     CHECK(tasks.count(key) > 0);
     tasks.erase(key);
+    VLOG(1) << "Removing task with resources " << task->resources()
+	    << " on slave " << id;
     resourcesInUse -= task->resources();
   }
 
@@ -367,8 +371,14 @@ struct Slave
 
   Resources resourcesFree()
   {
-    return info.resources() - (resourcesOffered.expectedResources +
-                               resourcesInUse);
+    Resources resources = info.resources() - (resourcesOffered.expectedResources
+                                              + resourcesInUse);
+    VLOG(1) << "Calculating resources free on slave " << id << std::endl
+	    << "    Resources: " << info.resources() << std::endl
+	    << "    Resources Offered: " << resourcesOffered << std::endl
+	    << "    Resources In Use: " << resourcesInUse << std::endl
+	    << "    Resources Free: " << resources << std::endl;
+    return resources;
   }
 
   const SlaveID id;
@@ -435,6 +445,13 @@ struct Framework
   void removeTask(Task* task)
   {
     CHECK(tasks.contains(task->task_id()));
+
+    completedTasks.push_back(*task);
+
+    if (completedTasks.size() > MAX_COMPLETED_TASKS_PER_FRAMEWORK) {
+      completedTasks.pop_front();
+    }
+
     tasks.erase(task->task_id());
     resources -= task->resources();
   }
@@ -454,14 +471,14 @@ struct Framework
   }
 
   bool hasExecutor(const SlaveID& slaveId,
-		   const ExecutorID& executorId)
+                   const ExecutorID& executorId)
   {
     return executors.contains(slaveId) &&
       executors[slaveId].contains(executorId);
   }
 
   void addExecutor(const SlaveID& slaveId,
-		   const ExecutorInfo& executorInfo)
+                   const ExecutorInfo& executorInfo)
   {
     CHECK(!hasExecutor(slaveId, executorInfo.executor_id()));
     executors[slaveId][executorInfo.executor_id()] = executorInfo;
@@ -471,7 +488,7 @@ struct Framework
   }
 
   void removeExecutor(const SlaveID& slaveId,
-		      const ExecutorID& executorId)
+                      const ExecutorID& executorId)
   {
     if (hasExecutor(slaveId, executorId)) {
       // Update our resources to reflect removing this executor.
@@ -479,7 +496,7 @@ struct Framework
 
       executors[slaveId].erase(executorId);
       if (executors[slaveId].size() == 0) {
-	executors.erase(slaveId);
+        executors.erase(slaveId);
       }
     }
   }
@@ -520,11 +537,16 @@ struct Framework
   bool active; // Turns false when framework is being removed.
   double registeredTime;
   double reregisteredTime;
+  double unregisteredTime;
 
   hashmap<TaskID, Task*> tasks;
+
+  std::list<Task> completedTasks;
+
   hashset<Offer*> offers; // Active offers for framework.
 
   Resources resources; // Total resources (tasks + offers + executors).
+
   hashmap<SlaveID, hashmap<ExecutorID, ExecutorInfo> > executors;
 
   struct FilterInfo {

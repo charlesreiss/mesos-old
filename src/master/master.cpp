@@ -229,7 +229,7 @@ void Master::registerOptions(Configurator* configurator)
   configurator->addOption<int>(
       "failover_timeout",
       "Framework failover timeout in seconds",
-      60 * 60 * 24);
+      FRAMEWORK_FAILOVER_TIMEOUT);
 }
 
 
@@ -311,7 +311,7 @@ void Master::initialize()
   nextSlaveId = 0;
   nextOfferId = 0;
 
-  failoverTimeout = conf.get<int>("failover_timeout", 60 * 60 * 24);
+  failoverTimeout = conf.get<int>("failover_timeout", FRAMEWORK_FAILOVER_TIMEOUT);
 
   // Start all the statistics at 0.
   CHECK(TASK_STARTING == TaskState_MIN);
@@ -694,13 +694,15 @@ void Master::launchTasks(const FrameworkID& frameworkId,
     } else {
       // The offer is gone (possibly rescinded, lost slave, re-reply
       // to same offer, etc). Report all tasks in it as failed.
+      // TODO: Consider adding a new task state TASK_INVALID for
+      // situations like these.
       foreach (const TaskDescription& task, tasks) {
         StatusUpdateMessage message;
         StatusUpdate* update = message.mutable_update();
         update->mutable_framework_id()->MergeFrom(frameworkId);
         TaskStatus* status = update->mutable_status();
         status->mutable_task_id()->MergeFrom(task.task_id());
-        status->set_state(TASK_FAILED);
+        status->set_state(TASK_LOST);
         status->set_message("Task launched with invalid offer");
         update->set_timestamp(elapsedTime());
         update->set_uuid(UUID::random().toBytes());
@@ -759,6 +761,7 @@ void Master::killTask(const FrameworkID& frameworkId,
       TaskStatus* status = update->mutable_status();
       status->mutable_task_id()->MergeFrom(taskId);
       status->set_state(TASK_LOST);
+      status->set_message("Task not found");
       update->set_timestamp(elapsedTime());
       update->set_uuid(UUID::random().toBytes());
       send(framework->pid, message);
@@ -1017,7 +1020,7 @@ void Master::exitedExecutor(const SlaveID& slaveId,
       // Tell the framework which tasks have been lost.
       foreachvalue (Task* task, utils::copy(framework->tasks)) {
         if (task->slave_id() == slave->id &&
-	    task->executor_id() == executorId) {
+            task->executor_id() == executorId) {
           StatusUpdateMessage message;
           StatusUpdate* update = message.mutable_update();
           update->mutable_framework_id()->MergeFrom(task->framework_id());
@@ -1026,6 +1029,7 @@ void Master::exitedExecutor(const SlaveID& slaveId,
           TaskStatus* status = update->mutable_status();
           status->mutable_task_id()->MergeFrom(task->task_id());
           status->set_state(TASK_LOST);
+          status->set_message("Lost executor");
           update->set_timestamp(elapsedTime());
           update->set_uuid(UUID::random().toBytes());
           send(framework->pid, message);
@@ -1040,9 +1044,9 @@ void Master::exitedExecutor(const SlaveID& slaveId,
         }
       }
 
-      // Remove executor from slave.
-      removeExecutor(slave, framework,
-                     slave->executors[frameworkId][executorId]);
+      // Remove executor from slave and framework.
+      slave->removeExecutor(frameworkId, executorId);
+      framework->removeExecutor(slave->id, executorId);
 
       // TODO(benh): Send the framework it's executor's exit status?
       // Or maybe at least have something like
@@ -1161,6 +1165,7 @@ void Master::makeOffers(Framework* framework,
     offer->mutable_slave_id()->MergeFrom(slave->id);
     offer->set_hostname(slave->info.hostname());
     offer->mutable_resources()->MergeFrom(offerRes.expectedResources);
+    offer->mutable_attributes()->MergeFrom(slave->info.attributes());
     offer->mutable_min_resources()->MergeFrom(offerRes.minResources);
 
     // Add all framework's executors running on this slave.
@@ -1334,8 +1339,13 @@ struct ResourceUsageChecker : TaskDescriptionVisitor
       if (!slave->hasExecutor(framework->id, executorInfo.executor_id())) {
         taskResources += ResourceHints::forExecutorInfo(executorInfo);
         if (!((usedResources + taskResources) <=
-              ResourceHints::forOffer(*offer))) {
-          return TaskDescriptionError::some(
+            ResourceHints::forOffer(*offer)) {
+          LOG(WARNING) << "Task " << task.task_id() << " attempted to use "
+                  << taskResources << " combined with already used "
+                  << usedResources << " is greater than offered "
+                  << ResourceHints::forOffer(*offer);
+
+	  return TaskDescriptionError::some(
               "Task + executor uses more resources than offered");
         }
       }
@@ -1406,7 +1416,7 @@ void Master::processTasks(Offer* offer,
       update->mutable_framework_id()->MergeFrom(framework->id);
       TaskStatus* status = update->mutable_status();
       status->mutable_task_id()->MergeFrom(task.task_id());
-      status->set_state(TASK_FAILED);
+      status->set_state(TASK_LOST);
       status->set_message(error.get());
       update->set_timestamp(elapsedTime());
       update->set_uuid(UUID::random().toBytes());
@@ -1501,6 +1511,7 @@ ResourceHints Master::launchTask(const TaskDescription& task,
   minResources += task.min_resources();
 
   LOG(INFO) << "Launching task " << task.task_id()
+            << " with resources " << task.resources()
             << " on slave " << slave->id;
 
   RunTaskMessage message;
@@ -1544,15 +1555,6 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
 {
   const UPID& oldPid = framework->pid;
 
-  // Remove the framework's offers (if they weren't removed before).
-  // TODO(benh): Consider just reoffering these to the new framework.
-  foreach (Offer* offer, utils::copy(framework->offers)) {
-    allocator->resourcesRecovered(offer->framework_id(),
-                                  offer->slave_id(),
-                                  ResourceHints::forOffer(*offer));
-    removeOffer(offer);
-  }
-
   {
     FrameworkErrorMessage message;
     message.set_code(1);
@@ -1570,9 +1572,23 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
 
   framework->reregisteredTime = elapsedTime();
 
-  FrameworkRegisteredMessage message;
-  message.mutable_framework_id()->MergeFrom(framework->id);
-  send(newPid, message);
+  {
+    FrameworkRegisteredMessage message;
+    message.mutable_framework_id()->MergeFrom(framework->id);
+    send(newPid, message);
+  }
+
+  // Remove the framework's offers (if they weren't removed before).
+  // We do this after we have updated the pid and sent the framework
+  // registered message so that the allocator can immediately re-offer
+  // these resources to this framework if it wants.
+  // TODO(benh): Consider just reoffering these to
+  foreach (Offer* offer, utils::copy(framework->offers)) {
+    allocator->resourcesRecovered(offer->framework_id(),
+                                  offer->slave_id(),
+                                  offer->resources());
+    removeOffer(offer);
+  }
 }
 
 
@@ -1619,6 +1635,14 @@ void Master::removeFramework(Framework* framework)
   // failoverFramework needs to be shared!
 
   // TODO(benh): unlink(framework->pid);
+
+  framework->unregisteredTime = elapsedTime();
+
+  completedFrameworks.push_back(*framework);
+
+  if (completedFrameworks.size() > MAX_COMPLETED_FRAMEWORKS) {
+    completedFrameworks.pop_front();
+  }
 
   // Delete it.
   frameworks.erase(framework->id);
@@ -1677,8 +1701,17 @@ void Master::readdSlave(Slave* slave,
     // Find the executor running this task and add it to the slave.
     foreach (const ExecutorInfo& executorInfo, executorInfos) {
       if (executorInfo.executor_id() == task.executor_id()) {
-        addExecutor(task.framework_id(), task.slave_id(),  executorInfo);
-	break;
+        if (!slave->hasExecutor(task.framework_id(), task.executor_id())) {
+          slave->addExecutor(task.framework_id(), executorInfo);
+        }
+
+        // Also add it to the framework if it has re-registered with us.
+        Framework* framework = getFramework(task.framework_id());
+        if (framework != NULL) {
+          CHECK(!framework->hasExecutor(slave->id, task.executor_id()));
+          framework->addExecutor(slave->id, executorInfo);
+        }
+        break;
       }
     }
 
@@ -1737,6 +1770,7 @@ void Master::removeSlave(Slave* slave)
       TaskStatus* status = update->mutable_status();
       status->mutable_task_id()->MergeFrom(task->task_id());
       status->set_state(TASK_LOST);
+      status->set_message("Slave removed");
       update->set_timestamp(elapsedTime());
       update->set_uuid(UUID::random().toBytes());
       send(framework->pid, message);
@@ -1761,7 +1795,7 @@ void Master::removeSlave(Slave* slave)
       }
     }
   }
-  
+
   // Remove slave from any filters.
   foreachvalue (Framework* framework, frameworks) {
     framework->slaveFilter.erase(slave);

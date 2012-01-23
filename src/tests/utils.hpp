@@ -48,17 +48,17 @@
 namespace mesos { namespace internal { namespace test {
 
 /**
- * The location of the Mesos project root directory.  Used by tests to locate
+ * The location of the Mesos source directory.  Used by tests to locate
  * various frameworks and binaries.  Initialized in main.cpp.
  */
-extern std::string mesosRoot;
+extern std::string mesosSourceDirectory;
 
 
 /**
- * The location where Mesos is installed, used by tests to locate various
+ * The location of the Mesos build directory. Used by tests to locate
  * frameworks and binaries.  Initialized in main.cpp.
  */
-extern std::string mesosHome;
+extern std::string mesosBuildDirectory;
 
 
 /**
@@ -200,8 +200,8 @@ MATCHER_P3(MsgMatcher, name, from, to, "")
  * using the message matcher (see above) as well as the MockFilter
  * (see above).
  */
-#define EXPECT_MSG(_filter, name, from, to)                \
-  EXPECT_CALL(_filter, filter(MsgMatcher(name, from, to)))
+#define EXPECT_MSG(mockFilter, name, from, to)                  \
+  EXPECT_CALL(mockFilter, filter(MsgMatcher(name, from, to)))
 
 
 /**
@@ -256,7 +256,7 @@ ACTION_P(SendStatusUpdateForId, state) {
     int sleeps = 0;                                                     \
     do {                                                                \
       __sync_synchronize();                                             \
-      if ((trigger).value)                                                \
+      if ((trigger).value)                                              \
         break;                                                          \
       usleep(10);                                                       \
       if (sleeps++ >= 200000) {                                         \
@@ -272,7 +272,11 @@ class TestingIsolationModule : public slave::IsolationModule
 {
 public:
   TestingIsolationModule(const std::map<ExecutorID, Executor*>& _executors)
-    : executors(_executors) {}
+    : executors(_executors)
+  {
+    EXPECT_CALL(*this, resourcesChanged(testing::_, testing::_, testing::_))
+      .Times(testing::AnyNumber());
+  }
 
   virtual ~TestingIsolationModule() {}
 
@@ -329,12 +333,10 @@ public:
     }
   }
 
-  virtual void resourcesChanged(const FrameworkID& frameworkId,
-                                const ExecutorID& executorId,
-                                const ResourceHints& resources)
-  {
-    lastResources[executorId] = resources;
-  }
+  // Mocked so tests can check that the resources reflect all started tasks.
+  MOCK_METHOD3(resourcesChanged, void(const FrameworkID&,
+                                      const ExecutorID&,
+                                      const Resources&));
 
   std::map<ExecutorID, std::string> directories;
 

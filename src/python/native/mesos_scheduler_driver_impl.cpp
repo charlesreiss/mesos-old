@@ -275,7 +275,7 @@ PyObject* MesosSchedulerDriverImpl_stop(MesosSchedulerDriverImpl* self,
 
   bool failover = false;
 
-  if (!PyArg_ParseTuple(args, "b", &failover)) {
+  if (!PyArg_ParseTuple(args, "|b", &failover)) {
     return NULL;
   }
 
