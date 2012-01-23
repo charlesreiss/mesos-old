@@ -563,8 +563,8 @@ PROTOBUF_EGG =								\
 
 $(PROTOBUF_EGG):
 	@echo "Building protobuf Python egg ..."
-	@cd ../$(PROTOBUF)/python && \
-	  PYTHONPATH=$(SETUPTOOLS) $(PYTHON) setup.py bdist_egg
+	cd ../$(PROTOBUF)/python && \
+	  PYTHONPATH=${PYTHONPATH}:$(SETUPTOOLS) $(PYTHON) setup.py bdist_egg
 
 CLEANFILES += $(PROTOBUF_EGG)
 
