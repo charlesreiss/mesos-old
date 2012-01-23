@@ -211,6 +211,7 @@ __EOF__
         if test -e "$JAVA_HOME/jre/lib/$arch"; then
           JAVA_LDFLAGS="-L$JAVA_HOME/jre/lib/$arch/server -R$JAVA_HOME/jre/lib/$arch/server -Wl,-ljvm"
           PYTHON_JAVA_LDFLAGS="-L$JAVA_HOME/jre/lib/$arch/server -Wl,-rpath,$JAVA_HOME/jre/lib/$arch/server -ljvm"
+          TEST_JAVA_LDFLAGS="$PYTHON_JAVA_LDFLAGS"
           break;
           fi
       done
@@ -223,6 +224,10 @@ __EOF__
 
   if test -z "$PYTHON_JAVA_LDFLAGS"; then
     PYTHON_JAVA_LDFLAGS="$JAVA_LDFLAGS"
+  fi
+
+  if test -z "$TEST_JAVA_LDFLAGS"; then
+    TEST_JAVA_LDFLAGS="$JAVA_LDFLAGS"
   fi
 
     AC_MSG_CHECKING([whether or not we can build using the JDK])
@@ -238,7 +243,7 @@ int main(int argc, char** argv)
 __EOF__
 
   # Compile and link.
-  $CXX $JAVA_CPPFLAGS $JAVA_LDFLAGS -o conftest conftest.cpp >&5
+  $CXX $JAVA_CPPFLAGS -o conftest conftest.cpp $TEST_JAVA_LDFLAGS >&5
 
   if test $? != 0; then
     AC_MSG_ERROR([failed to build against JDK])
