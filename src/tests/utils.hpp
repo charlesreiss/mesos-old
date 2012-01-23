@@ -336,7 +336,7 @@ public:
   // Mocked so tests can check that the resources reflect all started tasks.
   MOCK_METHOD3(resourcesChanged, void(const FrameworkID&,
                                       const ExecutorID&,
-                                      const Resources&));
+                                      const ResourceHints&));
 
   std::map<ExecutorID, std::string> directories;
 

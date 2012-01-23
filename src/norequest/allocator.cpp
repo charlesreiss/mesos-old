@@ -162,9 +162,9 @@ struct ChargedShareComparator {
     Resources charge = tracker->chargeForFramework(framework->id);
     double share = 0.0;
     foreach (const Resource& resource, charge) {
-      if (resource.type() == Resource::SCALAR) {
+      if (resource.type() == Value::SCALAR) {
         double total =
-            totalResources.get(resource.name(), Resource::Scalar()).value();
+            totalResources.get(resource.name(), Value::Scalar()).value();
         if (total > 0.0) {
           share = std::max(share, resource.scalar().value() / total);
         }
@@ -192,8 +192,8 @@ namespace {
 bool enoughResources(Resources res) {
   const double kMinCPU = 0.01;
   const double kMinMem = 16;
-  return (res.get("cpus", Resource::Scalar()).value() > kMinCPU &&
-          res.get("mem", Resource::Scalar()).value() > kMinMem);
+  return (res.get("cpus", Value::Scalar()).value() > kMinCPU &&
+          res.get("mem", Value::Scalar()).value() > kMinMem);
 }
 
 Resource kNoCPU = Resources::parse("cpus", "0.0");

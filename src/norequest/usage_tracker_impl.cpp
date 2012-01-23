@@ -60,11 +60,11 @@ Resources multiplyResources(const Resources& resources, double by) {
   Resources result;
   foreach (const Resource& resource, resources) {
     switch (resource.type()) {
-    case Resource::SCALAR:
+    case Value::SCALAR:
       {
         Resource scaled;
         scaled.set_name(resource.name());
-        scaled.set_type(Resource::SCALAR);
+        scaled.set_type(Value::SCALAR);
         scaled.mutable_scalar()->set_value(resource.scalar().value() * by);
         CHECK(Resources::isValid(scaled));
         result += scaled;

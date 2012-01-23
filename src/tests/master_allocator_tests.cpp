@@ -121,7 +121,7 @@ protected:
     LOG(INFO) << "XXX master = " << master;
     SlaveInfo slaveInfo;
     slaveInfo.set_hostname("test.invalid");
-    slaveInfo.set_public_hostname("test.invalid");
+    slaveInfo.set_webui_hostname("test.invalid");
     slaveInfo.mutable_resources()->MergeFrom(
         Resources::parse("cpus:32;mem:1024"));
     RegisterSlaveMessage registerMessage;

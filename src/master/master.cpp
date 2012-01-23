@@ -1339,7 +1339,7 @@ struct ResourceUsageChecker : TaskDescriptionVisitor
       if (!slave->hasExecutor(framework->id, executorInfo.executor_id())) {
         taskResources += ResourceHints::forExecutorInfo(executorInfo);
         if (!((usedResources + taskResources) <=
-            ResourceHints::forOffer(*offer)) {
+            ResourceHints::forOffer(*offer))) {
           LOG(WARNING) << "Task " << task.task_id() << " attempted to use "
                   << taskResources << " combined with already used "
                   << usedResources << " is greater than offered "
@@ -1586,7 +1586,7 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
   foreach (Offer* offer, utils::copy(framework->offers)) {
     allocator->resourcesRecovered(offer->framework_id(),
                                   offer->slave_id(),
-                                  offer->resources());
+                                  ResourceHints::forOffer(*offer));
     removeOffer(offer);
   }
 }

@@ -371,7 +371,7 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
   if (haveMem) {
     Resource mem;
     mem.set_name("mem");
-    mem.set_type(Resource::SCALAR);
+    mem.set_type(Value::SCALAR);
     mem.mutable_scalar()->set_value(curMemBytes / 1024.0 / 1024.0);
     result += mem;
   }
@@ -380,7 +380,7 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
       double cpuRate = (curCpu - info->lastCpu) / duration / 1e9;
       Resource cpu;
       cpu.set_name("cpus");
-      cpu.set_type(Resource::SCALAR);
+      cpu.set_type(Value::SCALAR);
       cpu.mutable_scalar()->set_value(cpuRate);
       result += cpu;
       info->lastCpu = curCpu;

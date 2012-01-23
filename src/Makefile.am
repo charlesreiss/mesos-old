@@ -255,6 +255,8 @@ libnorequest_la_SOURCES = \
 			  norequest/allocator.cpp \
 			  norequest/usage_tracker.cpp \
 			  norequest/usage_tracker_impl.cpp
+libnorequest_la_CPPFLAGS = $(MESOS_CPPFLAGS)
+libnorequest_la_CXXFLAGS = $(MESOS_CXXFLAGS)
 
 libmesos_no_third_party_la_LIBADD += libnorequest.la
 
