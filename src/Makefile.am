@@ -247,6 +247,7 @@ libwebui_la_SOURCES = master/webui.cpp slave/webui.cpp common/webui_utils.cpp
 libwebui_la_SOURCES += master/webui.hpp slave/webui.hpp common/webui_utils.hpp
 libwebui_la_CPPFLAGS = $(MESOS_CPPFLAGS) $(WEBUI_CPPFLAGS)
 libwebui_la_CXXFLAGS = $(MESOS_CXXFLAGS)
+libwebui_la_LIBADD = $(WEBUI_LDFLAGS)
 endif
 
 noinst_LTLIBRARIES += libnorequest.la
