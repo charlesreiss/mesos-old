@@ -183,11 +183,26 @@ public:
 };
 
 
+template <class T>
+std::string DescribeMatcherToString(const testing::Matcher<T>& matcher) {
+  std::ostringstream ostr;
+  matcher.DescribeTo(&ostr);
+  return ostr.str();
+}
+
 /**
  * A message can be matched against in conjunction with the MockFilter
  * (see above) to perform specific actions based for messages.
  */
-MATCHER_P3(MsgMatcher, name, from, to, "")
+MATCHER_P3(MsgMatcher, name, from, to,
+    (negation ? std::string("isn't msg ") : std::string("is msg ")) +
+    mesos::internal::test::DescribeMatcherToString(
+      testing::Matcher<std::string>(name)) +
+    " sent from " +
+    mesos::internal::test::DescribeMatcherToString(
+      testing::Matcher<process::UPID>(from)) + " to " +
+    mesos::internal::test::DescribeMatcherToString(
+      testing::Matcher<process::UPID>(to)))
 {
   return (testing::Matcher<std::string>(name).Matches(arg->name) &&
           testing::Matcher<process::UPID>(from).Matches(arg->from) &&
