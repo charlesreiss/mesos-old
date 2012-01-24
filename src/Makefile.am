@@ -223,7 +223,7 @@ BUILD_FLAGS=$(echo $(MESOS_CPPFLAGS) | sed 's/\"/\\\"/g') $(MESOS_CXXFLAGS)
 libbuild_la_CPPFLAGS += -DBUILD_FLAGS="\"$$BUILD_FLAGS\""
 
 # Using the FORCE target is how we make sure it always get's built!
-libbuild_la_DEPENDENCIES = FORCE
+libbuild_la_DEPENDENCIES = # FORCE
 
 libmesos_no_third_party_la_LIBADD += libbuild.la
 
