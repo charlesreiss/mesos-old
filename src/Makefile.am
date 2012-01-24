@@ -255,10 +255,26 @@ libnorequest_la_SOURCES = \
 			  norequest/allocator.cpp \
 			  norequest/usage_tracker.cpp \
 			  norequest/usage_tracker_impl.cpp
+libnorequest_la_SOURCES += \
+			   norequest/allocator.hpp \
+			   norequest/usage_tracker.hpp \
+			   norequest/usage_tracker_impl.hpp
 libnorequest_la_CPPFLAGS = $(MESOS_CPPFLAGS)
 libnorequest_la_CXXFLAGS = $(MESOS_CXXFLAGS)
 
 libmesos_no_third_party_la_LIBADD += libnorequest.la
+
+noinst_LTLIBRARIES += libfake.la
+libfake_la_SOURCES = \
+		     fake/fake_task.cpp \
+		     fake/fake_isolation_module.cpp
+libfake_la_SOURCES += \
+		      fake/fake_task.hpp \
+		      fake/fake_isolation_module.hpp
+libfake_la_CPPFLAGS = $(MESOS_CPPFLAGS)
+libfake_la_CXXFLAGS = $(MESOS_CXXFLAGS)
+
+libmesos_no_third_party_la_LIBADD += libfake.la
 
 # The final result!
 lib_LTLIBRARIES += libmesos.la
@@ -630,7 +646,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 	              tests/exception_tests.cpp				\
 		      tests/master_allocator_tests.cpp			\
 		      tests/norequest/usage_tracker_test.cpp 		\
-		      tests/norequest/allocator_test.cpp
+		      tests/norequest/allocator_test.cpp		\
+		      tests/fake/fake_isolation_module_test.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
