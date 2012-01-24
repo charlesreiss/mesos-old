@@ -517,6 +517,7 @@ struct ResourceHints {
   ResourceHints& operator-=(const ResourceHints& other) {
     expectedResources -= other.expectedResources;
     minResources -= other.minResources;
+    return *this;
   }
 
   ResourceHints operator-(const ResourceHints& other) const {
