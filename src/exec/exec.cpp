@@ -338,7 +338,6 @@ static const char* getenvOrDie(const std::string& variable) {
 
 Status MesosExecutorDriver::start()
 {
-
   // Set stream buffering mode to flush on newlines so that we capture logs
   // from user processes even when output is redirected to a file.
   setvbuf(stdout, 0, _IOLBF, 0);
@@ -353,7 +352,7 @@ Status MesosExecutorDriver::start()
   std::string executorId = getenvOrDie("MESOS_EXECUTOR_ID");
   std::string workDirectory = getenvOrDie("MESOS_DIRECTORY");
 
-  start(local, slavePid, frameworkId, executorId, workDirectory);
+  return start(local, slavePid, frameworkId, executorId, workDirectory);
 }
 
 
