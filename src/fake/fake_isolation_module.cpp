@@ -8,10 +8,26 @@ namespace internal {
 namespace fake {
 
 using std::make_pair;
+
+void FakeExecutor::launchTask(ExecutorDriver* driver,
+                              const TaskDescription& task)
+{
+}
+
+void FakeExecutor::killTask(ExecutorDriver* driver,
+                            const TaskID& taskId)
+{
+  TaskStatus status;
+  status.mutable_task_id()->MergeFrom(taskId);
+  status.set_state(TASK_KILLED);
+  driver->sendStatusUpdate(status);
+}
+
 void FakeIsolationModule::initialize(const Configuration& conf, bool local,
-    const process::PID<Slave>& slave_) {
+    const process::PID<Slave>& slave_)
+{
   slave = slave_;
-  executor.reset(new FakeExecutor);
+  executor.reset(new FakeExecutor(this));
   CHECK(local);
 }
 
@@ -31,6 +47,7 @@ void FakeIsolationModule::launchExecutor(
 
 void FakeIsolationModule::killExecutor(
     const FrameworkID& frameworkId, const ExecutorID& executorId) {
+  LOG(INFO) << "asked to kill executor";
   DriverMap::iterator it = drivers.find(make_pair(frameworkId, executorId));
   if (it != drivers.end()) {
     LOG(INFO) << "about to stop driver";

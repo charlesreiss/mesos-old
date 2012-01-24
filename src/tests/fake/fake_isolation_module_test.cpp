@@ -54,8 +54,13 @@ struct MockFakeTask : FakeTask {
 
 class FakeIsolationModuleTest : public ::testing::Test {
 public:
+  SlaveID getSlaveId() {
+    SlaveID dummySlaveId;
+    dummySlaveId.set_value("default");
+    return dummySlaveId;
+  }
+
   void startSlave() {
-    runningExecs = 0;
     process::Clock::pause();
     process::filter(&mockFilter);
     using testing::_;
@@ -70,44 +75,51 @@ public:
 
     trigger askedToRegister;
     mockMaster->expectAndWait<RegisterSlaveMessage>(slavePid, &askedToRegister);
-    process::dispatch(slavePid, &Slave::newMasterDetected, mockMasterPid);
+    process::dispatch(slave.get(), &Slave::newMasterDetected, mockMasterPid);
     WAIT_UNTIL(askedToRegister);
 
-    SlaveID dummySlaveId;
-    dummySlaveId.set_value("default");
-    process::dispatch(slavePid, &Slave::registered, dummySlaveId);
+    process::dispatch(slave.get(), &Slave::registered, getSlaveId());
   }
 
-  void startExecutorFor(std::string id) {
-    ExecutorInfo info;
-    info.mutable_executor_id()->set_value(id);
+  TaskDescription makeTaskDescription(const std::string& id,
+                                      const ResourceHints& resources) {
+    TaskDescription task;
+    task.set_name("task-" + id);
+    task.mutable_task_id()->set_value(id);
+    task.mutable_slave_id()->MergeFrom(getSlaveId());
+    task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
+    task.mutable_executor()->mutable_executor_id()->set_value(id);
+    return task;
+  }
+
+  template <class T> static std::string name() {
+    T m;
+    return m.GetTypeName();
+  }
+
+  void startTask(std::string id, MockFakeTask* task,
+                 const ResourceHints& resources) {
     trigger gotRegister;
-    EXPECT_MSG(mockFilter, "RegisterExecutorMessage", testing::_, slavePid).
+    EXPECT_MSG(mockFilter, name<RegisterExecutorMessage>(),
+                           testing::_, slavePid).
       WillOnce(testing::DoAll(Trigger(&gotRegister),
                               testing::Return(false)));
-    process::dispatch(module.get(),
-        &IsolationModule::launchExecutor,
-        DEFAULT_FRAMEWORK_ID,
+    process::dispatch(slave.get(), &Slave::runTask,
         DEFAULT_FRAMEWORK_INFO,
-        info, "must-be-ignored",
-        ResourceHints());
+        DEFAULT_FRAMEWORK_ID,
+        mockMasterPid, // mock master acting as scheduler
+        makeTaskDescription(id, resources));
     WAIT_UNTIL(gotRegister);
-    ++runningExecs;
   }
 
-  void startTask(std::string id, MockFakeTask* task);
-  void endTask(std::string id, MockFakeTask* task);
-  void killExecutorFor(std::string id) {
-    ExecutorID executorId;
-    executorId.set_value(id);
-    trigger gotExit;
-    mockMaster->expectAndWait<ExitedExecutorMessage>(slavePid, &gotExit);
-    process::dispatch(module.get(),
-        &IsolationModule::killExecutor,
-        DEFAULT_FRAMEWORK_ID,
-        executorId);
-    WAIT_UNTIL(gotExit);
-    --runningExecs;
+  void killTask(std::string id) {
+    trigger gotStatusUpdate;
+    mockMaster->expectAndWait<StatusUpdateMessage>(slavePid, &gotStatusUpdate);
+    TaskID taskId;
+    taskId.set_value(id);
+    process::dispatch(slave.get(), &Slave::killTask,
+                      DEFAULT_FRAMEWORK_ID, taskId);
+    WAIT_UNTIL(gotStatusUpdate);
   }
 
   void queryUsage() {
@@ -120,12 +132,10 @@ public:
     process::wait(mockMasterPid);
     process::filter(0);
     process::Clock::resume();
-    EXPECT_EQ(runningExecs, 0);
   }
 
 protected:
   hashmap<std::string, UsageMessage> lastUsage;
-  int runningExecs;
 
   boost::scoped_ptr<Slave> slave;
   process::PID<Slave> slavePid;
@@ -142,7 +152,8 @@ TEST_F(FakeIsolationModuleTest, InitStop) {
 
 TEST_F(FakeIsolationModuleTest, StartKillExecutor) {
   startSlave();
-  startExecutorFor("task0");
-  killExecutorFor("task0");
+  MockFakeTask mockTask;
+  startTask("task0", &mockTask, ResourceHints());
+  killTask("task0");
   stopSlave();
 }

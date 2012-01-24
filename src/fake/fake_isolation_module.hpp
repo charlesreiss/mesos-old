@@ -37,27 +37,33 @@ namespace fake {
 using mesos::internal::slave::IsolationModule;
 using mesos::internal::slave::Slave;
 
+class FakeIsolationModule;
+
 class FakeExecutor : public Executor {
 public:
+  FakeExecutor(FakeIsolationModule* module_) : module(module_) {}
+
   void init(ExecutorDriver* driver, const ExecutorArgs& args) {
   }
 
-  void launchTask(ExecutorDriver* driver, const TaskDescription& task) {
-  }
+  void launchTask(ExecutorDriver* driver, const TaskDescription& task);
 
-  void killTask(ExecutorDriver* driver, const TaskID& taskId) {
-  }
+  void killTask(ExecutorDriver* driver, const TaskID& taskId);
 
   void frameworkMessage(ExecutorDriver* driver, const std::string& data) {
+    LOG(FATAL) << "should not get framework message";
   }
 
   void shutdown(ExecutorDriver* driver) {
   }
 
   void error(ExecutorDriver* driver, int code, const std::string& message) {
+    LOG(ERROR) << "FakeExecutor; code = " << code << "; message = " << message;
   }
 
   virtual ~FakeExecutor() {}
+private:
+  FakeIsolationModule* module;
 };
 
 
@@ -82,14 +88,23 @@ public:
   /* for calling elsewhere */
   void registerTask(const FrameworkID& frameworkId,
                     const ExecutorID& executorId,
+                    const TaskID& taskId,
                     mesos::internal::fake::FakeTask* fakeTask) {}
+  void unregisterTask(const FrameworkID& frameworkId,
+                      const ExecutorID& executorId,
+                      const TaskID& taskId) {}
 
 private:
+  friend class FakeExecutor;
+
   // We only have one instance of an executor, with multiple executor
   // drivers calling it.
   boost::scoped_ptr<FakeExecutor> executor;
   typedef hashmap<std::pair<FrameworkID, ExecutorID>, MesosExecutorDriver*> DriverMap;
   DriverMap drivers;
+  // For now, only one task per executor
+  typedef hashmap<std::pair<FrameworkID, ExecutorID>, FakeTask*> TaskMap;
+  TaskMap tasks;
   process::PID<Slave> slave;
 };
 
