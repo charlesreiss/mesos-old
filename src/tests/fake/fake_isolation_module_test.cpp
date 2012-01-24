@@ -36,10 +36,26 @@ struct MockFakeTask : FakeTask {
   MOCK_CONST_METHOD0(done, bool(void));
 };
 
+#define DEFAULT_FRAMEWORK_ID \
+  ({ \
+    FrameworkID id; \
+    id.set_value("default-framework"); \
+    id; \
+  })
+
+#define DEFAULT_FRAMEWORK_INFO \
+  ({ \
+    FrameworkInfo info; \
+    info.set_user("ignored-username"); \
+    info.set_name("ignored-name"); \
+    info.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO); \
+    info; \
+  })
 
 class FakeIsolationModuleTest : public ::testing::Test {
 public:
   void startSlave() {
+    runningExecs = 0;
     process::Clock::pause();
     process::filter(&mockFilter);
     using testing::_;
@@ -62,9 +78,41 @@ public:
     process::dispatch(slavePid, &Slave::registered, dummySlaveId);
   }
 
-  void startExecutorFor(std::string id);
+  void startExecutorFor(std::string id) {
+    ExecutorInfo info;
+    info.mutable_executor_id()->set_value(id);
+    trigger gotRegister;
+    EXPECT_MSG(mockFilter, "RegisterExecutorMessage", testing::_, slavePid).
+      WillOnce(testing::DoAll(Trigger(&gotRegister),
+                              testing::Return(false)));
+    process::dispatch(module.get(),
+        &IsolationModule::launchExecutor,
+        DEFAULT_FRAMEWORK_ID,
+        DEFAULT_FRAMEWORK_INFO,
+        info, "must-be-ignored",
+        ResourceHints());
+    WAIT_UNTIL(gotRegister);
+    ++runningExecs;
+  }
+
   void startTask(std::string id, MockFakeTask* task);
-  void killExecutorFor(std::string id);
+  void endTask(std::string id, MockFakeTask* task);
+  void killExecutorFor(std::string id) {
+    ExecutorID executorId;
+    executorId.set_value(id);
+    trigger gotExit;
+    mockMaster->expectAndWait<ExitedExecutorMessage>(slavePid, &gotExit);
+    process::dispatch(module.get(),
+        &IsolationModule::killExecutor,
+        DEFAULT_FRAMEWORK_ID,
+        executorId);
+    WAIT_UNTIL(gotExit);
+    --runningExecs;
+  }
+
+  void queryUsage() {
+  }
+
   void stopSlave() {
     process::terminate(slavePid);
     process::terminate(mockMasterPid);
@@ -72,9 +120,13 @@ public:
     process::wait(mockMasterPid);
     process::filter(0);
     process::Clock::resume();
+    EXPECT_EQ(runningExecs, 0);
   }
 
 protected:
+  hashmap<std::string, UsageMessage> lastUsage;
+  int runningExecs;
+
   boost::scoped_ptr<Slave> slave;
   process::PID<Slave> slavePid;
   boost::scoped_ptr<FakeIsolationModule> module;
@@ -88,3 +140,9 @@ TEST_F(FakeIsolationModuleTest, InitStop) {
   stopSlave();
 }
 
+TEST_F(FakeIsolationModuleTest, StartKillExecutor) {
+  startSlave();
+  startExecutorFor("task0");
+  killExecutorFor("task0");
+  stopSlave();
+}
