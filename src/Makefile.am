@@ -71,20 +71,22 @@ PHONY_TARGETS =
 AM_CXXFLAGS = $(PTHREAD_CFLAGS)
 AM_LIBS = $(PTHREAD_LIBS)
 
+DO_INCLUDE= -isystem
+
 # Setup CPPFLAGS and CXXFLAGS that are used for most source files.
 MESOS_CPPFLAGS = $(AM_CPPFLAGS)
 MESOS_CPPFLAGS += -DMESOS_WEBUI_DIR=\"$(webuidir)\"
 MESOS_CPPFLAGS += -DMESOS_LIBEXECDIR=\"$(pkglibexecdir)\"
 MESOS_CPPFLAGS += -I$(top_srcdir)/include
-MESOS_CPPFLAGS += -I$(top_builddir)/$(BOOST)
-MESOS_CPPFLAGS += -I$(top_builddir)/$(PROTOBUF)/src
-MESOS_CPPFLAGS += -I$(top_builddir)/$(GLOG)/src
-MESOS_CPPFLAGS += -I$(top_builddir)/$(GLOG)/src
-MESOS_CPPFLAGS += -I$(top_builddir)/$(LIBPROCESS)/include
+MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(BOOST)
+MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(PROTOBUF)/src
+MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GLOG)/src
+MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GLOG)/src
+MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(LIBPROCESS)/include
 
 if WITH_INCLUDED_ZOOKEEPER
-  MESOS_CPPFLAGS += -I$(top_builddir)/$(ZOOKEEPER)/include
-  MESOS_CPPFLAGS += -I$(top_builddir)/$(ZOOKEEPER)/generated
+  MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(ZOOKEEPER)/include
+  MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(ZOOKEEPER)/generated
 endif
 
 MESOS_CXXFLAGS = -g2 -O2 $(AM_CXXFLAGS)
