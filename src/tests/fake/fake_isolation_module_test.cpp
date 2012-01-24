@@ -42,6 +42,8 @@ public:
   void startSlave() {
     process::Clock::pause();
     process::filter(&mockFilter);
+    using testing::_;
+    EXPECT_MSG(mockFilter, _, _, _).WillRepeatedly(testing::Return(false));
     mockMaster.reset(new FakeProtobufProcess);
     mockMaster->setFilter(&mockFilter);
     mockMasterPid = process::spawn(mockMaster.get());
