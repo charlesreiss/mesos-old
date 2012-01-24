@@ -291,11 +291,9 @@ MesosExecutorDriver::~MesosExecutorDriver()
   pthread_cond_destroy(&cond);
 }
 
-Status MesosExecutorDriver::start(
-    bool local, const std::string& slavePidString,
-    const std::string& frameworkIdString,
-    const std::string& executorIdString,
-    const std::string& workDirectory) {
+
+Status MesosExecutorDriver::start()
+{
   Lock lock(&mutex);
 
   if (state == RUNNING) {
@@ -306,14 +304,69 @@ Status MesosExecutorDriver::start(
     return DRIVER_ABORTED;
   }
 
-  UPID slave = UPID(slavePidString);
+  // Set stream buffering mode to flush on newlines so that we capture logs
+  // from user processes even when output is redirected to a file.
+  setvbuf(stdout, 0, _IOLBF, 0);
+  setvbuf(stderr, 0, _IOLBF, 0);
+
+  bool local;
+
+  UPID slave;
+  FrameworkID frameworkId;
+  ExecutorID executorId;
+  std::string workDirectory;
+
+  char* value;
+  std::istringstream iss;
+
+  /* Check if this is local (for example, for testing). */
+  value = getenv("MESOS_LOCAL");
+
+  if (value != NULL) {
+    local = true;
+  } else {
+    local = false;
+  }
+
+  /* Get slave PID from environment. */
+  value = getenv("MESOS_SLAVE_PID");
+
+  if (value == NULL) {
+    fatal("expecting MESOS_SLAVE_PID in environment");
+  }
+
+  slave = UPID(value);
+
   if (!slave) {
     fatal("cannot parse MESOS_SLAVE_PID");
   }
-  FrameworkID frameworkId;
-  frameworkId.set_value(frameworkIdString);
-  ExecutorID executorId;
-  executorId.set_value(executorIdString);
+
+  /* Get framework ID from environment. */
+  value = getenv("MESOS_FRAMEWORK_ID");
+
+  if (value == NULL) {
+    fatal("expecting MESOS_FRAMEWORK_ID in environment");
+  }
+
+  frameworkId.set_value(value);
+
+  /* Get executor ID from environment. */
+  value = getenv("MESOS_EXECUTOR_ID");
+
+  if (value == NULL) {
+    fatal("expecting MESOS_EXECUTOR_ID in environment");
+  }
+
+  executorId.set_value(value);
+
+  /* Get working directory from environment */
+  value = getenv("MESOS_DIRECTORY");
+
+  if (value == NULL) {
+    fatal("expecting MESOS_DIRECTORY in environment");
+  }
+
+  workDirectory = value;
 
   CHECK(process == NULL);
 
@@ -326,34 +379,6 @@ Status MesosExecutorDriver::start(
   state = RUNNING;
 
   return OK;
-}
-
-static const char* getenvOrDie(const std::string& variable) {
-  const char* value = getenv(variable.c_str());
-  if (value == NULL) {
-    fatal(("expecting " + variable + " in environment").c_str());
-  }
-  return value;
-}
-
-Status MesosExecutorDriver::start()
-{
-
-  // Set stream buffering mode to flush on newlines so that we capture logs
-  // from user processes even when output is redirected to a file.
-  setvbuf(stdout, 0, _IOLBF, 0);
-  setvbuf(stderr, 0, _IOLBF, 0);
-
- /* Check if this is local (for example, for testing). */
-  bool local = getenv("MESOS_LOCAL") != NULL;
-
-  /* Get slave PID from environment. */
-  std::string slavePid = getenvOrDie("MESOS_SLAVE_PID");
-  std::string frameworkId = getenvOrDie("MESOS_FRAMEWORK_ID");
-  std::string executorId = getenvOrDie("MESOS_EXECUTOR_ID");
-  std::string workDirectory = getenvOrDie("MESOS_DIRECTORY");
-
-  start(local, slavePid, frameworkId, executorId, workDirectory);
 }
 
 
