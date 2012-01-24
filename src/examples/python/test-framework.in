@@ -12,7 +12,7 @@ test ! -z "${PYTHON}" && \
 PYTHON=@PYTHON@
 
 # Use colors for errors.
-source ${MESOS_SOURCE_DIR}/support/colors.sh
+. ${MESOS_SOURCE_DIR}/support/colors.sh
 
 DISTRIBUTE_EGG=`echo ${MESOS_SOURCE_DIR}/third_party/distribute-*/*.egg`
 
