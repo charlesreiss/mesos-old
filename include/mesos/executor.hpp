@@ -98,6 +98,11 @@ public:
 
   // Lifecycle methods
   virtual Status start();
+  // For testing.
+  Status start(bool local, const std::string& slavePidString,
+            const std::string& frameworkIdString,
+            const std::string& executorIdString,
+            const std::string& directory);
   virtual Status stop();
   virtual Status abort();
   virtual Status join();
