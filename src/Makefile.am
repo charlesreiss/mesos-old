@@ -297,7 +297,7 @@ libmesos_la_LIBADD = libmesos_no_third_party.la
 # For non-convenience libraries we need to link them in to make the shared
 # library each time. (Currently, we don't support platforms where this is not
 # possible.)
-libmesos_la_LIBADD += $(top_builddir)/$(PROTOBUF)/src/.libs/libprotobuf.a
+libmesos_la_LIBADD += $(top_builddir)/$(PROTOBUF)/src/.libs/libprotobuf.la
 libmesos_la_LIBADD += $(top_builddir)/$(GLOG)/.libs/libglog.la
 libmesos_la_LIBADD += $(top_builddir)/$(LIBPROCESS)/libprocess.a
 libmesos_la_LIBADD += $(top_builddir)/$(LIBEV)/.libs/libev.la
@@ -312,14 +312,14 @@ sbin_PROGRAMS += mesos-master
 mesos_master_SOURCES = master/main.cpp
 mesos_master_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_master_CXXFLAGS = $(MESOS_CXXFLAGS)
-mesos_master_LDFLAGS = $(WEBUI_LDFLAGS) $(AM_LDFLAGS)
+mesos_master_LDFLAGS = $(AM_LDFLAGS)
 mesos_master_LDADD = libwebui.la libmesos.la
 
 sbin_PROGRAMS += mesos-slave
 mesos_slave_SOURCES = slave/main.cpp
 mesos_slave_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_slave_CXXFLAGS = $(MESOS_CXXFLAGS)
-mesos_slave_LDFLAGS = $(WEBUI_LDFLAGS) $(AM_LDFLAGS)
+mesos_slave_LDFLAGS = $(AM_LDFLAGS)
 mesos_slave_LDADD = libwebui.la libmesos.la
 
 bin_PROGRAMS += mesos-local
