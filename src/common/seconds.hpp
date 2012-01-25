@@ -34,6 +34,10 @@ struct seconds
   double micros() const { return value * 1000000; }
   double nanos() const { return value * 1000000000; }
   const double value;
+
+  bool operator==(const seconds& other) {
+    return value == other.value;
+  }
 };
 
 
