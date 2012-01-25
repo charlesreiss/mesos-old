@@ -33,6 +33,7 @@ using namespace mesos::internal::test;
 using std::make_pair;
 
 using testing::AtLeast;
+using testing::DoAll;
 using testing::Return;
 
 struct MockFakeTask : FakeTask {
@@ -131,6 +132,26 @@ public:
     WAIT_UNTIL(gotStatusUpdate);
   }
 
+  void acknowledgeUpdate(const std::string& taskId,
+                         const StatusUpdateMessage& updateMessage) {
+    StatusUpdateAcknowledgementMessage ack;
+    ack.mutable_slave_id()->MergeFrom(getSlaveId());
+    ack.mutable_framework_id()->MergeFrom(DEFAULT_FRAMEWORK_ID);
+    ack.mutable_task_id()->set_value(taskId);
+    ack.set_uuid(updateMessage.update().uuid());
+    mockMaster->send(slavePid, ack);
+  }
+
+  void tickAndUpdate(const std::string& taskId) {
+  trigger gotStatusUpdate;
+  StatusUpdateMessage updateMessage;
+  mockMaster->expectAndStore<StatusUpdateMessage>(slavePid, &updateMessage,
+      &gotStatusUpdate);
+  process::Clock::advance(kTick);
+  WAIT_UNTIL(gotStatusUpdate);
+  acknowledgeUpdate(taskId, updateMessage);
+  }
+
   void queryUsage() {
   }
 
@@ -178,17 +199,28 @@ TEST_F(FakeIsolationModuleTest, TaskRunOneSecond) {
   EXPECT_CALL(mockTask, takeUsage(_, _, _)).
     WillOnce(Return(TASK_FINISHED));
 
-  trigger gotStatusUpdate;
-  StatusUpdateMessage updateMessage;
-  mockMaster->expectAndStore<StatusUpdateMessage>(slavePid, &updateMessage,
-      &gotStatusUpdate);
-  process::Clock::advance(kTick);
-  WAIT_UNTIL(gotStatusUpdate);
-  StatusUpdateAcknowledgementMessage ack;
-  ack.mutable_slave_id()->MergeFrom(getSlaveId());
-  ack.mutable_framework_id()->MergeFrom(DEFAULT_FRAMEWORK_ID);
-  ack.mutable_task_id()->set_value("task0");
-  ack.set_uuid(updateMessage.update().uuid());
-  mockMaster->send(slavePid, ack);
+  tickAndUpdate("task0");
+
   stopSlave();
 }
+
+TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks) {
+  using testing::_;
+  startSlave();
+
+  MockFakeTask mockTask;
+  startTask("task0", &mockTask, ResourceHints());
+  EXPECT_CALL(mockTask, getUsage(_, _)).
+    WillRepeatedly(Return(Resources::parse("cpu:8.0")));
+  trigger gotTaskUsageCall;
+  EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpu:4.0"))).
+    WillOnce(DoAll(Trigger(&gotTaskUsageCall), Return(TASK_RUNNING)));
+  process::Clock::advance(kTick);
+  WAIT_UNTIL(gotTaskUsageCall);
+  EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpu:4.0"))).
+    WillOnce(Return(TASK_FINISHED));
+  tickAndUpdate("task0");
+
+  stopSlave();
+}
+
