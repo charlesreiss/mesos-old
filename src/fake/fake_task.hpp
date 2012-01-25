@@ -38,16 +38,12 @@ inline seconds operator-(const seconds& s1, const seconds& s2) {
 struct FakeTask {
   virtual Resources getUsage(seconds from, seconds to) const = 0;
   virtual mesos::TaskState takeUsage(seconds from, seconds to, Resources resources) = 0;
-  virtual bool done() const = 0;
 };
 
 struct ContinuousTask : FakeTask {
   ContinuousTask(const Resources& usage_)
     : usage(usage_), score(0.0) {}
 
-  bool done() {
-    return false;
-  }
   Resources getUsage(seconds from, seconds to) const {
     return usage;
   }
@@ -89,7 +85,7 @@ private:
   Resources constUsage;
 };
 
-extern hashmap<std::pair<FrameworkID, TaskID>, FakeTask*> fakeTasks;
+typedef hashmap<std::pair<FrameworkID, TaskID>, FakeTask*> FakeTaskMap;
 
 }  // namespace fake
 }  // namespace internal

@@ -30,10 +30,14 @@ using namespace mesos::internal;
 using namespace mesos::internal::fake;
 using namespace mesos::internal::test;
 
+using std::make_pair;
+
+using testing::AtLeast;
+using testing::Return;
+
 struct MockFakeTask : FakeTask {
   MOCK_CONST_METHOD2(getUsage, Resources(seconds, seconds));
   MOCK_METHOD3(takeUsage, TaskState(seconds, seconds, Resources));
-  MOCK_CONST_METHOD0(done, bool(void));
 };
 
 #define DEFAULT_FRAMEWORK_ID \
@@ -52,6 +56,8 @@ struct MockFakeTask : FakeTask {
     info; \
   })
 
+static const double kTick = 1.0;
+
 class FakeIsolationModuleTest : public ::testing::Test {
 public:
   SlaveID getSlaveId() {
@@ -68,7 +74,7 @@ public:
     mockMaster.reset(new FakeProtobufProcess);
     mockMaster->setFilter(&mockFilter);
     mockMasterPid = process::spawn(mockMaster.get());
-    module.reset(new FakeIsolationModule);
+    module.reset(new FakeIsolationModule(fakeTasks));
     slave.reset(new Slave(Resources::parse("cpu:4.0;mem:4096"), true,
                           module.get()));
     slavePid = process::spawn(slave.get());
@@ -99,6 +105,9 @@ public:
 
   void startTask(std::string id, MockFakeTask* task,
                  const ResourceHints& resources) {
+    TaskID taskId;
+    taskId.set_value(id);
+    fakeTasks[make_pair(DEFAULT_FRAMEWORK_ID, taskId)] = task;
     trigger gotRegister;
     EXPECT_MSG(mockFilter, name<RegisterExecutorMessage>(),
                            testing::_, slavePid).
@@ -143,6 +152,7 @@ protected:
   process::UPID mockMasterPid;
   boost::scoped_ptr<FakeProtobufProcess> mockMaster;
   MockFilter mockFilter;
+  FakeTaskMap fakeTasks;
 };
 
 TEST_F(FakeIsolationModuleTest, InitStop) {
@@ -150,10 +160,35 @@ TEST_F(FakeIsolationModuleTest, InitStop) {
   stopSlave();
 }
 
-TEST_F(FakeIsolationModuleTest, StartKillExecutor) {
+TEST_F(FakeIsolationModuleTest, StartKillTask) {
   startSlave();
   MockFakeTask mockTask;
   startTask("task0", &mockTask, ResourceHints());
   killTask("task0");
+  stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, TaskRunOneSecond) {
+  using testing::_;
+  startSlave();
+  MockFakeTask mockTask;
+  startTask("task0", &mockTask, ResourceHints());
+  EXPECT_CALL(mockTask, getUsage(_, _)).
+    WillRepeatedly(Return(Resources::parse("cpu:0.0")));
+  EXPECT_CALL(mockTask, takeUsage(_, _, _)).
+    WillOnce(Return(TASK_FINISHED));
+
+  trigger gotStatusUpdate;
+  StatusUpdateMessage updateMessage;
+  mockMaster->expectAndStore<StatusUpdateMessage>(slavePid, &updateMessage,
+      &gotStatusUpdate);
+  process::Clock::advance(kTick);
+  WAIT_UNTIL(gotStatusUpdate);
+  StatusUpdateAcknowledgementMessage ack;
+  ack.mutable_slave_id()->MergeFrom(getSlaveId());
+  ack.mutable_framework_id()->MergeFrom(DEFAULT_FRAMEWORK_ID);
+  ack.mutable_task_id()->set_value("task0");
+  ack.set_uuid(updateMessage.update().uuid());
+  mockMaster->send(slavePid, ack);
   stopSlave();
 }

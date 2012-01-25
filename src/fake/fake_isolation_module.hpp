@@ -39,11 +39,22 @@ using mesos::internal::slave::Slave;
 
 class FakeIsolationModule;
 
+struct FakeIsolationModuleTick
+    : public process::Process<FakeIsolationModuleTick> {
+  FakeIsolationModuleTick(FakeIsolationModule* module_) : module(module_) {}
+  virtual void operator()();
+  virtual ~FakeIsolationModuleTick();
+  FakeIsolationModule* module;
+};
+
 class FakeExecutor : public Executor {
 public:
-  FakeExecutor(FakeIsolationModule* module_) : module(module_) {}
+  FakeExecutor(FakeIsolationModule* module_, const FakeTaskMap& fakeTasks_)
+        : module(module_), fakeTasks(fakeTasks_) {}
 
   void init(ExecutorDriver* driver, const ExecutorArgs& args) {
+    frameworkId.MergeFrom(args.framework_id());
+    executorId.MergeFrom(args.executor_id());
   }
 
   void launchTask(ExecutorDriver* driver, const TaskDescription& task);
@@ -55,6 +66,7 @@ public:
   }
 
   void shutdown(ExecutorDriver* driver) {
+    LOG(INFO) << "FakeExecutor: shutdown";
   }
 
   void error(ExecutorDriver* driver, int code, const std::string& message) {
@@ -63,12 +75,18 @@ public:
 
   virtual ~FakeExecutor() {}
 private:
+  FrameworkID frameworkId;
+  ExecutorID executorId;
   FakeIsolationModule* module;
+  const FakeTaskMap& fakeTasks;
 };
 
 
 class FakeIsolationModule : public IsolationModule {
 public:
+  FakeIsolationModule(const FakeTaskMap& fakeTasks_)
+      : fakeTasks(fakeTasks_) {}
+
   void initialize(const Configuration& conf, bool local,
                   const process::PID<Slave>& slave);
 
@@ -83,29 +101,43 @@ public:
 
   void resourcesChanged(const FrameworkID& frameworkId,
                         const ExecutorID& executorId,
-                        const ResourceHints& resources) {}
+                        const ResourceHints& resources);
 
   /* for calling elsewhere */
   void registerTask(const FrameworkID& frameworkId,
                     const ExecutorID& executorId,
                     const TaskID& taskId,
-                    mesos::internal::fake::FakeTask* fakeTask) {}
+                    FakeTask* fakeTask);
   void unregisterTask(const FrameworkID& frameworkId,
                       const ExecutorID& executorId,
-                      const TaskID& taskId) {}
+                      const TaskID& taskId);
+
+  void tick();
 
 private:
   friend class FakeExecutor;
+  friend class FakeIsolationModuleTick;
 
-  // We only have one instance of an executor, with multiple executor
-  // drivers calling it.
-  boost::scoped_ptr<FakeExecutor> executor;
-  typedef hashmap<std::pair<FrameworkID, ExecutorID>, MesosExecutorDriver*> DriverMap;
+  struct RunningTaskInfo {
+    // possibly null if no task is running
+    FakeTask* fakeTask;
+    TaskID taskId;
+
+    // includes both tasks and executor
+    ResourceHints assignedResources;
+  };
+
+  typedef hashmap<std::pair<FrameworkID, ExecutorID>, 
+          std::pair<MesosExecutorDriver*, FakeExecutor*> > DriverMap;
   DriverMap drivers;
   // For now, only one task per executor
-  typedef hashmap<std::pair<FrameworkID, ExecutorID>, FakeTask*> TaskMap;
+  typedef hashmap<std::pair<FrameworkID, ExecutorID>, RunningTaskInfo> TaskMap;
   TaskMap tasks;
   process::PID<Slave> slave;
+  double interval;
+  double lastTime;
+  const FakeTaskMap& fakeTasks;
+  boost::scoped_ptr<FakeIsolationModuleTick> timer;
 };
 
 }  // namespace fake
