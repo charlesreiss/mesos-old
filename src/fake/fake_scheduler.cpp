@@ -18,9 +18,13 @@
 
 #include "fake/fake_scheduler.hpp"
 
+#include <vector>
+
 namespace mesos {
 namespace internal {
 namespace fake {
+
+using std::vector;
 
 void FakeScheduler::registered(SchedulerDriver* driver,
                                const FrameworkID& frameworkId)
@@ -30,6 +34,30 @@ void FakeScheduler::registered(SchedulerDriver* driver,
 void FakeScheduler::resourceOffers(SchedulerDriver* driver,
                                    const std::vector<Offer>& offers)
 {
+  foreach (const Offer& offer, offers) {
+    vector<TaskDescription> toLaunch;
+    ResourceHints bucket = ResourceHints::forOffer(offer);
+    foreachpair (const TaskID& taskId, FakeTask* task, tasksPending) {
+      ResourceHints curRequest = task->getResourceRequest();
+      if (curRequest <= bucket) {
+        TaskDescription newTask;
+        newTask.mutable_task_id()->MergeFrom(taskId);
+        newTask.mutable_slave_id()->MergeFrom(offer.slave_id());
+        newTask.mutable_resources()->MergeFrom(curRequest.expectedResources);
+        newTask.mutable_min_resources()->MergeFrom(curRequest.minResources);
+        newTask.mutable_executor()->mutable_executor_id()->set_value(
+            taskId.value());
+        newTask.mutable_executor()->set_uri("no-executor");
+        toLaunch.push_back(newTask);
+        bucket -= curRequest;
+        tasksRunning[taskId] = task;
+      }
+    }
+    foreach (const TaskDescription& task, toLaunch) {
+      tasksPending.erase(task.task_id());
+    }
+    driver->launchTasks(offer.id(), toLaunch);
+  }
 }
 
 void FakeScheduler::offerRescinded(SchedulerDriver* driver,

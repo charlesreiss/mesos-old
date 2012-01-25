@@ -38,11 +38,12 @@ inline seconds operator-(const seconds& s1, const seconds& s2) {
 struct FakeTask {
   virtual Resources getUsage(seconds from, seconds to) const = 0;
   virtual mesos::TaskState takeUsage(seconds from, seconds to, Resources resources) = 0;
+  virtual ResourceHints getResourceRequest() const = 0;
 };
 
 struct ContinuousTask : FakeTask {
-  ContinuousTask(const Resources& usage_)
-    : usage(usage_), score(0.0) {}
+  ContinuousTask(const Resources& usage_, const ResourceHints& request_)
+    : usage(usage_), request(request_), score(0.0) {}
 
   Resources getUsage(seconds from, seconds to) const {
     return usage;
@@ -53,14 +54,20 @@ struct ContinuousTask : FakeTask {
     }
     return TASK_RUNNING;
   }
+
+  ResourceHints getResourceRequest() const {
+    return request;
+  }
 private:
-  double score;
   Resources usage;
+  ResourceHints request;
+  double score;
 };
 
 struct LimitedTask : FakeTask {
-  LimitedTask(const Resources& constUsage_, double cpuUnits_)
-    : constUsage(constUsage_), cpuUnits(cpuUnits_) {}
+  LimitedTask(const Resources& constUsage_, const ResourceHints& request_,
+      double cpuUnits_)
+    : constUsage(constUsage_), request(request_), cpuUnits(cpuUnits_) {}
 
   bool done() const {
     return cpuUnits <  0.0;
@@ -80,9 +87,14 @@ struct LimitedTask : FakeTask {
     cpuUnits -= resources.get("cpu", Value::Scalar()).value();
     return done() ? TASK_FINISHED : TASK_RUNNING;
   }
+
+  ResourceHints getResourceRequest() const {
+    return request;
+  }
 private:
   double cpuUnits;
   Resources constUsage;
+  ResourceHints request;
 };
 
 typedef hashmap<std::pair<FrameworkID, TaskID>, FakeTask*> FakeTaskMap;

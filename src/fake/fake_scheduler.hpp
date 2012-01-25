@@ -23,6 +23,8 @@
 
 #include "fake/fake_task.hpp"
 
+#include "common/type_utils.hpp"
+
 #include <mesos/scheduler.hpp>
 
 #include <map>
@@ -56,11 +58,16 @@ public:
   }
 
   void setTasks(const map<TaskID, FakeTask*>& tasks_) {
-    tasks = tasks_;
+    tasksPending = tasks_;
+  }
+
+  void addTask(const TaskID& taskId, FakeTask* task) {
+    tasksPending[taskId] = task;
   }
 
 private:
-  map<TaskID, FakeTask*> tasks;
+  map<TaskID, FakeTask*> tasksPending;
+  map<TaskID, FakeTask*> tasksRunning;
 };
 
 }  // namespace fake
