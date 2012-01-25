@@ -77,13 +77,15 @@ inline TaskID TASK_ID(const std::string& value) {
 
 class FakeSchedulerTest : public testing::Test {
 public:
-  void registerScheduler() {
+  void registerScheduler()
+  {
     scheduler.reset(new FakeScheduler);
     scheduler->registered(&schedulerDriver, DEFAULT_FRAMEWORK_ID);
   }
 
   Offer createOffer(const std::string& id,
-      const std::string& slave, ResourceHints resources) {
+      const std::string& slave, ResourceHints resources)
+  {
     Offer result;
     result.mutable_id()->set_value(id);
     result.mutable_framework_id()->MergeFrom(DEFAULT_FRAMEWORK_ID);
@@ -93,6 +95,46 @@ public:
     result.mutable_min_resources()->MergeFrom(resources.minResources);
     return result;
   }
+
+  vector<Offer> singleOffer(const std::string& id,
+                            const std::string& slaveId,
+                            ResourceHints resources) {
+    vector<Offer> offers;
+    offers.push_back(createOffer(id, slaveId, resources));
+    return offers;
+  }
+
+  void makeAndAcceptOffer(
+      const std::string& taskId,
+      const ResourceHints& offerResources,
+      const ResourceHints& taskResources,
+      MockFakeTask* mockTask)
+  {
+    EXPECT_CALL(*mockTask, getResourceRequest()).
+      WillRepeatedly(Return(taskResources));
+    scheduler->addTask(TASK_ID(taskId), mockTask);
+
+    vector<TaskDescription> result;
+    EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
+      WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
+    scheduler->resourceOffers(&schedulerDriver,
+        singleOffer("offer0", "slave0", offerResources));
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(result[0].task_id(), TASK_ID(taskId));
+    EXPECT_EQ(result[0].resources(), taskResources.expectedResources);
+    EXPECT_EQ(result[0].min_resources(), taskResources.minResources);
+    EXPECT_EQ(result[0].executor().executor_id().value(), taskId);
+  }
+
+  void makeAndAcceptOfferDefault(const std::string& id, MockFakeTask* mockTask)
+  {
+    makeAndAcceptOffer(id,
+        ResourceHints(Resources::parse("cpu:8.0;mem:4096"),
+                      Resources::parse("cpu:8.0;mem:4096")),
+        ResourceHints(Resources::parse("cpu:2.0;mem:2048"),
+                      Resources::parse("cpu:3.0;mem:1024")),
+        mockTask);
+  }
 protected:
   boost::scoped_ptr<FakeScheduler> scheduler;
   MockSchedulerDriver schedulerDriver;
@@ -101,39 +143,40 @@ protected:
 TEST_F(FakeSchedulerTest, NoTasks) {
   registerScheduler();
 
-  vector<Offer> offers;
-  offers.push_back(createOffer("offer0", "slave0", ResourceHints(
-          Resources::parse("cpu:8.0;mem:4096"),
-          Resources::parse("cpu:8.0;mem:4096"))));
   vector<TaskDescription> result;
   EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
     WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
-  scheduler->resourceOffers(&schedulerDriver, offers);
+  scheduler->resourceOffers(&schedulerDriver,
+      singleOffer("offer0", "slave0",
+        ResourceHints(Resources::parse("cpu:8.0;mem:4096"),
+                      Resources::parse("cpu:8.0;mem:4096"))));
   EXPECT_EQ(result.size(), 0);
 }
 
 TEST_F(FakeSchedulerTest, OneTask) {
   registerScheduler();
+  MockFakeTask mockTask;
+  makeAndAcceptOffer("task0",
+      ResourceHints(Resources::parse("cpu:8.0;mem:4096"),
+                    Resources::parse("cpu:8.0;mem:4096")),
+      ResourceHints(Resources::parse("cpu:2.0;mem:2048"),
+                    Resources::parse("cpu:3.0;mem:1024")),
+      &mockTask);
+}
 
+TEST_F(FakeSchedulerTest, CannotFitTask) {
+  registerScheduler();
   MockFakeTask mockTask;
   EXPECT_CALL(mockTask, getResourceRequest()).
-    WillRepeatedly(Return(ResourceHints(
-            Resources::parse("cpu:2.0;mem:2048"),
-            Resources::parse("cpu:3.0;mem:1024"))));
-
+    WillRepeatedly(Return(
+          ResourceHints(Resources::parse("cpus:9.0"), Resources())));
   scheduler->addTask(TASK_ID("task0"), &mockTask);
-
-  vector<Offer> offers;
-  offers.push_back(createOffer("offer0", "slave0", ResourceHints(
-          Resources::parse("cpu:8.0;mem:4096"),
-          Resources::parse("cpu:8.0;mem:4096"))));
   vector<TaskDescription> result;
   EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
     WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
-  scheduler->resourceOffers(&schedulerDriver, offers);
-  ASSERT_EQ(result.size(), 1);
-  EXPECT_EQ(result[0].task_id(), TASK_ID("task0"));
-  EXPECT_EQ(result[0].resources(), Resources::parse("cpu:2.0;mem:2048"));
-  EXPECT_EQ(result[0].min_resources(), Resources::parse("cpu:3.0;mem:1024"));
-  EXPECT_EQ(result[0].executor().executor_id().value(), "task0");
+  scheduler->resourceOffers(&schedulerDriver,
+      singleOffer("offer0", "slave0",
+        ResourceHints(Resources::parse("cpu:8.0;mem:4096"),
+                      Resources::parse("cpu:8.0;mem:4096"))));
+  ASSERT_EQ(result.size(), 0);
 }
