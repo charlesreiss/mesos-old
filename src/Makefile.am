@@ -269,10 +269,12 @@ libmesos_no_third_party_la_LIBADD += libnorequest.la
 noinst_LTLIBRARIES += libfake.la
 libfake_la_SOURCES = \
 		     fake/fake_task.cpp \
-		     fake/fake_isolation_module.cpp
+		     fake/fake_isolation_module.cpp \
+		     fake/fake_scheduler.cpp
 libfake_la_SOURCES += \
 		      fake/fake_task.hpp \
-		      fake/fake_isolation_module.hpp
+		      fake/fake_isolation_module.hpp \
+		      fake/fake_scheduler.hpp
 libfake_la_CPPFLAGS = $(MESOS_CPPFLAGS)
 libfake_la_CXXFLAGS = $(MESOS_CXXFLAGS)
 
@@ -649,7 +651,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 		      tests/master_allocator_tests.cpp			\
 		      tests/norequest/usage_tracker_test.cpp 		\
 		      tests/norequest/allocator_test.cpp		\
-		      tests/fake/fake_isolation_module_test.cpp
+		      tests/fake/fake_isolation_module_test.cpp 	\
+		      tests/fake/fake_scheduler_test.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"

@@ -21,6 +21,7 @@
 #include "boost/scoped_ptr.hpp"
 
 #include "tests/utils.hpp"
+#include "tests/fake/util.hpp"
 
 #include "fake/fake_isolation_module.hpp"
 #include "fake/fake_task.hpp"
@@ -35,28 +36,6 @@ using std::make_pair;
 using testing::AtLeast;
 using testing::DoAll;
 using testing::Return;
-
-struct MockFakeTask : FakeTask {
-  MOCK_CONST_METHOD2(getUsage, Resources(seconds, seconds));
-  MOCK_METHOD3(takeUsage, TaskState(seconds, seconds, Resources));
-};
-
-#define DEFAULT_FRAMEWORK_ID \
-  ({ \
-    FrameworkID id; \
-    id.set_value("default-framework"); \
-    id; \
-  })
-
-#define DEFAULT_FRAMEWORK_INFO \
-  ({ \
-    FrameworkInfo info; \
-    info.set_user("ignored-username"); \
-    info.set_name("ignored-name"); \
-    info.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO); \
-    info; \
-  })
-
 static const double kTick = 1.0;
 
 class FakeIsolationModuleTest : public ::testing::Test {
@@ -223,4 +202,3 @@ TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks) {
 
   stopSlave();
 }
-
