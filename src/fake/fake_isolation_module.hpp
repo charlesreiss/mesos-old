@@ -19,6 +19,8 @@
 #ifndef __FAKE_ISOLATION_MODULE_HPP__
 #define __FAKE_ISOLATION_MODULE_HPP__
 
+#include <glog/logging.h>
+
 #include "boost/scoped_ptr.hpp"
 
 #include "common/type_utils.hpp"
