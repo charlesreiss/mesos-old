@@ -51,6 +51,7 @@ inline void UNIMPLEMENTED() {
   LOG(FATAL) << "Unimplemented";
   std::abort();
 }
+
 class MockSchedulerDriver : public SchedulerDriver {
 public:
   Status start() { UNIMPLEMENTED(); }
