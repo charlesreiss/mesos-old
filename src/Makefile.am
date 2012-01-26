@@ -157,12 +157,11 @@ libmesos_no_third_party_la_SOURCES = sched/sched.cpp local/local.cpp	\
 	common/logging.cpp common/utils.cpp common/date_utils.cpp	\
 	common/resources.cpp common/attributes.cpp common/values.cpp	\
 	zookeeper/zookeeper.cpp zookeeper/authentication.cpp		\
-	zookeeper/group.cpp						\
-        messages/log.proto messages/messages.proto
+	zookeeper/group.cpp messages/log.proto messages/messages.proto
 
-pkginclude_HEADERS = $(top_srcdir)/include/mesos/executor.hpp \
-		     $(top_srcdir)/include/mesos/scheduler.hpp \
-		     $(top_srcdir)/include/mesos/mesos.hpp \
+pkginclude_HEADERS = $(top_srcdir)/include/mesos/executor.hpp	\
+		     $(top_srcdir)/include/mesos/scheduler.hpp	\
+		     $(top_srcdir)/include/mesos/mesos.hpp	\
 		     $(top_srcdir)/include/mesos/mesos.proto
 
 nodist_pkginclude_HEADERS = mesos.pb.h
@@ -175,25 +174,24 @@ endif
 
 EXTRA_DIST += slave/solaris_project_isolation_module.cpp
 
-libmesos_no_third_party_la_SOURCES += \
-	common/attributes.hpp common/build.hpp				\
-	common/date_utils.hpp common/factory.hpp common/fatal.hpp	\
-	common/foreach.hpp common/hashmap.hpp common/hashset.hpp	\
-	common/json.hpp common/lock.hpp common/logging.hpp		\
-	common/lambda.hpp common/option.hpp common/resources.hpp	\
-	common/result.hpp common/multihashmap.hpp			\
+libmesos_no_third_party_la_SOURCES += common/attributes.hpp		\
+	common/build.hpp common/date_utils.hpp common/factory.hpp	\
+	common/fatal.hpp common/foreach.hpp common/hashmap.hpp		\
+	common/hashset.hpp common/json.hpp common/lock.hpp		\
+	common/logging.hpp common/lambda.hpp common/option.hpp		\
+	common/resources.hpp common/result.hpp common/multihashmap.hpp	\
 	common/process_utils.hpp common/seconds.hpp common/try.hpp	\
 	common/type_utils.hpp common/thread.hpp common/timer.hpp	\
-	common/utils.hpp common/units.hpp common/uuid.hpp               \
-	common/strings.hpp  common/values.hpp                           \
+	common/utils.hpp common/units.hpp common/uuid.hpp		\
+	common/strings.hpp common/values.hpp				\
 	configurator/configuration.hpp configurator/configurator.hpp	\
 	configurator/option.hpp detector/detector.hpp			\
 	detector/url_processor.hpp launcher/launcher.hpp		\
-	local/local.hpp log/coordinator.hpp				\
-	log/replica.hpp log/log.hpp log/network.hpp			\
-	master/allocator.hpp master/allocator_factory.hpp		\
-	master/constants.hpp master/frameworks_manager.hpp		\
-	master/http.hpp master/master.hpp master/simple_allocator.hpp	\
+	local/local.hpp log/coordinator.hpp log/replica.hpp		\
+	log/log.hpp log/network.hpp master/allocator.hpp		\
+	master/allocator_factory.hpp master/constants.hpp		\
+	master/frameworks_manager.hpp master/http.hpp			\
+	master/master.hpp master/simple_allocator.hpp			\
 	master/slaves_manager.hpp master/webui.hpp messages/log.hpp	\
 	messages/messages.hpp slave/constants.hpp slave/http.hpp	\
 	slave/isolation_module.hpp slave/isolation_module_factory.hpp	\
@@ -201,10 +199,10 @@ libmesos_no_third_party_la_SOURCES += \
 	slave/process_based_isolation_module.hpp slave/reaper.hpp	\
 	slave/slave.hpp slave/solaris_project_isolation_module.hpp	\
 	slave/webui.hpp tests/external_test.hpp				\
-	tests/base_zookeeper_test.hpp tests/jvm.hpp tests/utils.hpp	\
+	tests/base_zookeeper_test.hpp tests/utils.hpp			\
 	tests/zookeeper_server.hpp zookeeper/authentication.hpp		\
 	zookeeper/group.hpp zookeeper/watcher.hpp			\
-	zookeeper/zookeeper.hpp jvm/jvm.hpp
+	zookeeper/zookeeper.hpp
 
 libmesos_no_third_party_la_CPPFLAGS = $(MESOS_CPPFLAGS)
 
@@ -312,14 +310,12 @@ sbin_PROGRAMS += mesos-master
 mesos_master_SOURCES = master/main.cpp
 mesos_master_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_master_CXXFLAGS = $(MESOS_CXXFLAGS)
-mesos_master_LDFLAGS = $(AM_LDFLAGS)
 mesos_master_LDADD = libwebui.la libmesos.la
 
 sbin_PROGRAMS += mesos-slave
 mesos_slave_SOURCES = slave/main.cpp
 mesos_slave_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_slave_CXXFLAGS = $(MESOS_CXXFLAGS)
-mesos_slave_LDFLAGS = $(AM_LDFLAGS)
 mesos_slave_LDADD = libwebui.la libmesos.la
 
 bin_PROGRAMS += mesos-local
@@ -371,7 +367,6 @@ nobase_dist_webui_SCRIPTS += $(WEBUISCRIPTS)
 
 # We also need to include the killtree script.
 dist_pkglibexec_SCRIPTS += scripts/killtree.sh
-
 
 if HAS_JAVA
 # Protocol buffers JAR.
@@ -476,7 +471,12 @@ libjava_la_LIBADD = $(JAVA_LDFLAGS)
 # Also add to libmesos.la so on Linux we set the rpath for libmesos.so
 libmesos_la_LIBADD += $(JAVA_LDFLAGS)
 
-libmesos_no_third_party_la_LIBADD += libjava.la
+# We don't add libjava.la to libmesos_no_third_party.la so we don't
+# include the JNI bindings in the Python egg (but we might want to
+# reconsider this in the future). We also need to add the JAVA_LDFLAGS
+# to libmesos.la so on Linux we set the rpath for libmesos.so.
+libmesos_la_LIBADD += libjava.la
+libmesos_la_LIBADD += $(JAVA_LDFLAGS)
 
 # We need to generate the JNI header files before we build the sources
 # and the easiest way to do that with autotools is with the
@@ -547,15 +547,15 @@ clean-python:
 PHONY_TARGETS += clean-python
 
 if HAS_PYTHON
-# TODO(Charles Reiss): Figure out how to do a proper out-of-source
-# build of these Python eggs. Right now we copy the entire source
-# directories into the build directory.
-
 # This builds a Python egg against libmesos_no_third_party.a that is
 # self-contained. It currently depends on the libraries in third_party
 # being built as .a's. (If this is changed, the setup.py will need to
 # be edited).
-#
+
+# TODO(Charles Reiss): Figure out how to do a proper out-of-source
+# build of these Python eggs. Right now we copy the entire source
+# directories into the build directory.
+
 # TODO(Charles Reiss): Additionally support building and installing
 # Python libraries that link against the system libmesos.so. This
 # should be the default mode if we eventually are able to rely on
@@ -588,9 +588,10 @@ $(PROTOBUF_EGG):
 
 CLEANFILES += $(PROTOBUF_EGG)
 
-all-local: $(MESOS_EGG)
-
 pythonegg_DATA = $(MESOS_EGG)
+
+# Make sure the egg gets built via 'make all'.
+all-local: $(MESOS_EGG)
 endif # HAS_PYTHON
 
 

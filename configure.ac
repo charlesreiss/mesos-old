@@ -26,15 +26,14 @@ AC_CANONICAL_BUILD
 AC_CANONICAL_TARGET
 
 # Initialize automake.
-AM_INIT_AUTOMAKE([-Wall -Werror silent-rules foreign])
+AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 
-# Allow less verbose output when building.
-AM_SILENT_RULES
-
-# Initialize libtool.
+# Initialize libtool (LT_OUTPUT builds ./libtool immediately, needed
+# so we can do tests with libtool during configuration).
 LT_PREREQ([2.2])
 LT_INIT
 LT_LANG([C++])
+LT_OUTPUT
 
 AC_LANG(C++)
 
@@ -97,13 +96,9 @@ AC_ARG_WITH([included-zookeeper],
 
 AC_ARG_VAR([JAVA_HOME], [location of Java Development Kit (JDK)])
 
-AC_ARG_VAR([JAVA_CPPFLAGS], [preprocessor flags for JNI])
+AC_ARG_VAR([JAVA_CPPFLAGS], [preprocessor flags for JDK])
 
-AC_ARG_VAR([JAVA_LDFLAGS], [linker flags for JNI])
-
-AC_ARG_VAR([PYTHON_JAVA_LDFLAGS],
-           [linker flags for JNI, when linking python extenstion])
-
+AC_ARG_VAR([JAVA_LDFLAGS], [linker flags for JDK])
 
 # Determine the current OS (TODO(benh): Does autotools do this for us?).
 case "${target_os}" in
@@ -208,10 +203,10 @@ __EOF__
     elif test "$OS_NAME" = "linux"; then
       JAVA_LDFLAGS=""
       for arch in amd64 i386; do
-        if test -e "$JAVA_HOME/jre/lib/$arch"; then
-          JAVA_LDFLAGS="-L$JAVA_HOME/jre/lib/$arch/server -R$JAVA_HOME/jre/lib/$arch/server -Wl,-ljvm"
-          PYTHON_JAVA_LDFLAGS="-L$JAVA_HOME/jre/lib/$arch/server -Wl,-rpath,$JAVA_HOME/jre/lib/$arch/server -ljvm"
-          TEST_JAVA_LDFLAGS="$PYTHON_JAVA_LDFLAGS"
+        dir="$JAVA_HOME/jre/lib/$arch/server"
+        if test -e "$dir"; then
+          # Note that these are libtool specific flags.
+          JAVA_LDFLAGS="-L$dir -R$dir -Wl,-ljvm"
           break;
           fi
       done
@@ -219,19 +214,13 @@ __EOF__
   fi
 
   if test -z "$JAVA_LDFLAGS"; then
-    AC_MSG_ERROR([failed to determine linker flags for using Java (bad JAVA_HOME or missing support for your architecture?)])
+    AC_MSG_ERROR([failed to determine linker flags for using Java \
+(bad JAVA_HOME or missing support for your architecture?)])
   fi
 
-  if test -z "$PYTHON_JAVA_LDFLAGS"; then
-    PYTHON_JAVA_LDFLAGS="$JAVA_LDFLAGS"
-  fi
-
-  if test -z "$TEST_JAVA_LDFLAGS"; then
-    TEST_JAVA_LDFLAGS="$JAVA_LDFLAGS"
-  fi
-
-    AC_MSG_CHECKING([whether or not we can build using the JDK])
-    cat <<__EOF__ >conftest.cpp [
+  # Now check that we can build against the JDK (using libtool).
+  AC_MSG_CHECKING([whether or not we can build using the JDK])
+  cat <<__EOF__ >conftest.cpp [
 #include <jni.h>
 int main(int argc, char** argv)
 {
@@ -242,11 +231,12 @@ int main(int argc, char** argv)
 }]
 __EOF__
 
-  # Compile and link.
-  $CXX $JAVA_CPPFLAGS -o conftest conftest.cpp $TEST_JAVA_LDFLAGS >&5
+  # Try to compile and link via libtool (the one we generate).
+  ./libtool --tag=CXX --mode=link \
+    $CXX $JAVA_CPPFLAGS -o conftest conftest.cpp $JAVA_LDFLAGS >&5
 
   if test $? != 0; then
-    AC_MSG_ERROR([failed to build against JDK])
+    AC_MSG_ERROR([failed to build against JDK (using libtool)])
   else
     AC_MSG_RESULT([yes])
   fi
@@ -264,9 +254,6 @@ __EOF__
                   [chmod +x src/examples/java/test-multiple-executors-framework])
   AC_CONFIG_FILES([src/java/mesos.pom])
 
-  AC_SUBST([JAVA_CPPFLAGS])
-  AC_SUBST([JAVA_LDFLAGS])
-  AC_SUBST([PYTHON_JAVA_LDFLAGS])
   AC_SUBST([HAS_JAVA], [1]) # Used to decide whether to run Java tests.
   has_java=yes
 fi
@@ -276,7 +263,7 @@ AM_CONDITIONAL([HAS_JAVA], [test "x$has_java" = "xyes"])
 
 # Perform necessary configuration for building with Python.
 if test "x$enable_python" = "xyes"; then
-  AM_PATH_PYTHON() # A fatal error will occur if no interpreter found.
+  AM_PATH_PYTHON() # A fatal error will occur if no interpreter is found.
 
   # Determine how the generated Python egg's will get named, used in
   # the Makefile to keep the targets from being rerun.
@@ -298,7 +285,7 @@ if test "x$enable_python" = "xyes"; then
 
   AC_SUBST([PYTHON_EGG_POSTFIX])
   AC_SUBST([PYTHON_EGG_PUREPY_POSTFIX])
-  AC_SUBST([PYTHON]) # Used by the example shell scripts.
+  AC_SUBST([PYTHON]) # Used by the example shell scripts and src/Makefile.am.
   AC_SUBST([HAS_PYTHON], [1]) # Used to decide whether to run Python tests.
   has_python=yes
 fi
