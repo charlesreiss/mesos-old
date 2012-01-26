@@ -48,6 +48,10 @@ struct MockFakeTask : mesos::internal::fake::FakeTask {
   MOCK_CONST_METHOD2(getUsage, Resources(seconds, seconds));
   MOCK_METHOD3(takeUsage, TaskState(seconds, seconds, Resources));
   MOCK_CONST_METHOD0(getResourceRequest, ResourceHints());
+
+  void PrintToStream(std::ostream& out) const {
+    out << "MockFakeTask";
+  }
 };
 
 #endif

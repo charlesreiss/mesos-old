@@ -110,9 +110,11 @@ public:
       const ResourceHints& taskResources,
       MockFakeTask* mockTask)
   {
-    EXPECT_CALL(*mockTask, getResourceRequest()).
-      WillRepeatedly(Return(taskResources));
-    scheduler->addTask(TASK_ID(taskId), mockTask);
+    if (mockTask) {
+      EXPECT_CALL(*mockTask, getResourceRequest()).
+        WillRepeatedly(Return(taskResources));
+      scheduler->addTask(TASK_ID(taskId), mockTask);
+    }
 
     vector<TaskDescription> result;
     EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
@@ -135,6 +137,13 @@ public:
                       Resources::parse("cpu:3.0;mem:1024")),
         mockTask);
   }
+
+  void updateTask(const std::string& id, TaskState state) {
+    TaskStatus status;
+    status.mutable_task_id()->set_value(id);
+    status.set_state(state);
+    scheduler->statusUpdate(&schedulerDriver, status);
+  }
 protected:
   boost::scoped_ptr<FakeScheduler> scheduler;
   MockSchedulerDriver schedulerDriver;
@@ -156,12 +165,7 @@ TEST_F(FakeSchedulerTest, NoTasks) {
 TEST_F(FakeSchedulerTest, OneTask) {
   registerScheduler();
   MockFakeTask mockTask;
-  makeAndAcceptOffer("task0",
-      ResourceHints(Resources::parse("cpu:8.0;mem:4096"),
-                    Resources::parse("cpu:8.0;mem:4096")),
-      ResourceHints(Resources::parse("cpu:2.0;mem:2048"),
-                    Resources::parse("cpu:3.0;mem:1024")),
-      &mockTask);
+  makeAndAcceptOfferDefault("task0", &mockTask);
 }
 
 TEST_F(FakeSchedulerTest, CannotFitTask) {
@@ -179,4 +183,45 @@ TEST_F(FakeSchedulerTest, CannotFitTask) {
         ResourceHints(Resources::parse("cpu:8.0;mem:4096"),
                       Resources::parse("cpu:8.0;mem:4096"))));
   ASSERT_EQ(result.size(), 0);
+}
+
+TEST_F(FakeSchedulerTest, FinishTask) {
+  registerScheduler();
+  MockFakeTask mockTask;
+  makeAndAcceptOfferDefault("task0", &mockTask);
+  updateTask("task0", TASK_FINISHED);
+}
+
+TEST_F(FakeSchedulerTest, RespawnTask) {
+  registerScheduler();
+  MockFakeTask mockTask;
+  makeAndAcceptOfferDefault("task0", &mockTask);
+  EXPECT_CALL(schedulerDriver, reviveOffers()).
+    WillOnce(Return(OK));
+  updateTask("task0", TASK_LOST);
+  makeAndAcceptOfferDefault("task0", 0);
+}
+
+TEST_F(FakeSchedulerTest, TwoTasksDontFit) {
+  registerScheduler();
+  MockFakeTask mockTask0, mockTask1;
+  EXPECT_CALL(mockTask0, getResourceRequest()).
+    WillRepeatedly(Return(
+          ResourceHints(Resources::parse("cpu:9.0"), Resources())));
+  scheduler->addTask(TASK_ID("task0"), &mockTask0);
+  makeAndAcceptOfferDefault("task1", &mockTask1);
+  // now accept task0 with a bigger offer
+  makeAndAcceptOffer("task0",
+        ResourceHints(Resources::parse("cpu:9.0;mem:4096"), Resources()),
+        ResourceHints(Resources::parse("cpu:9.0"), Resources()), 0);
+}
+
+TEST_F(FakeSchedulerTest, TwoTasksLowestFirst) {
+  registerScheduler();
+  MockFakeTask mockTask0, mockTask1;
+  EXPECT_CALL(mockTask1, getResourceRequest()).
+    WillRepeatedly(Return(
+          ResourceHints(Resources::parse("cpu:7.0"), Resources())));
+  scheduler->addTask(TASK_ID("task1"), &mockTask1);
+  makeAndAcceptOfferDefault("task0", &mockTask0);
 }

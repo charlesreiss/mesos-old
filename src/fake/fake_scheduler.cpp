@@ -51,6 +51,10 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
         toLaunch.push_back(newTask);
         bucket -= curRequest;
         tasksRunning[taskId] = task;
+        LOG(INFO) << "placed " << task << " in " << newTask.DebugString();
+      } else {
+        LOG(INFO) << "rejected " << task << "; only " << bucket << " versus "
+                  << curRequest;
       }
     }
     foreach (const TaskDescription& task, toLaunch) {
@@ -68,6 +72,18 @@ void FakeScheduler::offerRescinded(SchedulerDriver* driver,
 void FakeScheduler::statusUpdate(SchedulerDriver* driver,
                                  const TaskStatus& status)
 {
+  switch (status.state()) {
+  case TASK_STARTING: case TASK_RUNNING:
+    break;
+  case TASK_FINISHED:
+    tasksRunning.erase(status.task_id());
+    break;
+  case TASK_FAILED: case TASK_KILLED: case TASK_LOST:
+    tasksPending[status.task_id()] = tasksRunning[status.task_id()];
+    tasksRunning.erase(status.task_id());
+    driver->reviveOffers();
+    break;
+  }
 }
 
 }  // namespace fake
