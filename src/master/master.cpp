@@ -285,6 +285,7 @@ void Master::operator () ()
   allocator->initialize(this);
 
   // Start our timer ticks.
+  LOG(INFO) << "triggering timerTick at " << static_cast<long>(elapsedTime());
   delay(1.0, self(), &Master::timerTick);
 
   while (true) {
@@ -1089,6 +1090,7 @@ void Master::deactivatedSlaveHostnamePort(const string& hostname,
 
 void Master::timerTick()
 {
+  LOG(INFO) << "Master::timerTick at " << static_cast<long>(elapsedTime());
   // Check which framework filters can be expired.
   foreachvalue (Framework* framework, frameworks) {
     framework->removeExpiredFilters(elapsedTime());
@@ -1098,6 +1100,7 @@ void Master::timerTick()
   allocator->timerTick();
 
   // Scheduler another timer tick!
+  LOG(INFO) << "trigger timerTick from timerTick at " << static_cast<long>(elapsedTime());
   delay(1.0, self(), &Master::timerTick);
 }
 

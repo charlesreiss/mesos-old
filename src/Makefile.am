@@ -291,6 +291,7 @@ libmesos_la_LIBTOOLFLAGS = --tag=CXX
 
 # Add the convenience library.
 libmesos_la_LIBADD = libmesos_no_third_party.la
+libmesos_la_DEPENDNECIES = libmesos_no_third_party.la
 
 # For non-convenience libraries we need to link them in to make the shared
 # library each time. (Currently, we don't support platforms where this is not
@@ -681,6 +682,8 @@ endif
 if HAS_PYTHON
   mesos_tests_DEPENDENCIES += $(MESOS_EGG)
 endif
+
+mesos_tests_DEPENDENCIES += libmesos.la
 
 EXAMPLESSCRIPTS = examples/java/test-framework				\
                   examples/java/test-executor				\

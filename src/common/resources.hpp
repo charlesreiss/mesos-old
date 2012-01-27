@@ -481,6 +481,10 @@ inline bool operator == (
 }
 
 struct ResourceHints {
+  static ResourceHints parse(const std::string& expected, const std::string& min) {
+    return ResourceHints(Resources::parse(expected), Resources::parse(min));
+  }
+
   ResourceHints() : expectedResources(), minResources() {}
   ResourceHints(const Resources& _expectedResources,
                  const Resources& _minResources)
