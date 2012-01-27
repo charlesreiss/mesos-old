@@ -41,14 +41,6 @@ using mesos::internal::slave::Slave;
 
 class FakeIsolationModule;
 
-struct FakeIsolationModuleTick
-    : public process::Process<FakeIsolationModuleTick> {
-  FakeIsolationModuleTick(FakeIsolationModule* module_) : module(module_) {}
-  virtual void operator()();
-  virtual ~FakeIsolationModuleTick();
-  FakeIsolationModule* module;
-};
-
 class FakeExecutor : public Executor {
 public:
   FakeExecutor(FakeIsolationModule* module_, const FakeTaskMap& fakeTasks_)
@@ -129,8 +121,8 @@ private:
     ResourceHints assignedResources;
   };
 
-  typedef hashmap<std::pair<FrameworkID, ExecutorID>, 
-          std::pair<MesosExecutorDriver*, FakeExecutor*> > DriverMap;
+  typedef hashmap<std::pair<FrameworkID, ExecutorID>,
+                  std::pair<MesosExecutorDriver*, FakeExecutor*> > DriverMap;
   DriverMap drivers;
   // For now, only one task per executor
   typedef hashmap<std::pair<FrameworkID, ExecutorID>, RunningTaskInfo> TaskMap;
@@ -139,7 +131,6 @@ private:
   double interval;
   double lastTime;
   const FakeTaskMap& fakeTasks;
-  boost::scoped_ptr<FakeIsolationModuleTick> timer;
 };
 
 }  // namespace fake

@@ -45,7 +45,9 @@
 #include "slave/slave.hpp"
 
 
-namespace mesos { namespace internal { namespace test {
+namespace mesos {
+namespace internal {
+namespace test {
 
 /**
  * The location of the Mesos source directory.  Used by tests to locate
@@ -179,7 +181,22 @@ public:
 class MockFilter : public process::Filter
 {
 public:
-  MOCK_METHOD1(filter, bool(process::Message *));
+  MockFilter()
+  {
+    EXPECT_CALL(*this, filter(testing::A<const process::MessageEvent&>()))
+      .WillRepeatedly(testing::Return(false));
+    EXPECT_CALL(*this, filter(testing::A<const process::DispatchEvent&>()))
+      .WillRepeatedly(testing::Return(false));
+    EXPECT_CALL(*this, filter(testing::A<const process::HttpEvent&>()))
+      .WillRepeatedly(testing::Return(false));
+    EXPECT_CALL(*this, filter(testing::A<const process::ExitedEvent&>()))
+      .WillRepeatedly(testing::Return(false));
+  }
+
+  MOCK_METHOD1(filter, bool(const process::MessageEvent&));
+  MOCK_METHOD1(filter, bool(const process::DispatchEvent&));
+  MOCK_METHOD1(filter, bool(const process::HttpEvent&));
+  MOCK_METHOD1(filter, bool(const process::ExitedEvent&));
 };
 
 
@@ -204,19 +221,29 @@ MATCHER_P3(MsgMatcher, name, from, to,
     mesos::internal::test::DescribeMatcherToString(
       testing::Matcher<process::UPID>(to)))
 {
-  return (testing::Matcher<std::string>(name).Matches(arg->name) &&
-          testing::Matcher<process::UPID>(from).Matches(arg->from) &&
-          testing::Matcher<process::UPID>(to).Matches(arg->to));
+  const process::MessageEvent& event = ::std::tr1::get<0>(arg);
+  return (testing::Matcher<std::string>(name).Matches(event.message->name) &&
+          testing::Matcher<process::UPID>(from).Matches(event.message->from) &&
+          testing::Matcher<process::UPID>(to).Matches(event.message->to));
 }
 
 
 /**
  * This macro provides some syntactic sugar for matching messages
  * using the message matcher (see above) as well as the MockFilter
- * (see above).
+ * (see above). We should also add EXPECT_DISPATCH, EXPECT_HTTP, etc.
  */
-#define EXPECT_MSG(mockFilter, name, from, to)                  \
-  EXPECT_CALL(mockFilter, filter(MsgMatcher(name, from, to)))
+#define EXPECT_MESSAGE(mockFilter, name, from, to)              \
+  EXPECT_CALL(mockFilter, filter(testing::A<const process::MessageEvent&>())) \
+    .With(MsgMatcher(name, from, to))
+
+
+ACTION_TEMPLATE(SaveArgField,
+                HAS_1_TEMPLATE_PARAMS(int, k),
+                AND_2_VALUE_PARAMS(field, pointer))
+{
+  *pointer = *(::std::tr1::get<k>(args).*field);
+}
 
 
 /**
@@ -364,11 +391,12 @@ private:
 };
 
 template <class T>
-bool expectAndStoreHelper(T* protobuf, const process::Message* message,
+bool expectAndStoreHelper(T* protobuf,
+                          const process::MessageEvent& messageEvent,
                           trigger* trigger) {
   LOG(INFO) << "store into " << protobuf->GetTypeName();
   protobuf->Clear();
-  protobuf->ParseFromString(message->body);
+  protobuf->ParseFromString(messageEvent.message->body);
   trigger->value = true;
   return true;
 }
@@ -382,16 +410,11 @@ class FakeProtobufProcess
     filter = newFilter;
   }
 
-  void operator()() {
-    std::string what = serve();
-    EXPECT_EQ(what, process::TERMINATE);
-  }
-
   template <class T>
   void expect(process::UPID from = process::UPID(), int times = 1) {
     using testing::Eq;
     T m;
-    EXPECT_MSG(*filter, Eq(m.GetTypeName()), match(from), Eq(self())).
+    EXPECT_MESSAGE(*filter, Eq(m.GetTypeName()), match(from), Eq(self())).
       Times(times).
       WillRepeatedly(testing::Return(true));
   }
@@ -400,7 +423,7 @@ class FakeProtobufProcess
   void expectMany() {
     using testing::Eq;
     T m;
-    EXPECT_MSG(*filter, Eq(m.GetTypeName()), testing::_, Eq(self())).
+    EXPECT_MESSAGE(*filter, Eq(m.GetTypeName()), testing::_, Eq(self())).
       WillRepeatedly(testing::Return(true));
   }
 
@@ -408,7 +431,7 @@ class FakeProtobufProcess
   void expectAndStore(process::UPID from, T* destination, trigger* done) {
     using testing::Eq;
     using testing::Invoke;
-    EXPECT_MSG(*filter, Eq(destination->GetTypeName()), match(from),
+    EXPECT_MESSAGE(*filter, Eq(destination->GetTypeName()), match(from),
                         Eq(self())).
       WillOnce(Invoke(std::tr1::bind(&expectAndStoreHelper<T>, destination,
                                      std::tr1::placeholders::_1, done)));
@@ -421,12 +444,12 @@ class FakeProtobufProcess
     using testing::Return;
     T dummy;
     if (times > 1) {
-      EXPECT_MSG(*filter, Eq(dummy.GetTypeName()), match(from), Eq(self())).
+      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from), Eq(self())).
         WillRepeatedly(Return(true)).
         Times(times - 1);
     }
     if (times > 0) {
-      EXPECT_MSG(*filter, Eq(dummy.GetTypeName()), match(from), Eq(self())).
+      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from), Eq(self())).
         WillOnce(DoAll(Trigger(done), Return(true)));
     } else {
       done->value = true;
@@ -452,7 +475,8 @@ protected:
   MockFilter* filter;
 };
 
-}}} // namespace mesos { namespace internal { namespace test {
-
+} // namespace test {
+} // namespace internal {
+} // namespace mesos {
 
 #endif // __TESTING_UTILS_HPP__
