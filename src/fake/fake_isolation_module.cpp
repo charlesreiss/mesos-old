@@ -1,7 +1,10 @@
+#include <boost/bind.hpp>
+
 #include <glog/logging.h>
 
 #include <process/dispatch.hpp>
 #include <process/process.hpp>
+#include <process/timer.hpp>
 
 #include "fake/fake_isolation_module.hpp"
 #include "mesos/executor.hpp"
@@ -34,27 +37,14 @@ void FakeExecutor::killTask(ExecutorDriver* driver,
   module->unregisterTask(frameworkId, executorId, taskId);
 }
 
-void FakeIsolationModuleTick::operator()()
-{
-  while (receive(module->interval) == process::TIMEOUT) {
-    module->tick();
-  }
-}
-
-FakeIsolationModuleTick::~FakeIsolationModuleTick()
-{
-  process::terminate(self());
-  process::wait(self());
-}
-
 void FakeIsolationModule::initialize(const Configuration& conf, bool local,
     const process::PID<Slave>& slave_)
 {
   slave = slave_;
   interval = conf.get<double>("fake_interval", 1.0);
-  lastTime = elapsedTime();
-  timer.reset(new FakeIsolationModuleTick(this));
-  process::spawn(timer.get());
+  lastTime = process::Clock::now();
+  process::timers::create(interval,
+      boost::bind(&FakeIsolationModule::tick, *this));
   CHECK(local);
 }
 
@@ -134,8 +124,11 @@ Resources minResources(Resources a, Resources b) {
 }  // unnamed namespace
 
 void FakeIsolationModule::tick() {
+  process::timers::create(interval,
+      boost::bind(&FakeIsolationModule::tick, *this));
+
   seconds oldTime(lastTime);
-  seconds newTime(elapsedTime());
+  seconds newTime(process::Clock::now());
 
   // Version 0: Ignore min_* requests. For each task, assume that the task
   // gets min(its usage, its allocation).
@@ -154,7 +147,7 @@ void FakeIsolationModule::tick() {
         update.mutable_framework_id()->MergeFrom(frameworkAndExec.first);
         update.mutable_status()->mutable_task_id()->MergeFrom(task.taskId);
         update.mutable_status()->set_state(state);
-        update.set_timestamp(elapsedTime());
+        update.set_timestamp(process::Clock::now());
         update.set_uuid(task.taskId.value());
         process::dispatch(slave, &Slave::statusUpdate, update);
         unregisterTask(frameworkAndExec.first, frameworkAndExec.second,

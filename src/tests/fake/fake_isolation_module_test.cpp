@@ -50,7 +50,7 @@ public:
     process::Clock::pause();
     process::filter(&mockFilter);
     using testing::_;
-    EXPECT_MSG(mockFilter, _, _, _).WillRepeatedly(testing::Return(false));
+    EXPECT_MESSAGE(mockFilter, _, _, _).WillRepeatedly(testing::Return(false));
     mockMaster.reset(new FakeProtobufProcess);
     mockMaster->setFilter(&mockFilter);
     mockMasterPid = process::spawn(mockMaster.get());
@@ -89,7 +89,7 @@ public:
     taskId.set_value(id);
     fakeTasks[make_pair(DEFAULT_FRAMEWORK_ID, taskId)] = task;
     trigger gotRegister;
-    EXPECT_MSG(mockFilter, name<RegisterExecutorMessage>(),
+    EXPECT_MESSAGE(mockFilter, name<RegisterExecutorMessage>(),
                            testing::_, slavePid).
       WillOnce(testing::DoAll(Trigger(&gotRegister),
                               testing::Return(false)));

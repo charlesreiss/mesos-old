@@ -58,7 +58,7 @@ protected:
   void SetUp()
   {
     process::Clock::pause();
-    EXPECT_MSG(filter, _, _, _).
+    EXPECT_MESSAGE(filter, _, _, _).
       WillRepeatedly(Return(false));
     process::filter(&filter);
   }
@@ -115,7 +115,7 @@ protected:
     slave.reset(new FakeProtobufProcess);
     slave->setFilter(&filter);
     slavePid = process::spawn(slave.get());
-    EXPECT_MSG(filter, Eq("PING"), _, Eq(slavePid)).
+    EXPECT_MESSAGE(filter, Eq("PING"), _, Eq(slavePid)).
       WillRepeatedly(InvokeWithoutArgs(this, &MasterAllocatorTest::slavePong));
     LOG(INFO) << "XXX slave = " << slavePid;
     LOG(INFO) << "XXX master = " << master;
