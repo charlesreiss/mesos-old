@@ -77,8 +77,8 @@ public:
     EXPECT_CALL(allocator, slaveAdded(_)).
       WillOnce(DoAll(SaveArg<0>(&masterSlave), Trigger(&gotSlave)));
     detector.reset(new BasicMasterDetector(masterPid, slavePid, true));
-    WAIT_UNTIL(gotSlave);
     process::Clock::advance(kTick);
+    WAIT_UNTIL(gotSlave);
     WAIT_UNTIL(allocatorTicked);
   }
 

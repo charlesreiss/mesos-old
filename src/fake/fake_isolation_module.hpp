@@ -21,6 +21,8 @@
 
 #include <glog/logging.h>
 
+#include <process/timer.hpp>
+
 #include "boost/scoped_ptr.hpp"
 
 #include "common/type_utils.hpp"
@@ -31,6 +33,8 @@
 #include "mesos/executor.hpp"
 
 #include "fake/fake_task.hpp"
+
+#include <pthread.h>
 
 namespace mesos {
 namespace internal {
@@ -44,9 +48,12 @@ class FakeIsolationModule;
 class FakeExecutor : public Executor {
 public:
   FakeExecutor(FakeIsolationModule* module_, const FakeTaskMap& fakeTasks_)
-        : module(module_), fakeTasks(fakeTasks_) {}
+        : initialized(false), module(module_), fakeTasks(fakeTasks_) {}
 
   void init(ExecutorDriver* driver, const ExecutorArgs& args) {
+    LOG(INFO) << "FakeExecutor: init; this=" << (void*)this;
+    CHECK(!initialized);
+    initialized = true;
     frameworkId.MergeFrom(args.framework_id());
     executorId.MergeFrom(args.executor_id());
   }
@@ -60,7 +67,9 @@ public:
   }
 
   void shutdown(ExecutorDriver* driver) {
-    LOG(INFO) << "FakeExecutor: shutdown";
+    CHECK(initialized);
+    LOG(INFO) << "FakeExecutor: shutdown; this=" << (void*)this;
+    initialized = false;
   }
 
   void error(ExecutorDriver* driver, int code, const std::string& message) {
@@ -69,17 +78,37 @@ public:
 
   virtual ~FakeExecutor() {}
 private:
+  bool initialized;
   FrameworkID frameworkId;
   ExecutorID executorId;
   FakeIsolationModule* module;
   const FakeTaskMap& fakeTasks;
 };
 
+struct FakeIsolationModuleTicker : public process::Process<FakeIsolationModuleTicker> {
+  FakeIsolationModuleTicker(FakeIsolationModule* module_, double interval_)
+      : module(module_), interval(interval_) {}
+
+  void initialize() {
+    timer = process::delay(interval, self(), &FakeIsolationModuleTicker::tick);
+  }
+
+  void tick();
+
+  FakeIsolationModule* module;
+  double interval;
+  process::timer timer;
+};
 
 class FakeIsolationModule : public IsolationModule {
 public:
   FakeIsolationModule(const FakeTaskMap& fakeTasks_)
-      : fakeTasks(fakeTasks_) {}
+      : fakeTasks(fakeTasks_), shuttingDown(false) {
+    pthread_mutexattr_t mattr;
+    pthread_mutexattr_init(&mattr);
+    pthread_mutexattr_settype(&mattr, PTHREAD_MUTEX_ERRORCHECK);
+    pthread_mutex_init(&tasksLock, &mattr);
+  }
 
   void initialize(const Configuration& conf, bool local,
                   const process::PID<Slave>& slave);
@@ -106,7 +135,9 @@ public:
                       const ExecutorID& executorId,
                       const TaskID& taskId);
 
-  void tick();
+  bool tick();
+
+  virtual ~FakeIsolationModule();
 
 private:
   friend class FakeExecutor;
@@ -127,10 +158,14 @@ private:
   // For now, only one task per executor
   typedef hashmap<std::pair<FrameworkID, ExecutorID>, RunningTaskInfo> TaskMap;
   TaskMap tasks;
+  pthread_mutex_t tasksLock;
+
   process::PID<Slave> slave;
   double interval;
   double lastTime;
   const FakeTaskMap& fakeTasks;
+  boost::scoped_ptr<FakeIsolationModuleTicker> ticker;
+  bool shuttingDown;
 };
 
 }  // namespace fake

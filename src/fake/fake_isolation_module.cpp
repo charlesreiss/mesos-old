@@ -1,4 +1,7 @@
+#include <vector>
+
 #include <boost/bind.hpp>
+#include <boost/tuple/tuple.hpp>
 
 #include <glog/logging.h>
 
@@ -15,15 +18,22 @@ namespace internal {
 namespace fake {
 
 using std::make_pair;
+using std::vector;
 
 void FakeExecutor::launchTask(ExecutorDriver* driver,
                               const TaskDescription& task)
 {
+  LOG(INFO) << "Asked to launch task " << task.DebugString();
   // TODO(Charles Reiss): Locking??
   FakeTaskMap::const_iterator it =
     fakeTasks.find(make_pair(frameworkId, task.task_id()));
   CHECK(it != fakeTasks.end());
   module->registerTask(frameworkId, executorId, task.task_id(), it->second);
+
+  TaskStatus status;
+  status.mutable_task_id()->MergeFrom(task.task_id());
+  status.set_state(TASK_RUNNING);
+  driver->sendStatusUpdate(status);
 }
 
 void FakeExecutor::killTask(ExecutorDriver* driver,
@@ -40,11 +50,11 @@ void FakeExecutor::killTask(ExecutorDriver* driver,
 void FakeIsolationModule::initialize(const Configuration& conf, bool local,
     const process::PID<Slave>& slave_)
 {
+  LOG(INFO) << "initialize; this = " << (void*)this;
   slave = slave_;
   interval = conf.get<double>("fake_interval", 1.0);
-  lastTime = process::Clock::now();
-  process::timers::create(interval,
-      boost::bind(&FakeIsolationModule::tick, *this));
+  ticker.reset(new FakeIsolationModuleTicker(this, interval));
+  process::spawn(ticker.get());
   CHECK(local);
 }
 
@@ -52,6 +62,7 @@ void FakeIsolationModule::launchExecutor(
     const FrameworkID& frameworkId, const FrameworkInfo& frameworkInfo,
     const ExecutorInfo& executorInfo, const std::string& directory,
     const ResourceHints& resources) {
+  LOG(INFO) << "launchExecutor; this = " << (void*)this;
   FakeExecutor* executor = new FakeExecutor(this, fakeTasks);
   MesosExecutorDriver* driver = new MesosExecutorDriver(executor);
   drivers[make_pair(frameworkId, executorInfo.executor_id())] =
@@ -90,20 +101,30 @@ void FakeIsolationModule::registerTask(
     const FrameworkID& frameworkId, const ExecutorID& executorId,
     const TaskID& taskId, FakeTask* task)
 {
+  CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
+  LOG(INFO) << "FakeIsolationModule::registerTask(" << frameworkId << ","
+            << executorId << ", ...); this = " << (void*) this;
   RunningTaskInfo* taskInfo = &tasks[make_pair(frameworkId, executorId)];
   CHECK(!taskInfo->fakeTask);
   taskInfo->taskId.MergeFrom(taskId);
   taskInfo->fakeTask = task;
+  CHECK_GT(tasks.size(), 0);
+  LOG(INFO) << "Now got " << tasks.size();
+  CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
 }
 
 void FakeIsolationModule::unregisterTask(
     const FrameworkID& frameworkId, const ExecutorID& executorId,
     const TaskID& taskId)
 {
+  CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
+  LOG(INFO) << "FakeIsolationModule::unregisterTask(" << frameworkId << ","
+            << executorId << ", ...)";
   RunningTaskInfo* taskInfo = &tasks[make_pair(frameworkId, executorId)];
   CHECK_EQ(taskInfo->taskId, taskId);
   CHECK_NOTNULL(taskInfo->fakeTask);
   taskInfo->fakeTask = 0;
+  CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
 }
 
 namespace {
@@ -123,9 +144,17 @@ Resources minResources(Resources a, Resources b) {
 
 }  // unnamed namespace
 
-void FakeIsolationModule::tick() {
-  process::timers::create(interval,
-      boost::bind(&FakeIsolationModule::tick, *this));
+void FakeIsolationModuleTicker::tick() {
+  if (module->tick()) {
+    LOG(INFO) << "scheduling new tick";
+    timer = process::delay(interval, self(), &FakeIsolationModuleTicker::tick);
+  }
+}
+
+bool FakeIsolationModule::tick() {
+  LOG(INFO) << "FakeIsolationModule::tick; this = " << (void*)this;
+  CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
+  LOG(INFO) << "tasks.size = " << tasks.size();
 
   seconds oldTime(lastTime);
   seconds newTime(process::Clock::now());
@@ -134,10 +163,14 @@ void FakeIsolationModule::tick() {
   // gets min(its usage, its allocation).
 
   typedef std::pair<FrameworkID, ExecutorID> FrameworkExecutorID;
+  typedef boost::tuple<FrameworkID, ExecutorID, TaskID> TaskTuple;
+  vector<TaskTuple> toUnregister;
   foreachpair(const FrameworkExecutorID& frameworkAndExec,
               RunningTaskInfo& task, tasks) {
     FakeTask *fakeTask = task.fakeTask;
     if (fakeTask) {
+      LOG(INFO) << "Checking on task " << frameworkAndExec.first << " "
+                << frameworkAndExec.second;
       Resources requested = fakeTask->getUsage(oldTime, newTime);
       Resources usage = minResources(requested,
           task.assignedResources.expectedResources);
@@ -150,17 +183,46 @@ void FakeIsolationModule::tick() {
         update.set_timestamp(process::Clock::now());
         update.set_uuid(task.taskId.value());
         process::dispatch(slave, &Slave::statusUpdate, update);
-        unregisterTask(frameworkAndExec.first, frameworkAndExec.second,
-                       task.taskId);
+        toUnregister.push_back(boost::make_tuple(
+              frameworkAndExec.first, frameworkAndExec.second, task.taskId));
       }
     } else {
-      LOG(INFO) << "Executor with no task";
+      LOG(INFO) << "Executor with no task " << frameworkAndExec.first << " "
+                << frameworkAndExec.second;
     }
+  }
+  CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
+
+  foreach (const TaskTuple& tuple, toUnregister) {
+    unregisterTask(tuple.get<0>(), tuple.get<1>(), tuple.get<2>());
   }
 
   lastTime = newTime.value;
+  return !shuttingDown;
 }
 
+FakeIsolationModule::~FakeIsolationModule()
+{
+  LOG(INFO) << "~FakeIsolationModule";
+  CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
+  shuttingDown = true;
+  CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
+  LOG(INFO) << "teriminate";
+  process::terminate(ticker.get());
+  LOG(INFO) << "cancel";
+  process::timers::cancel(ticker->timer);
+  LOG(INFO) << "wait";
+  process::wait(ticker.get());
+  LOG(INFO) << "shut down ticker";
+  pthread_mutex_destroy(&tasksLock);
+  foreachvalue(const DriverMap::mapped_type& pair, drivers) {
+    MesosExecutorDriver* driver = pair.first;
+    FakeExecutor* executor = pair.second;
+    driver->stop();
+    delete driver;
+    delete executor;
+  }
+}
 
 }  // namespace fake
 }  // namespace internal

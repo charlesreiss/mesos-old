@@ -53,7 +53,7 @@ public:
     EXPECT_MESSAGE(mockFilter, _, _, _).WillRepeatedly(testing::Return(false));
     mockMaster.reset(new FakeProtobufProcess);
     mockMaster->setFilter(&mockFilter);
-    mockMasterPid = process::spawn(mockMaster.get());
+    mockMasterPid = mockMaster->start();
     module.reset(new FakeIsolationModule(fakeTasks));
     slave.reset(new Slave(Resources::parse("cpu:4.0;mem:4096"), true,
                           module.get()));
@@ -70,7 +70,7 @@ public:
   TaskDescription makeTaskDescription(const std::string& id,
                                       const ResourceHints& resources) {
     TaskDescription task;
-    task.set_name("task-" + id);
+    task.set_name(id);
     task.mutable_task_id()->set_value(id);
     task.mutable_slave_id()->MergeFrom(getSlaveId());
     task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
@@ -93,12 +93,15 @@ public:
                            testing::_, slavePid).
       WillOnce(testing::DoAll(Trigger(&gotRegister),
                               testing::Return(false)));
+    trigger gotStatusUpdate;
+    mockMaster->expectAndWait<StatusUpdateMessage>(slavePid, &gotStatusUpdate);
     process::dispatch(slave.get(), &Slave::runTask,
         DEFAULT_FRAMEWORK_INFO,
         DEFAULT_FRAMEWORK_ID,
         mockMasterPid, // mock master acting as scheduler
         makeTaskDescription(id, resources));
     WAIT_UNTIL(gotRegister);
+    WAIT_UNTIL(gotStatusUpdate);
   }
 
   void killTask(std::string id) {
@@ -122,13 +125,13 @@ public:
   }
 
   void tickAndUpdate(const std::string& taskId) {
-  trigger gotStatusUpdate;
-  StatusUpdateMessage updateMessage;
-  mockMaster->expectAndStore<StatusUpdateMessage>(slavePid, &updateMessage,
-      &gotStatusUpdate);
-  process::Clock::advance(kTick);
-  WAIT_UNTIL(gotStatusUpdate);
-  acknowledgeUpdate(taskId, updateMessage);
+    trigger gotStatusUpdate;
+    StatusUpdateMessage updateMessage;
+    mockMaster->expectAndStore<StatusUpdateMessage>(slavePid,
+        &updateMessage, &gotStatusUpdate);
+    process::Clock::advance(kTick);
+    WAIT_UNTIL(gotStatusUpdate);
+    acknowledgeUpdate(taskId, updateMessage);
   }
 
   void queryUsage() {
@@ -139,8 +142,13 @@ public:
     process::terminate(mockMasterPid);
     process::wait(slavePid);
     process::wait(mockMasterPid);
-    process::filter(0);
+    process::wait(module.get());
     process::Clock::resume();
+  }
+
+  void TearDown() {
+    module.reset(0);
+    process::filter(0);
   }
 
 protected:
@@ -179,7 +187,7 @@ TEST_F(FakeIsolationModuleTest, TaskRunOneSecond) {
     WillOnce(Return(TASK_FINISHED));
 
   tickAndUpdate("task0");
-
+  killTask("task0");
   stopSlave();
 }
 
