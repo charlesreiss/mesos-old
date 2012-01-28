@@ -114,8 +114,8 @@ protected:
     using testing::Invoke;
     slave.reset(new FakeProtobufProcess);
     slave->setFilter(&filter);
-    slavePid = process::spawn(slave.get());
-    EXPECT_MSG(filter, Eq("PING"), _, Eq(slavePid)).
+    slavePid = slave->start();
+    EXPECT_MESSAGE(filter, Eq("PING"), _, Eq(slavePid)).
       WillRepeatedly(InvokeWithoutArgs(this, &MasterAllocatorTest::slavePong));
     LOG(INFO) << "XXX slave = " << slavePid;
     LOG(INFO) << "XXX master = " << master;
@@ -145,7 +145,7 @@ protected:
     EXPECT_CALL(allocator, frameworkAdded(_)).Times(1);
     framework.reset(new FakeProtobufProcess);
     framework->setFilter(&filter);
-    frameworkPid = process::spawn(framework.get());
+    frameworkPid = framework->start();
     FrameworkInfo frameworkInfo;
     frameworkInfo.set_user("test-user");
     frameworkInfo.set_name("test-name");
