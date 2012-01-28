@@ -311,7 +311,7 @@ TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered)
   offers[0].clear_resources();
   offers[0].mutable_resources()->MergeFrom(
       Resources::parse("cpus:4;mem:4096"));
-  launchTaskForOffer(offers[0], "testTaskId", TASK_FAILED);
+  launchTaskForOffer(offers[0], "testTaskId", TASK_LOST);
   stopScheduler();
   stopMasterAndSlave();
 }
