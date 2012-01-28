@@ -406,6 +406,13 @@ class FakeProtobufProcess
  public:
   FakeProtobufProcess() {}
 
+  process::PID<FakeProtobufProcess> start() {
+    // We use this rather than relying on self() to avoid issues with
+    // calling self() from the wrong thread or too early.
+    selfPid = process::spawn(this);
+    return selfPid;
+  }
+
   void setFilter(MockFilter* newFilter) {
     filter = newFilter;
   }
@@ -414,7 +421,7 @@ class FakeProtobufProcess
   void expect(process::UPID from = process::UPID(), int times = 1) {
     using testing::Eq;
     T m;
-    EXPECT_MESSAGE(*filter, Eq(m.GetTypeName()), match(from), Eq(self())).
+    EXPECT_MESSAGE(*filter, Eq(m.GetTypeName()), match(from), Eq(selfPid)).
       Times(times).
       WillRepeatedly(testing::Return(true));
   }
@@ -423,7 +430,7 @@ class FakeProtobufProcess
   void expectMany() {
     using testing::Eq;
     T m;
-    EXPECT_MESSAGE(*filter, Eq(m.GetTypeName()), testing::_, Eq(self())).
+    EXPECT_MESSAGE(*filter, Eq(m.GetTypeName()), testing::_, Eq(selfPid)).
       WillRepeatedly(testing::Return(true));
   }
 
@@ -432,7 +439,7 @@ class FakeProtobufProcess
     using testing::Eq;
     using testing::Invoke;
     EXPECT_MESSAGE(*filter, Eq(destination->GetTypeName()), match(from),
-                        Eq(self())).
+                        Eq(selfPid)).
       WillOnce(Invoke(std::tr1::bind(&expectAndStoreHelper<T>, destination,
                                      std::tr1::placeholders::_1, done)));
   }
@@ -444,12 +451,12 @@ class FakeProtobufProcess
     using testing::Return;
     T dummy;
     if (times > 1) {
-      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from), Eq(self())).
+      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from), Eq(selfPid)).
         WillRepeatedly(Return(true)).
         Times(times - 1);
     }
     if (times > 0) {
-      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from), Eq(self())).
+      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from), Eq(selfPid)).
         WillOnce(DoAll(Trigger(done), Return(true)));
     } else {
       done->value = true;
@@ -468,6 +475,7 @@ private:
   }
 
 protected:
+  process::PID<FakeProtobufProcess> selfPid;
   bool expectAndStorePending;
   trigger expectAndStoreComplete;
   process::Message expectAndStoreMessage;
