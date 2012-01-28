@@ -775,7 +775,8 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
     args->set_data(executor->info.data());
     send(executor->pid, message);
 
-    LOG(INFO) << "Flushing queued tasks for framework " << framework->id;
+    LOG(INFO) << "Flushing " << executor->queuedTasks.size()
+              << " queued tasks for framework " << framework->id;
 
     foreachvalue (const TaskDescription& task, executor->queuedTasks) {
       stats.tasks[TASK_STARTING]++;
@@ -785,6 +786,7 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
       message.mutable_framework()->MergeFrom(framework->info);
       message.set_pid(framework->pid);
       message.mutable_task()->MergeFrom(task);
+      VLOG(1) << "Sending RunTaskMessage: " << message.DebugString();
       send(executor->pid, message);
     }
 
