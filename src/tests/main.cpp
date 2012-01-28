@@ -84,6 +84,8 @@ int main(int argc, char** argv)
   // Clear any MESOS_ environment variables so they don't affect our tests.
   Configurator::clearMesosEnvironmentVars();
 
+  putenv("MESOS_WORK_DIR=" BUILD_DIR "/test_output/work");
+
   // Initialize Google Logging and Google Test.
   google::InitGoogleLogging("alltests");
   testing::InitGoogleTest(&argc, argv);
