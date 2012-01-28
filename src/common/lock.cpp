@@ -20,6 +20,20 @@
 
 using namespace mesos::internal;
 
+Lock::Lock(pthread_mutex_t* _mutex)
+  : mutex(_mutex), locked(false)
+{
+  lock();
+}
+
+
+void Lock::lock()
+{
+  if (!locked) {
+    pthread_mutex_lock(mutex);
+    locked = true;
+  }
+}
 
 Lock::Lock(pthread_mutex_t* _mutex): mutex(_mutex)
 {
