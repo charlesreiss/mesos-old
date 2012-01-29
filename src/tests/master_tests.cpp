@@ -87,6 +87,7 @@ protected:
       .WillOnce(DoAll(SaveArg<0>(&execDriver), SaveArg<1>(&execArgs)));
 
     EXPECT_CALL(exec, shutdown(_))
+      .Times(AtMost(1))
       .WillOnce(Trigger(&shutdownCall));
 
     map<ExecutorID, Executor*> execs;
@@ -108,6 +109,8 @@ protected:
 
     if (!isolationModule.get()) {
       setupExecutors();
+    } else {
+      shutdownCall.value = 1;
     }
 
     if (useMockAllocator) {
@@ -192,9 +195,11 @@ protected:
 
     vector<TaskDescription> tasks;
 
-    EXPECT_CALL(exec, launchTask(_, _))
-      .Times(taskIds.size())
-      .WillRepeatedly(SendStatusUpdate(expectState));
+    if (expectState != TASK_LOST) {
+      EXPECT_CALL(exec, launchTask(_, _))
+        .Times(taskIds.size())
+        .WillRepeatedly(SendStatusUpdate(expectState));
+    }
     for (int i = 0; i < taskIds.size(); ++i) {
       const std::string& taskId = taskIds[i];
 
@@ -231,7 +236,7 @@ protected:
     schedDriver->join();
   }
 
-  void stopMasterAndSlave() {
+  void stopMasterAndSlave(bool shutdownAllocator = true) {
 
     if (useMockAllocator) {
       EXPECT_CALL(mockAllocator, slaveRemoved(_)).Times(1);
@@ -250,7 +255,9 @@ protected:
 
     m.reset(0);
 
-    WAIT_UNTIL(shutdownCall); // To ensure can deallocate MockExecutor.
+    if (shutdownAllocator) {
+      WAIT_UNTIL(shutdownCall); // To ensure can deallocate MockExecutor.
+    }
   }
 
   trigger shutdownCall;
@@ -313,7 +320,7 @@ TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered)
       Resources::parse("cpus:4;mem:4096"));
   launchTaskForOffer(offers[0], "testTaskId", TASK_LOST);
   stopScheduler();
-  stopMasterAndSlave();
+  stopMasterAndSlave(false);
 }
 
 TEST_F(MasterSlaveTest, KillTask)
