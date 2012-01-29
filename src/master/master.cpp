@@ -314,7 +314,7 @@ void Master::initialize()
   startTime = Clock::now();
 
   // Start our timer ticks.
-  delay(1.0, self(), &Master::timerTick);
+  timerTickTimer = delay(1.0, self(), &Master::timerTick);
 
   // Install handler functions for certain messages.
   install<SubmitSchedulerRequest>(
@@ -423,6 +423,8 @@ void Master::finalize()
   foreachvalue (Slave* slave, slaves) {
     send(slave->pid, ShutdownMessage());
   }
+
+  process::timers::cancel(timerTickTimer);
 }
 
 
@@ -1147,7 +1149,7 @@ void Master::timerTick()
   allocator->timerTick();
 
   // Scheduler another timer tick!
-  delay(1.0, self(), &Master::timerTick);
+  timerTickTimer = delay(1.0, self(), &Master::timerTick);
 }
 
 
