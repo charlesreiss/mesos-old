@@ -1090,9 +1090,13 @@ void Master::exitedExecutor(const SlaveID& slaveId,
         }
       }
 
+      ExecutorInfo info = slave->executors[framework->id][executorId];
+
       // Remove executor from slave and framework.
       slave->removeExecutor(frameworkId, executorId);
       framework->removeExecutor(slave->id, executorId);
+
+      allocator->executorRemoved(frameworkId, slave->id, info);
 
       // TODO(benh): Send the framework it's executor's exit status?
       // Or maybe at least have something like
