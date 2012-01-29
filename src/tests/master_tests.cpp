@@ -54,8 +54,9 @@ using mesos::internal::slave::Slave;
 using boost::scoped_ptr;
 
 using process::PID;
+using process::Clock;
 using process::Future;
-using process::Promise;
+using process::PID;
 
 using std::string;
 using std::map;
@@ -228,27 +229,33 @@ protected:
   }
 
   void stopScheduler() {
+    trigger gotFrameworkRemoved;
     if (useMockAllocator) {
-      EXPECT_CALL(mockAllocator, frameworkRemoved(_)).Times(1);
+      EXPECT_CALL(mockAllocator, frameworkRemoved(_)).
+        WillOnce(Trigger(&gotFrameworkRemoved));
     }
     schedDriver->stop();
     schedDriver->join();
+    if (useMockAllocator) {
+      WAIT_UNTIL(gotFrameworkRemoved);
+    }
   }
 
   void stopMasterAndSlave(bool shutdownAllocator = true) {
+
     if (useMockAllocator) {
       EXPECT_CALL(mockAllocator, slaveRemoved(_)).Times(1);
     }
     LOG(INFO) << "Asking slave to terminate";
 
-    process::post(slave, process::TERMINATE);
+    process::terminate(slave);
     process::wait(slave);
 
     s.reset(0);
 
     LOG(INFO) << "Asking master to terminate";
 
-    process::post(master, process::TERMINATE);
+    process::terminate(master);
     process::wait(master);
 
     m.reset(0);
@@ -258,6 +265,7 @@ protected:
     }
   }
 
+  trigger shutdownCall;
   SimpleAllocator allocator;
   MockAllocator mockAllocator;
   bool useMockAllocator;
@@ -413,7 +421,7 @@ TEST_F(MasterSlaveTest, FrameworkMessage)
 
   string execData;
 
-  trigger execFrameworkMessageCall;
+  trigger execFrameworkMessageCall, shutdownCall;
 
   EXPECT_CALL(exec, frameworkMessage(_, _))
     .WillOnce(DoAll(SaveArg<1>(&execData),
@@ -453,7 +461,7 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
 {
   MockExecutor exec1;
   TaskDescription exec1Task;
-  trigger exec1LaunchTaskCall;
+  trigger exec1LaunchTaskCall, exec1ShutdownCall;
 
   EXPECT_CALL(exec1, init(_, _))
     .Times(1);
@@ -464,11 +472,11 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
                     SendStatusUpdate(TASK_RUNNING)));
 
   EXPECT_CALL(exec1, shutdown(_))
-    .Times(AtMost(1));
+    .WillOnce(Trigger(&exec1ShutdownCall));
 
   MockExecutor exec2;
   TaskDescription exec2Task;
-  trigger exec2LaunchTaskCall;
+  trigger exec2LaunchTaskCall, exec2ShutdownCall;
 
   EXPECT_CALL(exec2, init(_, _))
     .Times(1);
@@ -479,7 +487,7 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
                     SendStatusUpdate(TASK_RUNNING)));
 
   EXPECT_CALL(exec2, shutdown(_))
-    .Times(AtMost(1));
+    .WillOnce(Trigger(&exec2ShutdownCall));
 
   ExecutorID executorId1;
   executorId1.set_value("executor-1");
@@ -549,6 +557,7 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
 }
 
 TEST_F(MasterSlaveTest, AccumulateUsage) {
+  useMockAllocator = true;
   startMasterAndSlave();
   OfferID offerId;
   vector<Offer> offers;
@@ -561,9 +570,11 @@ TEST_F(MasterSlaveTest, AccumulateUsage) {
   usage.mutable_resources()->MergeFrom(Resources::parse("cpus:1.5;mem:800"));
   usage.set_timestamp(1000.0);
   usage.set_duration(250.0);
-  process::dispatch(master, &Master::updateUsage, usage);
-  // force dispatch to finish FIXME
-  process::wait(master, 0.1);
+  trigger gotUsage;
+  EXPECT_CALL(mockAllocator, gotUsage(testing::_)).
+    WillOnce(Trigger(&gotUsage));
+  process::post(master, usage);
+  WAIT_UNTIL(gotUsage);
   EXPECT_EQ(Resources::parse("cpus:1.5;mem:800"),
             m->getActiveSlaves()[0]->resourcesObservedUsed);
   stopScheduler();
@@ -580,10 +591,10 @@ public:
   // We need this typedef because MOCK_METHOD is a macro.
   typedef map<FrameworkID, FrameworkInfo> Map_FrameworkId_FrameworkInfo;
 
-  MOCK_METHOD0(list, Promise<Result<Map_FrameworkId_FrameworkInfo> >());
-  MOCK_METHOD2(add, Promise<Result<bool> >(const FrameworkID&,
-                                           const FrameworkInfo&));
-  MOCK_METHOD1(remove, Promise<Result<bool> >(const FrameworkID&));
+  MOCK_METHOD0(list, Future<Result<Map_FrameworkId_FrameworkInfo> >());
+  MOCK_METHOD2(add, Future<Result<bool> >(const FrameworkID&,
+                                          const FrameworkInfo&));
+  MOCK_METHOD1(remove, Future<Result<bool> >(const FrameworkID&));
 };
 
 
@@ -677,15 +688,17 @@ TEST_F(FrameworksManagerTestFixture, AddFramework)
 
 TEST_F(FrameworksManagerTestFixture, RemoveFramework)
 {
+  Clock::pause();
+
   // Remove a non-existent framework.
   FrameworkID id;
   id.set_value("non-existent framework");
 
-  Future<Result<bool> > future =
-    process::dispatch(manager, &FrameworksManager::remove, id, 0);
+  Future<Result<bool> > future1 =
+    process::dispatch(manager, &FrameworksManager::remove, id, seconds(0));
 
-  ASSERT_TRUE(future.await(2.0));
-  EXPECT_TRUE(future.get().isError());
+  ASSERT_TRUE(future1.await(2.0));
+  EXPECT_TRUE(future1.get().isError());
 
   // Remove an existing framework.
 
@@ -706,7 +719,9 @@ TEST_F(FrameworksManagerTestFixture, RemoveFramework)
 
   // Now remove the added framework.
   Future<Result<bool> > future3 =
-    process::dispatch(manager, &FrameworksManager::remove, id2, 1.0);
+    process::dispatch(manager, &FrameworksManager::remove, id2, seconds(1.0));
+
+  Clock::update(Clock::now(manager) + 1.0);
 
   ASSERT_TRUE(future3.await(2.0));
   EXPECT_TRUE(future2.get().get());
@@ -717,6 +732,8 @@ TEST_F(FrameworksManagerTestFixture, RemoveFramework)
 
   ASSERT_TRUE(future4.await(2.0));
   EXPECT_FALSE(future4.get().get());
+
+  Clock::resume();
 }
 
 
@@ -726,11 +743,11 @@ TEST_F(FrameworksManagerTestFixture, ResurrectFramework)
   FrameworkID id;
   id.set_value("non-existent framework");
 
-  Future<Result<bool> > future =
+  Future<Result<bool> > future1 =
     process::dispatch(manager, &FrameworksManager::resurrect, id);
 
-  ASSERT_TRUE(future.await(2.0));
-  EXPECT_FALSE(future.get().get());
+  ASSERT_TRUE(future1.await(2.0));
+  EXPECT_FALSE(future1.get().get());
 
   // Resurrect an existent framework that is NOT being removed.
   // Add a dummy framework.
@@ -756,9 +773,8 @@ TEST_F(FrameworksManagerTestFixture, ResurrectFramework)
 }
 
 
-// NOTE: In the following tests, with paused clocks, future.await() may wait
-// forever. This makes debugging failed tests hard.
-// TODO(vinod) Need better constructs.
+// TODO(vinod): Using a paused clock in the tests means that
+// future.await() may wait forever. This makes debugging hard.
 TEST_F(FrameworksManagerTestFixture, ResurrectExpiringFramework)
 {
   // This is the crucial test.
@@ -774,28 +790,27 @@ TEST_F(FrameworksManagerTestFixture, ResurrectExpiringFramework)
   info.set_user("test user");
 
   // Add the framework.
-  Future<Result<bool> > future =
-    process::dispatch(manager, &FrameworksManager::add, id, info);
+  process::dispatch(manager, &FrameworksManager::add, id, info);
 
-  process::Clock::pause();
+  Clock::pause();
 
   // Remove after 2 secs.
-  Future<Result<bool> > future2 =
-    process::dispatch(manager, &FrameworksManager::remove, id, 2.0);
+  Future<Result<bool> > future1 =
+    process::dispatch(manager, &FrameworksManager::remove, id, seconds(2.0));
 
   // Resurrect in the meanwhile.
-  Future<Result<bool> > future3 =
+  Future<Result<bool> > future2 =
     process::dispatch(manager, &FrameworksManager::resurrect, id);
 
-  ASSERT_TRUE(future3.await());
-  EXPECT_TRUE(future3.get().get());
+  ASSERT_TRUE(future2.await(2.0));
+  EXPECT_TRUE(future2.get().get());
 
-  process::Clock::advance(2.0);
+  Clock::update(Clock::now(manager) + 2.0);
 
-  ASSERT_TRUE(future2.await());
-  EXPECT_FALSE(future2.get().get());
+  ASSERT_TRUE(future1.await(2.0));
+  EXPECT_FALSE(future1.get().get());
 
-  process::Clock::resume();
+  Clock::resume();
 }
 
 
@@ -814,36 +829,35 @@ TEST_F(FrameworksManagerTestFixture, ResurrectInterspersedExpiringFrameworks)
   info.set_user("test user");
 
   // Add the framework.
-  Future<Result<bool> > future =
-    process::dispatch(manager, &FrameworksManager::add, id, info);
+  process::dispatch(manager, &FrameworksManager::add, id, info);
 
-  process::Clock::pause();
+  Clock::pause();
 
-  Future<Result<bool> > future2 =
-    process::dispatch(manager, &FrameworksManager::remove, id, 2.0);
+  Future<Result<bool> > future1 =
+    process::dispatch(manager, &FrameworksManager::remove, id, seconds(2.0));
 
   // Resurrect in the meanwhile.
-  Future<Result<bool> > future3 =
+  Future<Result<bool> > future2 =
     process::dispatch(manager, &FrameworksManager::resurrect, id);
 
   // Remove again.
-  Future<Result<bool> > future4 =
-    process::dispatch(manager, &FrameworksManager::remove, id, 1.0);
+  Future<Result<bool> > future3 =
+    process::dispatch(manager, &FrameworksManager::remove, id, seconds(1.0));
 
-  ASSERT_TRUE(future3.await());
+  ASSERT_TRUE(future2.await(2.0));
+  EXPECT_TRUE(future2.get().get());
+
+  Clock::update(Clock::now(manager) + 1.0);
+
+  ASSERT_TRUE(future3.await(2.0));
   EXPECT_TRUE(future3.get().get());
 
-  process::Clock::advance(1.0);
+  Clock::update(Clock::now(manager) + 2.0);
 
-  ASSERT_TRUE(future4.await());
-  EXPECT_TRUE(future4.get().get());
+  ASSERT_TRUE(future1.await(2.0));
+  EXPECT_FALSE(future1.get().get());
 
-  process::Clock::advance(1.0);
-
-  ASSERT_TRUE(future2.await());
-  EXPECT_FALSE(future2.get().get());
-
-  process::Clock::resume();
+  Clock::resume();
 }
 
 
@@ -873,12 +887,12 @@ TEST(FrameworksManagerTest, CacheFailure)
   process::spawn(manager);
 
   // Test if initially FrameworksManager returns error.
-  Future<Result<map<FrameworkID, FrameworkInfo> > > future =
+  Future<Result<map<FrameworkID, FrameworkInfo> > > future1 =
     process::dispatch(manager, &FrameworksManager::list);
 
-  ASSERT_TRUE(future.await(2.0));
-  ASSERT_TRUE(future.get().isError());
-  EXPECT_EQ(future.get().error(), "Error caching framework infos.");
+  ASSERT_TRUE(future1.await(2.0));
+  ASSERT_TRUE(future1.get().isError());
+  EXPECT_EQ(future1.get().error(), "Error caching framework infos.");
 
   // Add framework should function normally despite caching failure.
   FrameworkID id;
@@ -897,7 +911,7 @@ TEST(FrameworksManagerTest, CacheFailure)
 
   // Remove framework should fail due to caching failure.
   Future<Result<bool> > future3 =
-    process::dispatch(manager, &FrameworksManager::remove, id, 0);
+    process::dispatch(manager, &FrameworksManager::remove, id, seconds(0));
 
   ASSERT_TRUE(future3.await(2.0));
   ASSERT_TRUE(future3.get().isError());

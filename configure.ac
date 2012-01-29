@@ -17,13 +17,17 @@
 # Generated with autoscan, then modified appropriately.
 # Process this file with autoconf to produce a configure script.
 
-AC_PREREQ(2.61)
+AC_PREREQ([2.61])
 AC_INIT([mesos], [0.0.1])
 
 # Have autoconf setup some variables related to the system.
 AC_CANONICAL_HOST
 AC_CANONICAL_BUILD
 AC_CANONICAL_TARGET
+
+AC_LANG([C++])
+
+AC_CONFIG_MACRO_DIR([m4])
 
 # Initialize automake.
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
@@ -35,19 +39,13 @@ LT_INIT
 LT_LANG([C++])
 LT_OUTPUT
 
-AC_LANG(C++)
-
-AC_CONFIG_MACRO_DIR([m4])
-
 # The default CFLAGS/CXXFLAGS from autoconf when using gcd is usually
 # "-g -O2". These really slow down compiling our tests, so we turn
 # them off and enable them (where desired) directly in the
 # Makefile. Note that this should not have an impact on users setting
 # CFLAGS/CXXFLAGS directly at configure time, or when running make.
-AS_IF([test "x${ac_cv_env_CFLAGS_set}" = "x"],
-      [CFLAGS=""])
-AS_IF([test "x${ac_cv_env_CXXFLAGS_set}" = "x"],
-      [CXXFLAGS=""])
+AS_IF([test "x${ac_cv_env_CFLAGS_set}" = "x"], [CFLAGS=""])
+AS_IF([test "x${ac_cv_env_CXXFLAGS_set}" = "x"], [CXXFLAGS=""])
 
 SUBCONFIG_ARGS="$ac_configure_args --enable-shared=no --with-pic"
 AC_SUBST(SUBCONFIG_ARGS)
@@ -114,8 +112,6 @@ case "${target_os}" in
     echo Setting up build environment for ${target_cpu} ${target_os}
     echo ===========================================================
     OS_NAME=darwin
-    CFLAGS="$CFLAGS -D_XOPEN_SOURCE"
-    CXXFLAGS="$CXXFLAGS -D_XOPEN_SOURCE"
     ;;
   solaris*)
     echo ===========================================================

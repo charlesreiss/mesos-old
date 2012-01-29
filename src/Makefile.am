@@ -33,6 +33,11 @@ ZOOKEEPER = third_party/zookeeper-$(ZOOKEEPER_VERSION)/src/c
 LIBPROCESS = third_party/libprocess
 LIBEV = $(LIBPROCESS)/third_party/libev-3.8
 
+# Unfortunatley, 'pkglibexecdir' is not set before automake 1.11, so
+# we need to do it manually (unless we in the future assume an
+# automake version).
+pkglibexecdir = $(libexecdir)/$(PACKAGE)
+
 # These next definitions may not seem like, much, but they are very
 # important! They inform where things that have the webui_, pythonegg_
 # and javalib_ prefix get installed! Also note that pkg*dir contains
