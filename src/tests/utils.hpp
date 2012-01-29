@@ -275,7 +275,14 @@ public:
     : executors(_executors)
   {
     EXPECT_CALL(*this, resourcesChanged(testing::_, testing::_, testing::_))
-      .Times(testing::AnyNumber());
+      .Times(testing::AnyNumber())
+      .WillRepeatedly(testing::Invoke(this, &TestingIsolationModule::saveResources));
+  }
+
+  void saveResources(const FrameworkID& frameworkId,
+                     const ExecutorID& executorId,
+                     const ResourceHints& resources) {
+    lastResources[executorId] = resources;
   }
 
   virtual ~TestingIsolationModule() {}
