@@ -170,7 +170,6 @@ public:
                                    const ExecutorInfo&));
   MOCK_METHOD3(executorRemoved, void(const FrameworkID&, const SlaveID&,
                                      const ExecutorInfo&));
-  MOCK_METHOD1(gotUsage, void(const UsageMessage&));
 };
 
 

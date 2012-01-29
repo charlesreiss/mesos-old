@@ -223,16 +223,11 @@ protected:
   }
 
   void stopScheduler() {
-    trigger gotFrameworkRemoved;
     if (useMockAllocator) {
-      EXPECT_CALL(mockAllocator, frameworkRemoved(_)).
-        WillOnce(Trigger(&gotFrameworkRemoved));
+      EXPECT_CALL(mockAllocator, frameworkRemoved(_)).Times(1);
     }
     schedDriver->stop();
     schedDriver->join();
-    if (useMockAllocator) {
-      WAIT_UNTIL(gotFrameworkRemoved);
-    }
   }
 
   void stopMasterAndSlave() {
@@ -546,7 +541,6 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
 }
 
 TEST_F(MasterSlaveTest, AccumulateUsage) {
-  useMockAllocator = true;
   startMasterAndSlave();
   OfferID offerId;
   vector<Offer> offers;
@@ -559,11 +553,9 @@ TEST_F(MasterSlaveTest, AccumulateUsage) {
   usage.mutable_resources()->MergeFrom(Resources::parse("cpus:1.5;mem:800"));
   usage.set_timestamp(1000.0);
   usage.set_duration(250.0);
-  trigger gotUsage;
-  EXPECT_CALL(mockAllocator, gotUsage(testing::_)).
-    WillOnce(Trigger(&gotUsage));
-  process::post(master, usage);
-  WAIT_UNTIL(gotUsage);
+  process::dispatch(master, &Master::updateUsage, usage);
+  // force dispatch to finish FIXME
+  process::wait(master, 0.1);
   EXPECT_EQ(Resources::parse("cpus:1.5;mem:800"),
             m->getActiveSlaves()[0]->resourcesObservedUsed);
   stopScheduler();
