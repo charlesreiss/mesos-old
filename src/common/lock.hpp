@@ -39,6 +39,26 @@ private:
   bool locked;
 };
 
+class ReadLock
+{
+public:
+  ReadLock(pthread_rwlock_t* _lock);
+  ~ReadLock();
+
+private:
+  pthread_rwlock_t* lock;
+};
+
+class WriteLock
+{
+public:
+  WriteLock(pthread_rwlock_t* _lock);
+  ~WriteLock();
+
+private:
+  pthread_rwlock_t* lock;
+};
+
 } // namespace internal {
 } // namespace mesos {
 

@@ -51,5 +51,23 @@ Lock::~Lock()
   unlock();
 }
 
+ReadLock::ReadLock(pthread_rwlock_t* _lock) : lock(_lock)
+{
+  pthread_rwlock_rdlock(lock);
+}
+
+ReadLock::~ReadLock() {
+  pthread_rwlock_unlock(lock);
+}
+
+WriteLock::WriteLock(pthread_rwlock_t* _lock) : lock(_lock)
+{
+  pthread_rwlock_wrlock(lock);
+}
+
+WriteLock::~WriteLock() {
+  pthread_rwlock_unlock(lock);
+}
+
 } // namespace internal {
 } // namespace mesos {
