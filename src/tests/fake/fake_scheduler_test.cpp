@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <gmock/gmock.h>
 #include "tests/fake/util.hpp"
+#include "tests/utils.hpp"
 
 #include "fake/fake_scheduler.hpp"
 
@@ -33,6 +34,7 @@
 
 using namespace mesos;
 using namespace mesos::internal;
+using namespace mesos::internal::test;
 using namespace mesos::internal::fake;
 
 using std::vector;
@@ -69,12 +71,6 @@ public:
   MOCK_METHOD3(sendFrameworkMessage, Status(const SlaveID&, const ExecutorID&,
                                             const std::string&));
 };
-
-inline TaskID TASK_ID(const std::string& value) {
-  TaskID result;
-  result.set_value(value);
-  return result;
-}
 
 class FakeSchedulerTest : public testing::Test {
 public:

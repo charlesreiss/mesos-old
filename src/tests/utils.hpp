@@ -105,6 +105,12 @@ void enterTestDirectory(const char* testCase, const char* testName);
 #define DEFAULT_EXECUTOR_ID						\
       DEFAULT_EXECUTOR_INFO.executor_id()
 
+inline TaskID TASK_ID(const std::string& value) {
+  TaskID result;
+  result.set_value(value);
+  return result;
+}
+
 
 /**
  * Definition of a mock Scheduler to be used in tests with gmock.

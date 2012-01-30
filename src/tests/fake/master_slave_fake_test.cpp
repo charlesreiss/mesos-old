@@ -47,6 +47,8 @@ using mesos::internal::slave::Slave;
 
 using process::PID;
 
+using std::make_pair;
+
 using testing::_;
 using testing::DoAll;
 using testing::Invoke;
@@ -119,6 +121,13 @@ public:
     process::Clock::resume();
   }
 
+  void addTask(const TaskID& taskId, FakeTask* task) {
+    // TODO(Charles Reiss): There should be some wrapper class so these
+    // draw from the same place.
+    scheduler->addTask(taskId, task);
+    tasks[make_pair(masterFramework->id, taskId)] = task;
+  }
+
   void makeOfferOnTick(const ResourceHints& resources) {
     hashmap<mesos::internal::master::Slave*, ResourceHints> offers;
     offers[masterSlave] = resources;
@@ -132,7 +141,31 @@ public:
     WAIT_UNTIL(madeOffer);
   }
 
+  void tick() {
+    trigger gotTick;
+    EXPECT_CALL(allocator, timerTick()).
+      WillOnce(Trigger(&gotTick));
+    process::Clock::advance(kTick);
+    WAIT_UNTIL(gotTick);
+  }
+
+  void waitForStatus(trigger* trig) {
+    StatusUpdateMessage message;
+    EXPECT_MESSAGE(filter, message.GetTypeName(), _, masterPid).
+      WillOnce(DoAll(Trigger(trig), Return(false))).
+      RetiresOnSaturation();
+  }
+
+  void SetUp() {
+    process::filter(&filter);
+  }
+
+  void TearDown() {
+    process::filter(0);
+  }
+
 protected:
+  MockFilter filter;
   FakeTaskMap tasks;
   MockAllocator allocator;
 
@@ -164,6 +197,40 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRejectOffer) {
     WillOnce(Trigger(&offerReturned));
   makeOfferOnTick(ResourceHints::parse("cpu:8;mem:4096", "cpu:8;mem:4096"));
   WAIT_UNTIL(offerReturned);
+  stopScheduler();
+  stopMasterAndSlave();
+}
+
+TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
+  startMasterAndSlave();
+  startScheduler();
+  MockFakeTask task;
+  trigger tookUsage;
+  EXPECT_CALL(task, getUsage(_, _)).
+    WillRepeatedly(Return(Resources::parse("cpu:3;mem:1024")));
+  // TODO(Charles Reiss): Check resources in this call.
+  EXPECT_CALL(task, takeUsage(_, _, _)).
+    WillOnce(DoAll(Trigger(&tookUsage),
+                   Return(TASK_RUNNING)));
+  EXPECT_CALL(task, getResourceRequest()).
+    WillRepeatedly(Return(ResourceHints::parse("cpu:4;mem:2048", "")));
+  addTask(TASK_ID("task0"), &task);
+  trigger offerComplete, gotStatus;
+  EXPECT_CALL(allocator, resourcesUnused(_, _,
+              ResourceHints::parse("cpu:4;mem:2048", "cpu:8;mem:4096"))).
+    WillOnce(Trigger(&offerComplete));
+  waitForStatus(&gotStatus);
+  makeOfferOnTick(ResourceHints::parse("cpu:8;mem:4096", "cpu:8;mem:4096"));
+  WAIT_UNTIL(offerComplete);
+  WAIT_UNTIL(gotStatus);
+  tick();  // task should schedule by now.
+  WAIT_UNTIL(tookUsage);
+  Task* masterTask = masterSlave->getTask(masterFramework->id, TASK_ID("task0"));
+  ASSERT_TRUE(masterTask);
+  EXPECT_EQ(Resources::parse("cpu:4;mem:2048"), masterTask->resources());
+  EXPECT_CALL(task, takeUsage(_, _, _)).
+    WillOnce(Return(TASK_FINISHED));
+  tick();
   stopScheduler();
   stopMasterAndSlave();
 }

@@ -41,6 +41,7 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
       ResourceHints curRequest = task->getResourceRequest();
       if (curRequest <= bucket) {
         TaskDescription newTask;
+        newTask.set_name("dummy-name");
         newTask.mutable_task_id()->MergeFrom(taskId);
         newTask.mutable_slave_id()->MergeFrom(offer.slave_id());
         newTask.mutable_resources()->MergeFrom(curRequest.expectedResources);
