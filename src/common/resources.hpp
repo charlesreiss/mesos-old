@@ -480,6 +480,13 @@ inline bool operator == (
   return Resources(left) == right;
 }
 
+inline bool operator < (
+    const Resources& left,
+    const Resources& right)
+{
+  return !(right <= left);
+}
+
 struct ResourceHints {
   static ResourceHints parse(const std::string& expected, const std::string& min) {
     return ResourceHints(Resources::parse(expected), Resources::parse(min));

@@ -40,13 +40,14 @@ namespace fake {
 
 struct FakeTask {
   virtual Resources getUsage(seconds from, seconds to) const = 0;
-  virtual mesos::TaskState takeUsage(seconds from, seconds to, Resources resources) = 0;
+  virtual mesos::TaskState takeUsage(seconds from, seconds to,
+                                     const Resources& resources) = 0;
   virtual ResourceHints getResourceRequest() const = 0;
-  virtual void PrintToStream(std::ostream&) const = 0;
+  virtual void printToStream(std::ostream&) const = 0;
 };
 
 inline std::ostream& operator<<(std::ostream& out, const FakeTask& fakeTask) {
-  fakeTask.PrintToStream(out);
+  fakeTask.printToStream(out);
   return out;
 }
 
