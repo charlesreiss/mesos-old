@@ -205,8 +205,7 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
   trigger tookUsage;
   EXPECT_CALL(task, getUsage(_, _)).
     WillRepeatedly(Return(Resources::parse("cpu:3;mem:1024")));
-  // TODO(Charles Reiss): Check resources in this call.
-  EXPECT_CALL(task, takeUsage(_, _, _)).
+  EXPECT_CALL(task, takeUsage(_, _, Resources::parse("cpu:3;mem:1024"))).
     WillOnce(DoAll(Trigger(&tookUsage),
                    Return(TASK_RUNNING)));
   EXPECT_CALL(task, getResourceRequest()).
