@@ -86,7 +86,7 @@ public:
 
   void startScheduler() {
     if (!scheduler.get()) {
-      scheduler.reset(new FakeScheduler);
+      scheduler.reset(new FakeScheduler(&tasks));
     }
     trigger gotFramework;
     driver.reset(
@@ -122,10 +122,7 @@ public:
   }
 
   void addTask(const TaskID& taskId, FakeTask* task) {
-    // TODO(Charles Reiss): There should be some wrapper class so these
-    // draw from the same place.
     scheduler->addTask(taskId, task);
-    tasks[make_pair(masterFramework->id, taskId)] = task;
   }
 
   void makeOfferOnTick(const ResourceHints& resources) {
@@ -166,8 +163,8 @@ public:
 
 protected:
   MockFilter filter;
-  FakeTaskMap tasks;
   MockAllocator allocator;
+  FakeTaskTracker tasks;
 
   scoped_ptr<FakeScheduler> scheduler;
   mesos::internal::master::Framework* masterFramework;

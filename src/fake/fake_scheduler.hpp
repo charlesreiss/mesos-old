@@ -38,6 +38,7 @@ using std::map;
 
 class FakeScheduler : public Scheduler {
 public:
+  FakeScheduler(FakeTaskTracker* taskTracker_) : taskTracker(taskTracker_) {}
   void registered(SchedulerDriver* driver, const FrameworkID& frameworkId);
   void resourceOffers(SchedulerDriver* driver,
                       const std::vector<Offer>& offers);
@@ -66,8 +67,10 @@ public:
   }
 
 private:
+  FakeTaskTracker* taskTracker;
   map<TaskID, FakeTask*> tasksPending;
   map<TaskID, FakeTask*> tasksRunning;
+  FrameworkID frameworkId;
 };
 
 }  // namespace fake

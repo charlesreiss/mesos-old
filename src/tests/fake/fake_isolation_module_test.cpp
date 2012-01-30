@@ -54,7 +54,7 @@ public:
     mockMaster.reset(new FakeProtobufProcess);
     mockMaster->setFilter(&mockFilter);
     mockMasterPid = mockMaster->start();
-    module.reset(new FakeIsolationModule(fakeTasks));
+    module.reset(new FakeIsolationModule(taskTracker));
     slave.reset(new Slave(Resources::parse("cpu:4.0;mem:4096"), true,
                           module.get()));
     slavePid = process::spawn(slave.get());
@@ -87,7 +87,8 @@ public:
                  const ResourceHints& resources) {
     TaskID taskId;
     taskId.set_value(id);
-    fakeTasks[make_pair(DEFAULT_FRAMEWORK_ID, taskId)] = task;
+    taskTracker.registerTask(DEFAULT_FRAMEWORK_ID, DEFAULT_EXECUTOR_ID,
+                             taskId, task);
     trigger gotRegister;
     EXPECT_MESSAGE(mockFilter, name<RegisterExecutorMessage>(),
                            testing::_, slavePid).
@@ -160,7 +161,7 @@ protected:
   process::UPID mockMasterPid;
   boost::scoped_ptr<FakeProtobufProcess> mockMaster;
   MockFilter mockFilter;
-  FakeTaskMap fakeTasks;
+  FakeTaskTracker taskTracker;
 };
 
 TEST_F(FakeIsolationModuleTest, InitStop) {

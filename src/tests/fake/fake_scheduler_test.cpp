@@ -76,7 +76,7 @@ class FakeSchedulerTest : public testing::Test {
 public:
   void registerScheduler()
   {
-    scheduler.reset(new FakeScheduler);
+    scheduler.reset(new FakeScheduler(&tracker));
     scheduler->registered(&schedulerDriver, DEFAULT_FRAMEWORK_ID);
   }
 
@@ -123,6 +123,13 @@ public:
     EXPECT_EQ(result[0].resources(), taskResources.expectedResources);
     EXPECT_EQ(result[0].min_resources(), taskResources.minResources);
     EXPECT_EQ(result[0].executor().executor_id().value(), taskId);
+
+    if (mockTask) {
+      EXPECT_EQ(mockTask,
+          tracker.getTaskFor(DEFAULT_FRAMEWORK_ID,
+                             result[0].executor().executor_id(),
+                             TASK_ID(taskId)));
+    }
   }
 
   void makeAndAcceptOfferDefault(const std::string& id, MockFakeTask* mockTask)
@@ -144,6 +151,7 @@ public:
 protected:
   boost::scoped_ptr<FakeScheduler> scheduler;
   MockSchedulerDriver schedulerDriver;
+  FakeTaskTracker tracker;
 };
 
 TEST_F(FakeSchedulerTest, NoTasks) {

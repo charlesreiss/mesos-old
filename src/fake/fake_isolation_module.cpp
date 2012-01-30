@@ -24,11 +24,7 @@ void FakeExecutor::launchTask(ExecutorDriver* driver,
                               const TaskDescription& task)
 {
   LOG(INFO) << "Asked to launch task " << task.DebugString();
-  // TODO(Charles Reiss): Locking??
-  FakeTaskMap::const_iterator it =
-    fakeTasks.find(make_pair(frameworkId, task.task_id()));
-  CHECK(it != fakeTasks.end());
-  module->registerTask(frameworkId, executorId, task.task_id(), it->second);
+  module->registerTask(frameworkId, executorId, task.task_id());
 
   TaskStatus status;
   status.mutable_task_id()->MergeFrom(task.task_id());
@@ -63,7 +59,7 @@ void FakeIsolationModule::launchExecutor(
     const ExecutorInfo& executorInfo, const std::string& directory,
     const ResourceHints& resources) {
   LOG(INFO) << "launchExecutor; this = " << (void*)this;
-  FakeExecutor* executor = new FakeExecutor(this, fakeTasks);
+  FakeExecutor* executor = new FakeExecutor(this);
   MesosExecutorDriver* driver = new MesosExecutorDriver(executor);
   drivers[make_pair(frameworkId, executorInfo.executor_id())] =
     make_pair(driver, executor);
@@ -99,8 +95,9 @@ void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
 
 void FakeIsolationModule::registerTask(
     const FrameworkID& frameworkId, const ExecutorID& executorId,
-    const TaskID& taskId, FakeTask* task)
+    const TaskID& taskId)
 {
+  FakeTask* task = fakeTasks.getTaskFor(frameworkId, executorId, taskId);
   CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
   LOG(INFO) << "FakeIsolationModule::registerTask(" << frameworkId << ","
             << executorId << ", ...); this = " << (void*) this;

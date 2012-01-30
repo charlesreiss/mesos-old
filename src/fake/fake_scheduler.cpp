@@ -27,8 +27,9 @@ namespace fake {
 using std::vector;
 
 void FakeScheduler::registered(SchedulerDriver* driver,
-                               const FrameworkID& frameworkId)
+                               const FrameworkID& frameworkId_)
 {
+  frameworkId.MergeFrom(frameworkId_);
 }
 
 void FakeScheduler::resourceOffers(SchedulerDriver* driver,
@@ -51,6 +52,8 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
         newTask.mutable_executor()->set_uri("no-executor");
         toLaunch.push_back(newTask);
         bucket -= curRequest;
+        taskTracker->registerTask(frameworkId,
+            newTask.executor().executor_id(), taskId, task);
         tasksRunning[taskId] = task;
         LOG(INFO) << "placed " << task << " in " << newTask.DebugString();
       } else {
@@ -77,7 +80,12 @@ void FakeScheduler::statusUpdate(SchedulerDriver* driver,
   case TASK_STARTING: case TASK_RUNNING:
     break;
   case TASK_FINISHED:
-    tasksRunning.erase(status.task_id());
+    {
+      tasksRunning.erase(status.task_id());
+      ExecutorID executorId;
+      executorId.set_value(status.task_id().value());
+      taskTracker->unregisterTask(frameworkId, executorId, status.task_id());
+    }
     break;
   case TASK_FAILED: case TASK_KILLED: case TASK_LOST:
     tasksPending[status.task_id()] = tasksRunning[status.task_id()];

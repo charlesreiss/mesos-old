@@ -47,8 +47,8 @@ class FakeIsolationModule;
 
 class FakeExecutor : public Executor {
 public:
-  FakeExecutor(FakeIsolationModule* module_, const FakeTaskMap& fakeTasks_)
-        : initialized(false), module(module_), fakeTasks(fakeTasks_) {}
+  FakeExecutor(FakeIsolationModule* module_)
+        : initialized(false), module(module_) {}
 
   void init(ExecutorDriver* driver, const ExecutorArgs& args) {
     LOG(INFO) << "FakeExecutor: init; this=" << (void*)this;
@@ -82,7 +82,6 @@ private:
   FrameworkID frameworkId;
   ExecutorID executorId;
   FakeIsolationModule* module;
-  const FakeTaskMap& fakeTasks;
 };
 
 struct FakeIsolationModuleTicker : public process::Process<FakeIsolationModuleTicker> {
@@ -102,7 +101,7 @@ struct FakeIsolationModuleTicker : public process::Process<FakeIsolationModuleTi
 
 class FakeIsolationModule : public IsolationModule {
 public:
-  FakeIsolationModule(const FakeTaskMap& fakeTasks_)
+  FakeIsolationModule(const FakeTaskTracker& fakeTasks_)
       : fakeTasks(fakeTasks_), shuttingDown(false) {
     pthread_mutexattr_t mattr;
     pthread_mutexattr_init(&mattr);
@@ -129,8 +128,7 @@ public:
   /* for calling elsewhere */
   void registerTask(const FrameworkID& frameworkId,
                     const ExecutorID& executorId,
-                    const TaskID& taskId,
-                    FakeTask* fakeTask);
+                    const TaskID& taskId);
   void unregisterTask(const FrameworkID& frameworkId,
                       const ExecutorID& executorId,
                       const TaskID& taskId);
@@ -163,7 +161,7 @@ private:
   process::PID<Slave> slave;
   double interval;
   double lastTime;
-  const FakeTaskMap& fakeTasks;
+  const FakeTaskTracker& fakeTasks;
   boost::scoped_ptr<FakeIsolationModuleTicker> ticker;
   bool shuttingDown;
 };

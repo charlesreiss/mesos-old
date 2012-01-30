@@ -19,13 +19,20 @@
 #ifndef __FAKE_TASK_HPP__
 #define __FAKE_TASK_HPP__
 
+#include <pthread.h>
+
+#include "boost/tuple/tuple.hpp"
+#include "boost/tuple/tuple_comparison.hpp"
+
 #include "mesos/executor.hpp"
 #include "mesos/scheduler.hpp"
 #include "mesos/mesos.hpp"
 
+#include "common/hashmap.hpp"
+#include "common/lock.hpp"
 #include "common/resources.hpp"
 #include "common/seconds.hpp"
-#include "common/hashmap.hpp"
+#include "common/type_utils.hpp"
 
 namespace mesos {
 namespace internal {
@@ -43,14 +50,31 @@ inline std::ostream& operator<<(std::ostream& out, const FakeTask& fakeTask) {
   return out;
 }
 
+class FakeTaskTracker {
+public:
+  FakeTaskTracker();
+
+  FakeTask* getTaskFor(const FrameworkID& frameworkId,
+                       const ExecutorID& executorId,
+                       const TaskID& taskId) const;
+
+  void registerTask(const FrameworkID& frameworkId,
+                    const ExecutorID& executorId,
+                    const TaskID& taskId,
+                    FakeTask* task);
+  void unregisterTask(const FrameworkID& frameworkId,
+                      const ExecutorID& executorId,
+                      const TaskID& taskId);
+
+  ~FakeTaskTracker();
+
+  typedef boost::tuple<FrameworkID, ExecutorID, TaskID> TaskTuple;
 
 private:
-  double cpuUnits;
-  Resources constUsage;
-  ResourceHints request;
+  mutable pthread_rwlock_t lock;
+  typedef std::map<TaskTuple, FakeTask*> TaskMap;
+  TaskMap tasks;
 };
-
-typedef hashmap<std::pair<FrameworkID, TaskID>, FakeTask*> FakeTaskMap;
 
 }  // namespace fake
 }  // namespace internal
