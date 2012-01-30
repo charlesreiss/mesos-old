@@ -87,7 +87,9 @@ public:
                  const ResourceHints& resources) {
     TaskID taskId;
     taskId.set_value(id);
-    taskTracker.registerTask(DEFAULT_FRAMEWORK_ID, DEFAULT_EXECUTOR_ID,
+    ExecutorID executorId;
+    executorId.set_value(id);
+    taskTracker.registerTask(DEFAULT_FRAMEWORK_ID, executorId,
                              taskId, task);
     trigger gotRegister;
     EXPECT_MESSAGE(mockFilter, name<RegisterExecutorMessage>(),
