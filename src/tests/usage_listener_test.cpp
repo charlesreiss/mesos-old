@@ -49,15 +49,16 @@ public:
 
   void initialize() {
     install<UsageMessage>(&UsageListenerTestProcess::gotUsage);
-    install<UsageMessageListenerRegistered>(
+    install<UsageListenerRegisteredMessage>(
         &UsageListenerTestProcess::registered);
 
-    RegisterUsageMessageListener registerMessage;
+    RegisterUsageListener registerMessage;
+    registerMessage.set_pid(self());
     send(master, registerMessage);
   }
 
   MOCK_METHOD1(gotUsage, void(const UsageMessage&));
-  MOCK_METHOD1(registered, void(const UsageMessageListenerRegistered&));
+  MOCK_METHOD1(registered, void(const UsageListenerRegisteredMessage&));
 
 private:
   PID<Master> master;
@@ -82,14 +83,12 @@ protected:
   void TearDown() {
     process::terminate(masterPid);
     process::wait(masterPid);
-    if (listenerPid) {
-      process::terminate(listenerPid);
-      process::wait(listenerPid);
-    }
+    process::terminate(listenerPid);
+    process::wait(listenerPid);
   }
 
   scoped_ptr<UsageListenerTestProcess> listener;
-  PID<UsageListenerTestProcess> listenerPid;
+  process::UPID listenerPid;
   scoped_ptr<Master> master;
   PID<Master> masterPid;
   MockAllocator allocator;
@@ -114,7 +113,6 @@ TEST_F(UsageListenerTest, HandleListenerDeath)
 {
   process::terminate(listenerPid);
   process::wait(listenerPid);
-  listenerPid = 0;
   EXPECT_CALL(*listener, gotUsage(_)).Times(0);
   UsageMessage message;
   message.mutable_framework_id()->set_value("dummy-framework");

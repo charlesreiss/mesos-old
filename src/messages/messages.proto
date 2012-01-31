@@ -215,6 +215,12 @@ message HeartbeatMessage {
   required SlaveID slave_id = 1;
 }
 
+message RegisterUsageListener {
+  required string pid = 1;
+}
+
+message UsageListenerRegisteredMessage {
+}
 
 message UsageMessage {
   // optional because this can be left blank between isolation module and slave

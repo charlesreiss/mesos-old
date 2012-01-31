@@ -125,6 +125,8 @@ public:
 
   void updateUsage(const UsageMessage& update);
 
+  void registerUsageListener(const std::string& pid);
+
   // Return connected frameworks that are not in the process of being removed
   std::vector<Framework*> getActiveFrameworks() const;
 
@@ -230,6 +232,8 @@ private:
   hashmap<FrameworkID, Framework*> frameworks;
   hashmap<SlaveID, Slave*> slaves;
   hashmap<OfferID, Offer*> offers;
+
+  hashset<UPID> usageListeners;
 
   std::list<Framework> completedFrameworks;
 

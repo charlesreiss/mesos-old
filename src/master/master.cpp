@@ -411,6 +411,10 @@ void Master::initialize()
 
   install<UsageMessage>(&Master::updateUsage);
 
+  install<RegisterUsageListener>(
+      &Master::registerUsageListener,
+      &RegisterUsageListener::pid);
+
   // Setup HTTP request handlers.
   route("vars", bind(&http::vars, cref(*this), params::_1));
   route("stats.json", bind(&http::json::stats, cref(*this), params::_1));
@@ -431,6 +435,8 @@ void Master::finalize()
 
 void Master::exited(const UPID& pid)
 {
+  usageListeners.erase(pid);
+
   foreachvalue (Framework* framework, frameworks) {
     if (framework->pid == pid) {
       LOG(INFO) << "Framework " << framework->id << " disconnected";
@@ -1988,12 +1994,23 @@ SlaveID Master::newSlaveId()
 
 
 void Master::updateUsage(const UsageMessage& message) {
-  LOG(INFO) << "Got usage message " << message.DebugString();
   Slave* slave = getSlave(message.slave_id());
   if (slave && slave->active) {
     slave->addUsageMessage(message);
   }
   allocator->gotUsage(message);
+
+  foreach (UPID pid, usageListeners) {
+    send(pid, message);
+  }
+}
+
+void Master::registerUsageListener(const std::string& pid_) {
+  UPID pid = pid_;
+  usageListeners.insert(pid);
+  UsageListenerRegisteredMessage registered;
+  link(pid);
+  send(pid, registered);
 }
 
 } // namespace master {

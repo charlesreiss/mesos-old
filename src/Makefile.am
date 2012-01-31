@@ -663,7 +663,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 		      tests/fake/fake_isolation_module_test.cpp 	\
 		      tests/fake/fake_scheduler_test.cpp 		\
 		      tests/fake/master_slave_fake_test.cpp		\
-		      tests/fake/fake_task_simple_test.cpp
+		      tests/fake/fake_task_simple_test.cpp 		\
+		      tests/usage_listener_test.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
