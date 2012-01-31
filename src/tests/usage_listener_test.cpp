@@ -37,6 +37,7 @@ using boost::scoped_ptr;
 
 using mesos::internal::master::Master;
 using process::PID;
+using process::UPID;
 
 using testing::_;
 using testing::DoAll;
@@ -51,6 +52,8 @@ public:
     install<UsageMessage>(&UsageListenerTestProcess::gotUsage);
     install<UsageListenerRegisteredMessage>(
         &UsageListenerTestProcess::registered);
+    install<StatusUpdateMessage>(&UsageListenerTestProcess::gotUpdate,
+                                 &StatusUpdateMessage::update);
 
     RegisterUsageListener registerMessage;
     registerMessage.set_pid(self());
@@ -58,6 +61,7 @@ public:
   }
 
   MOCK_METHOD1(gotUsage, void(const UsageMessage&));
+  MOCK_METHOD1(gotUpdate, void(const StatusUpdate&));
   MOCK_METHOD1(registered, void(const UsageListenerRegisteredMessage&));
 
 private:
@@ -108,6 +112,24 @@ TEST_F(UsageListenerTest, ForwardUsage)
   WAIT_UNTIL(gotUsage);
   EXPECT_EQ(message.DebugString(), receivedMessage.DebugString());
 }
+
+TEST_F(UsageListenerTest, ForwardStatus)
+{
+  StatusUpdate update;
+  update.mutable_framework_id()->set_value("framework0");
+  update.mutable_executor_id()->set_value("executor0");
+  update.mutable_slave_id()->set_value("slave0");
+  update.mutable_status()->mutable_task_id()->set_value("task0");
+  update.mutable_status()->set_state(TASK_FINISHED);
+  update.set_timestamp(42.0);
+  update.set_uuid("1234567890");
+  trigger gotUpdate;
+  EXPECT_CALL(*listener, gotUpdate(_)).
+    WillOnce(Trigger(&gotUpdate));
+  process::dispatch(masterPid, &Master::statusUpdate, update, UPID());
+  WAIT_UNTIL(gotUpdate);
+}
+
 
 TEST_F(UsageListenerTest, HandleListenerDeath)
 {

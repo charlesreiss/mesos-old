@@ -69,7 +69,6 @@ public:
                           const hashmap<Slave*, ResourceHints>& offered) = 0;
 };
 
-
 class Master : public ProtobufProcess<Master>, public AllocatorMasterInterface
 {
 public:
@@ -125,7 +124,7 @@ public:
 
   void updateUsage(const UsageMessage& update);
 
-  void registerUsageListener(const std::string& pid);
+  void registerUsageListener(const UPID& pid);
 
   // Return connected frameworks that are not in the process of being removed
   std::vector<Framework*> getActiveFrameworks() const;

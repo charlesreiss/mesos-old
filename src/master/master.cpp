@@ -961,6 +961,12 @@ void Master::statusUpdate(const StatusUpdate& update, const UPID& pid)
             << " of framework " << update.framework_id()
             << " is now in state " << status.state();
 
+  foreach (const UPID& listener, usageListeners) {
+    StatusUpdateMessage message;
+    message.mutable_update()->MergeFrom(update);
+    send(listener, message);
+  }
+
   Slave* slave = getSlave(update.slave_id());
   if (slave != NULL) {
     Framework* framework = getFramework(update.framework_id());
@@ -2005,8 +2011,7 @@ void Master::updateUsage(const UsageMessage& message) {
   }
 }
 
-void Master::registerUsageListener(const std::string& pid_) {
-  UPID pid = pid_;
+void Master::registerUsageListener(const UPID& pid) {
   usageListeners.insert(pid);
   UsageListenerRegisteredMessage registered;
   link(pid);
