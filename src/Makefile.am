@@ -285,6 +285,19 @@ libfake_la_CXXFLAGS = $(MESOS_CXXFLAGS)
 
 libmesos_no_third_party_la_LIBADD += libfake.la
 
+noinst_LTLIBRARIES += libusage_log.la
+libusage_log_la_SOURCES = usage_log/usage_log.cpp
+libusage_log_la_SOURCES += usage_log/usage_log.hpp \
+			   usage_log/usage_log.proto
+USAGE_LOG_PROTOS = usage_log/usage_log.pb.cc usage_log/usage_log.pb.h
+nodist_libusage_log_la_SOURCES = $(USAGE_LOG_PROTOS)
+BUILT_SOURCES += $(USAGE_LOG_PROTOS)
+CLEANFILES += $(USAGE_LOG_PROTOS)
+libusage_log_la_CPPFLAGS = $(MESOS_CPPFLAGS)
+libusage_log_la_CXXFLAGS = $(MESOS_CXXFLAGS)
+
+libmesos_no_third_party_la_LIBADD += libusage_log.la
+
 # The final result!
 lib_LTLIBRARIES += libmesos.la
 
@@ -664,7 +677,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 		      tests/fake/fake_scheduler_test.cpp 		\
 		      tests/fake/master_slave_fake_test.cpp		\
 		      tests/fake/fake_task_simple_test.cpp 		\
-		      tests/usage_listener_test.cpp
+		      tests/usage_listener_test.cpp			\
+		      tests/usage_log_test.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
