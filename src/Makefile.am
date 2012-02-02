@@ -274,12 +274,14 @@ libfake_la_SOURCES = \
 		     fake/fake_task.cpp \
 		     fake/fake_isolation_module.cpp \
 		     fake/fake_scheduler.cpp \
-		     fake/fake_task_simple.cpp
+		     fake/fake_task_simple.cpp \
+		     fake/scenario.cpp
 libfake_la_SOURCES += \
 		      fake/fake_task.hpp \
 		      fake/fake_isolation_module.hpp \
 		      fake/fake_scheduler.hpp \
-		      fake/fake_task_simple.hpp
+		      fake/fake_task_simple.hpp \
+		      fake/scenario.hpp
 libfake_la_CPPFLAGS = $(MESOS_CPPFLAGS)
 libfake_la_CXXFLAGS = $(MESOS_CXXFLAGS)
 
@@ -678,7 +680,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 		      tests/fake/master_slave_fake_test.cpp		\
 		      tests/fake/fake_task_simple_test.cpp 		\
 		      tests/usage_listener_test.cpp			\
-		      tests/usage_log_test.cpp
+		      tests/usage_log_test.cpp				\
+		      tests/fake/scenario_test.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
