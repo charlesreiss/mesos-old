@@ -46,7 +46,7 @@ void Scenario::spawnScheduler(const std::string& name,
       scheduler,
       name,
       info,
-      "mesos://" + masterPid);
+      "mesos://" + std::string(masterPid));
   driver->start();
   schedulers[name] = scheduler;
   schedulerDrivers[name] = driver;
