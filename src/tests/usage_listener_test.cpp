@@ -55,7 +55,7 @@ public:
     install<StatusUpdateMessage>(&UsageListenerTestProcess::gotUpdate,
                                  &StatusUpdateMessage::update);
 
-    RegisterUsageListener registerMessage;
+    RegisterUsageListenerMessage registerMessage;
     registerMessage.set_pid(self());
     send(master, registerMessage);
   }

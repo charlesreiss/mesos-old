@@ -215,7 +215,7 @@ message HeartbeatMessage {
   required SlaveID slave_id = 1;
 }
 
-message RegisterUsageListener {
+message RegisterUsageListenerMessage {
   required string pid = 1;
 }
 

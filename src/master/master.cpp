@@ -411,9 +411,9 @@ void Master::initialize()
 
   install<UsageMessage>(&Master::updateUsage);
 
-  install<RegisterUsageListener>(
+  install<RegisterUsageListenerMessage>(
       &Master::registerUsageListener,
-      &RegisterUsageListener::pid);
+      &RegisterUsageListenerMessage::pid);
 
   // Setup HTTP request handlers.
   route("vars", bind(&http::vars, cref(*this), params::_1));
