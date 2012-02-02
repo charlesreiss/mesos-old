@@ -39,7 +39,7 @@ LT_INIT
 LT_LANG([C++])
 LT_OUTPUT
 
-# The default CFLAGS/CXXFLAGS from autoconf when using gcd is usually
+# The default CFLAGS/CXXFLAGS from autoconf when using gcc is usually
 # "-g -O2". These really slow down compiling our tests, so we turn
 # them off and enable them (where desired) directly in the
 # Makefile. Note that this should not have an impact on users setting
@@ -53,7 +53,6 @@ AC_SUBST(SUBCONFIG_ARGS)
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([src/Makefile])
 AC_CONFIG_FILES([third_party/Makefile])
-AC_CONFIG_FILES([src/config/config.hpp])
 AC_CONFIG_FILES([bin/mesos-build-env.sh])
 AC_CONFIG_FILES([bin/mesos-master.sh], [chmod +x bin/mesos-master.sh])
 AC_CONFIG_FILES([bin/mesos-slave.sh], [chmod +x bin/mesos-slave.sh])
@@ -77,6 +76,11 @@ AC_ARG_ENABLE([webui],
                              [don't build webui (requires Python 2.6)]),
               [], [enable_webui=yes])
 
+AC_ARG_ENABLE([optimize],
+              AS_HELP_STRING([--disable-optimize],
+                             [don't try to compile with optimizations]),
+              [], [enable_optimize=yes])
+
 AC_ARG_WITH([included-zookeeper],
             AS_HELP_STRING([--without-included-zookeeper],
                            [excludes building and using the included ZooKeeper
@@ -97,6 +101,9 @@ AC_ARG_VAR([JAVA_HOME], [location of Java Development Kit (JDK)])
 AC_ARG_VAR([JAVA_CPPFLAGS], [preprocessor flags for JDK])
 
 AC_ARG_VAR([JAVA_LDFLAGS], [linker flags for JDK])
+
+AC_ARG_VAR([PYTHON], [which Python interpreter to use])
+
 
 # Determine the current OS (TODO(benh): Does autotools do this for us?).
 case "${target_os}" in
@@ -128,8 +135,10 @@ case "${target_os}" in
     AC_MSG_ERROR("Mesos is currently unsupported on your platform.")
   esac
 
-# Useful for conditionally including source files.
+
+# Used for conditionally including source files.
 AM_CONDITIONAL([OS_LINUX], [test "x$OS_NAME" = "xlinux"])
+
 
 # TODO(benh): Consider using AS_IF instead of just shell 'if'
 # statements for better autoconf style (the AS_IF macros also make
@@ -250,7 +259,8 @@ __EOF__
                   [chmod +x src/examples/java/test-multiple-executors-framework])
   AC_CONFIG_FILES([src/java/mesos.pom])
 
-  AC_SUBST([HAS_JAVA], [1]) # Used to decide whether to run Java tests.
+  AC_DEFINE([MESOS_HAS_JAVA])
+
   has_java=yes
 fi
 
@@ -282,7 +292,9 @@ if test "x$enable_python" = "xyes"; then
   AC_SUBST([PYTHON_EGG_POSTFIX])
   AC_SUBST([PYTHON_EGG_PUREPY_POSTFIX])
   AC_SUBST([PYTHON]) # Used by the example shell scripts and src/Makefile.am.
-  AC_SUBST([HAS_PYTHON], [1]) # Used to decide whether to run Python tests.
+
+  AC_DEFINE([MESOS_HAS_PYTHON])
+
   has_python=yes
 fi
 
@@ -312,15 +324,26 @@ if test "x$enable_webui" = "xyes"; then
 
   AC_SUBST([WEBUI_CPPFLAGS])
   AC_SUBST([WEBUI_LDFLAGS])
-  AC_SUBST([WEBUI], [1]) # Used to conditionally include code.
+
+  AC_DEFINE([MESOS_WEBUI])
+
   webui=yes
 fi
 
 AM_CONDITIONAL([WEBUI], [test "x$webui" = "xyes"])
 
+
+# Check if we should try and enable optimizations.
+if test "x$enable_optimize" = "xyes"; then
+  # For now, we only turn on optimizations for gcc.
+  if test "x$GCC" = "xyes"; then
+    CXXFLAGS="$CXXFLAGS -g2 -O2"
+  fi
+fi
+
+
 AM_CONDITIONAL([WITH_INCLUDED_ZOOKEEPER],
                [test "x$with_included_zookeeper" = "xyes"])
-
 
 # Checks for programs.
 AC_PROG_CXX([g++])

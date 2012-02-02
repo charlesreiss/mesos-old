@@ -26,8 +26,6 @@
 #include <process/run.hpp>
 #include <process/timer.hpp>
 
-#include "config/config.hpp"
-
 #include "common/build.hpp"
 #include "common/date_utils.hpp"
 #include "common/utils.hpp"
@@ -1153,7 +1151,6 @@ void Master::deactivatedSlaveHostnamePort(const string& hostname,
 
 void Master::timerTick()
 {
-  LOG(INFO) << "Master::timerTick at " << static_cast<long>(Clock::now());
   // Check which framework filters can be expired.
   foreachvalue (Framework* framework, frameworks) {
     framework->removeExpiredFilters(Clock::now());
@@ -1163,7 +1160,6 @@ void Master::timerTick()
   allocator->timerTick();
 
   // Scheduler another timer tick!
-  LOG(INFO) << "trigger timerTick from timerTick at " << static_cast<long>(Clock::now());
   timerTickTimer = delay(1.0, self(), &Master::timerTick);
 }
 
