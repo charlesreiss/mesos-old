@@ -92,7 +92,10 @@ void Scenario::stop()
   process::wait(masterPid);
 
   // now delete and clear everything we allocated or took ownership of
-  delete master;
+  if (master) {
+    delete master;
+    master = 0;
+  }
   foreach (Slave* slave, slaves) {
     delete slave;
   }
