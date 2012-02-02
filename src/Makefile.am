@@ -430,13 +430,6 @@ EXTRA_DIST += $(JAVA_EXAMPLES_SRC)
 
 CLEANFILES += $(MESOS_JAR) $(EXAMPLES_JAR)
 
-clean-java:
-	-rm -rf java/classes
-	-rm -f examples/java/*.class
-	-rm -f java/jni/org_apache_mesos*.h
-
-PHONY_TARGETS += clean-java
-
 if HAS_JAVA
 $(MESOS_JAR): $(MESOS_JAR_SRC) $(JAVA_PROTOS) $(PROTOBUF_JAR)
 	@echo "Building mesos.jar ..."
@@ -560,14 +553,6 @@ EXTRA_DIST += python/src/mesos.py \
 	      python/native/proxy_executor.hpp \
 	      python/native/proxy_scheduler.cpp \
 	      python/native/proxy_scheduler.hpp
-
-clean-python:
-	test "$(top_srcdir)" = "$(top_builddir)" || \
-	  (chmod -R u+w python/native; \
-	   rm -rf python/src/mesos.py python/native)
-	-rm -rf python/src/mesos.egg-info python/build
-
-PHONY_TARGETS += clean-python
 
 if HAS_PYTHON
 # This builds a Python egg against libmesos_no_third_party.a that is
