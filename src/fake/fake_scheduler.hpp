@@ -66,6 +66,14 @@ public:
     tasksPending[taskId] = task;
   }
 
+  int countPending() const {
+    return tasksPending.size();
+  }
+
+  int countRunning() const {
+    return tasksRunning.size();
+  }
+
 private:
   FakeTaskTracker* taskTracker;
   map<TaskID, FakeTask*> tasksPending;
