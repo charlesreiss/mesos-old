@@ -552,6 +552,51 @@ TEST(libprocess, select)
   EXPECT_EQ(42, future.get().get());
 }
 
+class SettleProcess : public Process<SettleProcess>
+{
+public:
+  SettleProcess() : calledDispatch(false) {}
+
+  void initialize() {
+    VLOG(1) << "initialize";
+    usleep(10000);
+    delay(0.0, self(), &SettleProcess::afterDelay);
+  }
+
+  void afterDelay() {
+    VLOG(1) << "afterDelay";
+    dispatch(self(), &SettleProcess::afterDispatch);
+    usleep(10000);
+    TimeoutProcess timeoutProcess;
+    spawn(timeoutProcess);
+    terminate(timeoutProcess);
+    wait(timeoutProcess);
+  }
+
+  void afterDispatch() {
+    VLOG(1) << "afterDispatch";
+    usleep(10000);
+    calledDispatch = true;
+  }
+  bool calledDispatch;
+};
+
+TEST(libprocess, settle)
+{
+  ASSERT_TRUE(GTEST_IS_THREADSAFE);
+
+  // Try 100 times to hit a race.
+  for (int i = 0; i < 100; ++i) {
+    Clock::pause();
+    SettleProcess process;
+    spawn(process);
+    Clock::settle();
+    ASSERT_TRUE(process.calledDispatch);
+    terminate(process);
+    wait(process);
+    Clock::resume();
+  }
+}
 
 // #define ENUMERATE1(item) item##1
 // #define ENUMERATE2(item) ENUMERATE1(item), item##2

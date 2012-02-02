@@ -282,6 +282,8 @@ public:
   void enqueue(ProcessBase* process);
   ProcessBase* dequeue();
 
+  void settle();
+
 private:
   // Map of all local spawned and running processes.
   map<string, ProcessBase*> processes;
@@ -293,6 +295,8 @@ private:
   // Queue of runnable processes (implemented using list).
   list<ProcessBase*> runq;
   synchronizable(runq);
+  // Number of running processes, to support settle operation.
+  int runningProcesses;
 };
 
 
@@ -335,6 +339,7 @@ static synchronizable(watchers) = SYNCHRONIZED_INITIALIZER;
 // exploit that the map is SORTED!
 static map<double, list<timer> >* timeouts =
   new map<double, list<timer> >();
+static int pendingTimeouts = 0;
 static synchronizable(timeouts) = SYNCHRONIZED_INITIALIZER_RECURSIVE;
 
 // Flag to indicate whether or to update the timer on async interrupt.
@@ -516,6 +521,10 @@ void Clock::order(ProcessBase* from, ProcessBase* to)
   update(to, now(from));
 }
 
+void Clock::settle() {
+  process_manager->settle();
+}
+
 
 int set_nbio(int fd)
 {
@@ -685,6 +694,10 @@ void handle_timeouts(struct ev_loop* loop, ev_timer* _, int revents)
       }
     }
 
+    if (Clock::paused()) {
+      pendingTimeouts = timedout.size();
+    }
+
     update_timer = false; // Since we might have a queued update_timer.
   }
 
@@ -710,6 +723,12 @@ void handle_timeouts(struct ev_loop* loop, ev_timer* _, int revents)
   // this async so that we don't tie up the event thread!).
   foreach (const timer& timer, timedout) {
     timer.thunk();
+  }
+
+  if (Clock::paused()) {
+    synchronized(timeouts) {
+      pendingTimeouts = 0;
+    }
   }
 }
 
@@ -1633,6 +1652,7 @@ ProcessManager::ProcessManager()
 {
   synchronizer(processes) = SYNCHRONIZED_INITIALIZER;
   synchronizer(runq) = SYNCHRONIZED_INITIALIZER;
+  runningProcesses = 0;
 }
 
 
@@ -1861,6 +1881,11 @@ void ProcessManager::resume(ProcessBase* process)
     }
   }
 
+  synchronized(runq) {
+    --runningProcesses;
+    CHECK_GE(runningProcesses, 0);
+  }
+
   __process__ = NULL;
 }
 
@@ -2039,6 +2064,9 @@ bool ProcessManager::wait(const UPID& pid)
   if (process != NULL) {
     VLOG(1) << "Donating thread to " << process->pid << " while waiting";
     ProcessBase* donator = __process__;
+    synchronized(runq) {
+      runningProcesses++;
+    }
     process_manager->resume(process);
     __process__ = donator;
   }
@@ -2093,9 +2121,40 @@ ProcessBase* ProcessManager::dequeue()
       process = runq.front();
       runq.pop_front();
     }
+    if (process) {
+      ++runningProcesses;
+    }
   }
 
   return process;
+}
+
+void ProcessManager::settle()
+{
+  CHECK(Clock::paused());
+  bool done = true;
+  do {
+    usleep(10000);
+    done = true;
+    // Hopefully this is the only place we acquire both these locks.
+    synchronized (runq) {
+      synchronized (timeouts) {
+        if (!runq.empty()) {
+          done = false;
+        }
+        if (runningProcesses > 0) {
+          done = false;
+        }
+        if (timeouts->size() > 0 &&
+            timeouts->begin()->first <= clock::current) {
+          done = false;
+        }
+        if (pendingTimeouts > 0) {
+          done = false;
+        }
+      }
+    }
+  } while (!done);
 }
 
 
