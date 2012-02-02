@@ -24,7 +24,7 @@ EXTRA_DIST = support/colors.sh
 
 # Since we generate several files in src/ with config.status, make
 # sure they're regenerated before we recurse into the src directory.
-all-recursive: src/config/config.hpp src/python/setup.py src/java/mesos.pom
+all-recursive: src/python/setup.py src/java/mesos.pom
 
 if HAS_JAVA
 maven-install:
