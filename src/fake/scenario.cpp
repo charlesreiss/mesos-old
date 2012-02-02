@@ -26,7 +26,7 @@ void Scenario::spawnSlave(const Resources& resources)
 {
   CHECK(masterPid);
   FakeIsolationModule* module = new FakeIsolationModule(tracker);
-  Slave* slave = new Slave(resources, true, module);
+  Slave* slave = new Slave("", resources, Configuration(), true, module);
   slaves.push_back(slave);
   slavePids.push_back(process::spawn(slave));
   slaveMasterDetectors.push_back(

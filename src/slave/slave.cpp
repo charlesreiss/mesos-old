@@ -95,6 +95,20 @@ Slave::Slave(const Configuration& _conf,
 }
 
 
+Slave::Slave(const std::string& name,
+             const Resources& _resources,
+             const Configuration& _conf,
+             bool _local,
+             IsolationModule* _isolationModule)
+  : ProcessBase(name),
+    resources(_resources),
+    local(_local),
+    conf(_conf),
+    isolationModule(_isolationModule)
+{
+  attributes =
+    Attributes::parse(conf.get<string>("attributes", ""));
+}
 Slave::~Slave()
 {
   // TODO(benh): Shut down and free frameworks?

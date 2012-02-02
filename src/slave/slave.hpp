@@ -57,6 +57,12 @@ public:
         bool local,
         IsolationModule *isolationModule);
 
+  Slave(const std::string& name,
+        const Resources& reosurces,
+        const Configuration& conf,
+        bool local,
+        IsolationModule* isolationModule);
+
   virtual ~Slave();
 
   static void registerOptions(Configurator* configurator);
