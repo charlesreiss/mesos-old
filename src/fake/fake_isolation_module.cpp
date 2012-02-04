@@ -49,6 +49,7 @@ void FakeIsolationModule::initialize(const Configuration& conf, bool local,
   LOG(INFO) << "initialize; this = " << (void*)this;
   slave = slave_;
   interval = conf.get<double>("fake_interval", 1.0);
+  lastTime = process::Clock::now();
   ticker.reset(new FakeIsolationModuleTicker(this, interval));
   process::spawn(ticker.get());
   CHECK(local);
@@ -173,13 +174,11 @@ bool FakeIsolationModule::tick() {
           task.assignedResources.expectedResources);
       TaskState state = fakeTask->takeUsage(oldTime, newTime, usage);
       if (state != TASK_RUNNING) {
-        StatusUpdate update;
-        update.mutable_framework_id()->MergeFrom(frameworkAndExec.first);
-        update.mutable_status()->mutable_task_id()->MergeFrom(task.taskId);
-        update.mutable_status()->set_state(state);
-        update.set_timestamp(process::Clock::now());
-        update.set_uuid(task.taskId.value());
-        process::dispatch(slave, &Slave::statusUpdate, update);
+        MesosExecutorDriver* driver = drivers[frameworkAndExec].first;
+        TaskStatus status;
+        status.mutable_task_id()->MergeFrom(task.taskId);
+        status.set_state(state);
+        driver->sendStatusUpdate(status);
         toUnregister.push_back(boost::make_tuple(
               frameworkAndExec.first, frameworkAndExec.second, task.taskId));
       }
