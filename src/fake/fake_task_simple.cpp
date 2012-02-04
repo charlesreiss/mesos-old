@@ -41,7 +41,7 @@ ConstantTask::takeUsage(seconds from, seconds to, const Resources& given)
 {
   bool less = true;
   foreach (const Resource& resource, usage) {
-    if (resource.name() == "cpu") continue;
+    if (resource.name() == "cpus") continue;
     Option<Resource> givenResource = given.get(resource);
     if (givenResource.isNone() || resource <= givenResource.get()) {
       less = false;
@@ -82,7 +82,7 @@ BatchTask::getUsage(seconds from, seconds to) const
   double cpu = std::min(maxCpuRate, cpuUnits / delta);
   Resources result = constUsage;
   Resource cpuResource;
-  cpuResource.set_name("cpu");
+  cpuResource.set_name("cpus");
   cpuResource.set_type(Value::SCALAR);
   cpuResource.mutable_scalar()->set_value(cpu);
   result += cpuResource;
@@ -98,7 +98,7 @@ BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
     cpuUnits = initialCpuUnits;
     return TASK_LOST;
   } else {
-    cpuUnits -= resources.get("cpu", Value::Scalar()).value() * delta;
+    cpuUnits -= resources.get("cpus", Value::Scalar()).value() * delta;
     if (cpuUnits <= 0.0) {
       return TASK_FINISHED;
     } else {

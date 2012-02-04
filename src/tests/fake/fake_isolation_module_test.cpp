@@ -55,7 +55,7 @@ public:
     mockMaster->setFilter(&mockFilter);
     mockMasterPid = mockMaster->start();
     module.reset(new FakeIsolationModule(taskTracker));
-    slave.reset(new Slave(Resources::parse("cpu:4.0;mem:4096"), true,
+    slave.reset(new Slave(Resources::parse("cpus:4.0;mem:4096"), true,
                           module.get()));
     slavePid = process::spawn(slave.get());
 
@@ -183,9 +183,10 @@ TEST_F(FakeIsolationModuleTest, TaskRunOneSecond) {
   using testing::_;
   startSlave();
   MockFakeTask mockTask;
+  double now = process::Clock::now();
   startTask("task0", &mockTask, ResourceHints());
-  EXPECT_CALL(mockTask, getUsage(_, _)).
-    WillRepeatedly(Return(Resources::parse("cpu:0.0")));
+  EXPECT_CALL(mockTask, getUsage(seconds(now), seconds(now + kTick))).
+    WillRepeatedly(Return(Resources::parse("cpus:0.0")));
   EXPECT_CALL(mockTask, takeUsage(_, _, _)).
     WillOnce(Return(TASK_FINISHED));
 
@@ -201,15 +202,16 @@ TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks) {
   MockFakeTask mockTask;
   startTask("task0", &mockTask, ResourceHints());
   EXPECT_CALL(mockTask, getUsage(_, _)).
-    WillRepeatedly(Return(Resources::parse("cpu:8.0")));
+    WillRepeatedly(Return(Resources::parse("cpus:8.0")));
   trigger gotTaskUsageCall;
-  EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpu:4.0"))).
+  EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpus:4.0"))).
     WillOnce(DoAll(Trigger(&gotTaskUsageCall), Return(TASK_RUNNING)));
   process::Clock::advance(kTick);
   WAIT_UNTIL(gotTaskUsageCall);
-  EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpu:4.0"))).
+  EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpus:4.0"))).
     WillOnce(Return(TASK_FINISHED));
   tickAndUpdate("task0");
 
   stopSlave();
 }
+
