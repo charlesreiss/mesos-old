@@ -119,6 +119,11 @@ public:
 
   void acknowledgeUpdate(const std::string& taskId,
                          const StatusUpdateMessage& updateMessage) {
+    EXPECT_EQ(getSlaveId(), updateMessage.update().slave_id());
+    FrameworkID expectId = DEFAULT_FRAMEWORK_ID;
+    EXPECT_EQ(expectId, updateMessage.update().framework_id());
+    EXPECT_EQ(taskId, updateMessage.update().executor_id().value());
+    EXPECT_EQ(taskId, updateMessage.update().status().task_id().value());
     StatusUpdateAcknowledgementMessage ack;
     ack.mutable_slave_id()->MergeFrom(getSlaveId());
     ack.mutable_framework_id()->MergeFrom(DEFAULT_FRAMEWORK_ID);
