@@ -68,7 +68,8 @@ protected:
     EXPECT_CALL(*logWriter, deleted());
     recorder.reset(new UsageRecorder(logWriter, masterPid, kInterval));
     trigger gotRegister;
-    master.expectAndWait<RegisterUsageListenerMessage>(recorderPid, &gotRegister);
+    master.expectAndWait<RegisterUsageListenerMessage>(
+        recorderPid, &gotRegister);
     recorderPid = process::spawn(recorder.get());
     WAIT_UNTIL(gotRegister);
     UsageListenerRegisteredMessage message;

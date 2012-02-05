@@ -18,32 +18,93 @@
 
 #include "usage_log/usage_log.hpp"
 
+#include <limits>
+#include <algorithm>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+#include "process/timer.hpp"
+
+#include "common/foreach.hpp"
+
 namespace mesos {
 namespace internal {
 namespace usage_log {
 
-FileUsageLogWriter::FileUsageLogWriter(const std::string& filename)
+TextFileUsageLogWriter::TextFileUsageLogWriter(const std::string& filename)
 {
-  LOG(FATAL) << "unimplemented";
+  out.open(filename.c_str());
+  out_proto.reset(new google::protobuf::io::OstreamOutputStream(&out));
+  printer.SetSingleLineMode(true);
 }
 
-void FileUsageLogWriter::write(const UsageLogRecord& record)
+void TextFileUsageLogWriter::write(const UsageLogRecord& record)
 {
-  LOG(FATAL) << "unimplemented";
+  printer.Print(record, out_proto.get());
 }
 
 UsageRecorder::UsageRecorder(UsageLogWriter* out_, const UPID& master_,
                              double interval_)
-    : interval(interval_), out(out_), master(master_)
+    : doneFirstTick(false), interval(interval_), out(out_), master(master_)
 {
 }
 
 void UsageRecorder::initialize()
 {
+  endTime[0] = process::Clock::now();
+  endTime[1] = process::Clock::now() + interval;
+  process::delay(interval, self(), &UsageRecorder::tick);
+  RegisterUsageListenerMessage registerMessage;
+  registerMessage.set_pid(self());
+  send(master, registerMessage);
 }
 
 void UsageRecorder::finalize()
 {
+  emit();
+}
+
+void UsageRecorder::emit()
+{
+  UsageLogRecord record;
+  record.set_min_expect_timestamp(endTime[0] - interval);
+  record.set_max_expect_timestamp(endTime[0]);
+  double minTimestamp = std::numeric_limits<double>::infinity();
+  double maxTimestamp = 0;
+  foreach (const UsageMessage& usage, pendingUsage[0]) {
+    record.add_usage()->MergeFrom(usage);
+    minTimestamp = std::min(minTimestamp, usage.timestamp());
+    maxTimestamp = std::max(maxTimestamp, usage.timestamp());
+  }
+  foreach (const StatusUpdate& update, pendingUpdates[0]) {
+    record.add_update()->MergeFrom(update);
+    minTimestamp = std::min(minTimestamp, update.timestamp());
+    maxTimestamp = std::max(maxTimestamp, update.timestamp());
+  }
+  if (minTimestamp <= maxTimestamp) {
+    record.set_min_seen_timestamp(minTimestamp);
+    record.set_max_seen_timestamp(maxTimestamp);
+  }
+  out->write(record);
+}
+
+void UsageRecorder::advance()
+{
+  std::swap(pendingUsage[0], pendingUsage[1]);
+  pendingUsage[1].clear();
+  std::swap(pendingUpdates[0], pendingUpdates[1]);
+  pendingUpdates[1].clear();
+  endTime[0] = endTime[1];
+  endTime[1] = endTime[0] + interval;
+}
+
+void UsageRecorder::tick()
+{
+  if (doneFirstTick) {
+    emit();
+  }
+  advance();
+  process::delay(process::Clock::now() - endTime[0], self(),
+                 &UsageRecorder::tick);
+  doneFirstTick = true;
 }
 
 }  // namespace usage_log

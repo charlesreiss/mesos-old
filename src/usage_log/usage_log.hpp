@@ -19,12 +19,16 @@
 #ifndef __USAGE_LOG_HPP__
 #define __USAGE_LOG_HPP__
 
+#include <fstream>
 #include "boost/scoped_ptr.hpp"
 
 #include <process/process.hpp>
 #include <process/protobuf.hpp>
 
 #include "usage_log/usage_log.pb.h"
+
+#include <google/protobuf/io/zero_copy_stream.h>
+#include <google/protobuf/text_format.h>
 
 namespace mesos {
 namespace internal {
@@ -36,10 +40,15 @@ public:
   virtual ~UsageLogWriter() {}
 };
 
-class FileUsageLogWriter : public UsageLogWriter {
+class TextFileUsageLogWriter : public UsageLogWriter {
 public:
-  FileUsageLogWriter(const std::string& filename);
+  TextFileUsageLogWriter(const std::string& filename);
   virtual void write(const UsageLogRecord& record);
+
+private:
+  std::ofstream out;
+  google::protobuf::TextFormat::Printer printer;
+  boost::scoped_ptr<google::protobuf::io::ZeroCopyOutputStream> out_proto;
 };
 
 using namespace process;
@@ -57,7 +66,20 @@ protected:
   void finalize();
 
 private:
+  // We collect two sets of pending measurements. Index 0 contains
+  // the next measurements we are about to emit, and index 1 contains
+  // the current time interval of measurements. Every tick, we emit
+  // the index 0 measurements, move the index 1 measurements to index 0, and
+  // clear the index 1 measurements.
+  void emit();
+  void advance();
+  void tick();
+
+  bool doneFirstTick;
   double interval;
+  double endTime[2];
+  std::vector<UsageMessage> pendingUsage[2];
+  std::vector<StatusUpdate> pendingUpdates[2];
   boost::scoped_ptr<UsageLogWriter> out;
   process::UPID master;
 };
