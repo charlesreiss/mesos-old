@@ -66,6 +66,10 @@ protected:
   void finalize();
 
 private:
+  // Entrypoints for messages from the master.
+  void recordUsageMessage(const UsageMessage&);
+  void recordStatusUpdateMessage(const StatusUpdateMessage&);
+
   // We collect two sets of pending measurements. Index 0 contains
   // the next measurements we are about to emit, and index 1 contains
   // the current time interval of measurements. Every tick, we emit

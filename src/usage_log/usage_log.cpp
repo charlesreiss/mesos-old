@@ -49,17 +49,59 @@ UsageRecorder::UsageRecorder(UsageLogWriter* out_, const UPID& master_,
 
 void UsageRecorder::initialize()
 {
+  // interval 0 is initially [now - interval = A, now = B]
+  // interval 1 is intiially [now = B, now + interval = C];
+  // at the next tick at time C, we advance the intervals to [B, C];[C, D]
+  // at the tick at time D, we emit [B, C].
   endTime[0] = process::Clock::now();
   endTime[1] = process::Clock::now() + interval;
   process::delay(interval, self(), &UsageRecorder::tick);
   RegisterUsageListenerMessage registerMessage;
   registerMessage.set_pid(self());
   send(master, registerMessage);
+
+  install<UsageMessage>(&UsageRecorder::recordUsageMessage);
+  install<StatusUpdateMessage>(&UsageRecorder::recordStatusUpdateMessage);
 }
 
 void UsageRecorder::finalize()
 {
   emit();
+}
+
+void UsageRecorder::recordUsageMessage(const UsageMessage& message)
+{
+  // Assumes all measurements are really at least this long for the purpose
+  // of placing them in a bucket.
+  const double kMinMeasurement = 0.1;
+  // Minimum portion of the measurement which must overlap for it to be recorded
+  // in a bucket.
+  const double kMinOverlap = 0.1;
+  double effectiveDuration = std::max(message.duration(), kMinMeasurement);
+  double effectiveEnd = message.timestamp();
+  double effectiveStart = effectiveEnd - effectiveDuration;
+  CHECK_GT(effectiveEnd, effectiveStart);
+  CHECK_LT(endTime[0], endTime[1]);
+  for (int i = 0; i < 2; ++i) {
+    // start time within this measurement period
+    double start = i == 0 ? 0 : endTime[i - 1];
+    start = std::max(effectiveStart, start);
+    // end time within this measurement period
+    double end = std::min(effectiveEnd, endTime[i]);
+    double overlap = std::max(0.0, (end - start) / effectiveDuration);
+    if (overlap >= kMinOverlap) {
+      pendingUsage[i].push_back(message);
+    }
+  }
+}
+
+void UsageRecorder::recordStatusUpdateMessage(const StatusUpdateMessage& message)
+{
+  if (message.update().timestamp() <= endTime[0]) {
+    pendingUpdates[0].push_back(message.update());
+  } else {
+    pendingUpdates[1].push_back(message.update());
+  }
 }
 
 void UsageRecorder::emit()
@@ -71,7 +113,7 @@ void UsageRecorder::emit()
   double maxTimestamp = 0;
   foreach (const UsageMessage& usage, pendingUsage[0]) {
     record.add_usage()->MergeFrom(usage);
-    minTimestamp = std::min(minTimestamp, usage.timestamp());
+    minTimestamp = std::min(minTimestamp, usage.timestamp() - usage.duration());
     maxTimestamp = std::max(maxTimestamp, usage.timestamp());
   }
   foreach (const StatusUpdate& update, pendingUpdates[0]) {
@@ -83,6 +125,9 @@ void UsageRecorder::emit()
     record.set_min_seen_timestamp(minTimestamp);
     record.set_max_seen_timestamp(maxTimestamp);
   }
+  LOG(INFO) << "Recording " << record.DebugString()
+            << " at delta "
+            << (process::Clock::now() - record.min_expect_timestamp());
   out->write(record);
 }
 
@@ -102,7 +147,7 @@ void UsageRecorder::tick()
     emit();
   }
   advance();
-  process::delay(process::Clock::now() - endTime[0], self(),
+  process::delay((endTime[0] + interval) - process::Clock::now(), self(),
                  &UsageRecorder::tick);
   doneFirstTick = true;
 }
