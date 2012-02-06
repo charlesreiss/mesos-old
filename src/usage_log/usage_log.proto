@@ -6,7 +6,7 @@ import "messages/messages.proto";
 // All usage and status update records within a timeslice
 message UsageLogRecord {
   repeated UsageMessage usage = 1;
-  repeated mesos.TaskStatus update = 2;
+  repeated StatusUpdate update = 2;
   optional double min_seen_timestamp = 3;
   optional double max_seen_timestamp = 4;
   optional double min_expect_timestamp = 5;
@@ -16,5 +16,5 @@ message UsageLogRecord {
   // "nothing running".
   optional bool running_recorded = 7 [default = false];
   // Running at min_timestamp
-  repeated TaskStatus running_start = 8;
+  repeated StatusUpdate running_start = 8;
 }

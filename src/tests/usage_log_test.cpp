@@ -154,7 +154,8 @@ protected:
   }
 
   void testUsageTiming(double sendTime, double baseTime, double duration,
-                       double recvTime, bool recvBoth = false) {
+                       double recvTime, bool recvBoth = false)
+  {
     double start = process::Clock::now();
     baseTime += start;
     process::Clock::advance(sendTime);
@@ -172,6 +173,55 @@ protected:
       expectExactUsage(kInterval, usage);
     }
     expectEmptyUsage(kInterval);
+  }
+
+  StatusUpdateMessage dummyUpdateMessage(double time,
+                                         TaskState state = TASK_RUNNING)
+  {
+    time += process::Clock::now();
+    StatusUpdateMessage message;
+    StatusUpdate* update = message.mutable_update();
+    update->mutable_framework_id()->set_value("dummy-framework-id");
+    update->mutable_status()->mutable_task_id()->set_value("dummy-task");
+    update->mutable_status()->set_state(state);
+    update->set_timestamp(time);
+    update->set_uuid("dummy-UUID");
+    return message;
+  }
+
+  void expectExactUpdate(double advance, const StatusUpdate& update)
+  {
+    LOG(INFO) << "Expect ExactUpdate";
+    UsageLogRecord record;
+    trigger gotRecord;
+    readRecord(&record, &gotRecord);
+    process::Clock::advance(advance);
+    WAIT_UNTIL(gotRecord);
+    double baseTime = process::Clock::now() - 2 * kInterval;
+    ASSERT_EQ(0, record.usage_size());
+    EXPECT_EQ(1, record.update_size());
+    EXPECT_EQ(update.DebugString(), record.update(0).DebugString());
+    EXPECT_TRUE(record.has_min_seen_timestamp());
+    EXPECT_TRUE(record.has_max_seen_timestamp());
+    EXPECT_DOUBLE_EQ(record.min_seen_timestamp(),
+                     update.timestamp());
+    EXPECT_DOUBLE_EQ(record.max_seen_timestamp(),
+                     update.timestamp());
+    EXPECT_DOUBLE_EQ(baseTime, record.min_expect_timestamp());
+    EXPECT_DOUBLE_EQ(baseTime + kInterval, record.max_expect_timestamp());
+  }
+
+  void testUpdateTiming(int emptyMessages, double messageTime,
+                        double sendTime, double recvTime)
+  {
+    double start = process::Clock::now();
+    EXPECT_CALL(*logWriter, write(_)).
+      Times(emptyMessages).
+      RetiresOnSaturation();
+    process::Clock::advance(sendTime);
+    StatusUpdateMessage message = dummyUpdateMessage(messageTime + start);
+    master.send(recorderPid, message);
+    expectExactUpdate(recvTime - sendTime, message.update());
   }
 
   MockFilter mockFilter;
@@ -218,9 +268,9 @@ TEST_F(UsageRecorderTest, CopyUsageMessageOverlapSecond) {
 }
 
 TEST_F(UsageRecorderTest, RecordStatusUpdate) {
-  ASSERT_TRUE(false);
+  testUpdateTiming(0, 2.0, 2.0, 10.0);
 }
 
 TEST_F(UsageRecorderTest, RecordStatusUpdateLate) {
-  ASSERT_TRUE(false);
+  testUpdateTiming(0, 2.0, 7.0, 10.0);
 }
