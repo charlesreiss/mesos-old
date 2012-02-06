@@ -86,6 +86,7 @@ protected:
     process::terminate(masterPid);
     process::wait(masterPid);
     process::filter(0);
+    process::Clock::resume();
   }
 
   ~UsageRecorderTest()
@@ -96,7 +97,8 @@ protected:
   void readRecord(UsageLogRecord* record, trigger *gotRecord)
   {
     EXPECT_CALL(*logWriter, write(_)).
-      WillOnce(DoAll(SaveArg<0>(record), Trigger(gotRecord)));
+      WillOnce(DoAll(SaveArg<0>(record), Trigger(gotRecord))).
+      RetiresOnSaturation();
   }
 
   UsageMessage dummyUsage(const std::string& id, const Resources& resources,
@@ -114,6 +116,7 @@ protected:
 
   void expectEmptyUsage(double advance)
   {
+    LOG(INFO) << "Expect empty";
     UsageLogRecord record;
     trigger gotRecord;
     readRecord(&record, &gotRecord);
@@ -124,36 +127,43 @@ protected:
     EXPECT_EQ(0, record.update_size());
     EXPECT_FALSE(record.has_min_seen_timestamp());
     EXPECT_FALSE(record.has_max_seen_timestamp());
-    EXPECT_EQ(baseTime, record.min_expect_timestamp());
-    EXPECT_EQ(baseTime + kInterval, record.max_expect_timestamp());
+    EXPECT_DOUBLE_EQ(baseTime, record.min_expect_timestamp());
+    EXPECT_DOUBLE_EQ(baseTime + kInterval, record.max_expect_timestamp());
   }
 
   void expectExactUsage(double advance, const UsageMessage& usage)
   {
+    LOG(INFO) << "Expect UsageMessage";
     UsageLogRecord record;
     trigger gotRecord;
     readRecord(&record, &gotRecord);
     process::Clock::advance(advance);
     WAIT_UNTIL(gotRecord);
     double baseTime = process::Clock::now() - 2 * kInterval;
-    EXPECT_EQ(1, record.usage_size());
+    ASSERT_EQ(1, record.usage_size());
     EXPECT_EQ(usage.DebugString(), record.usage(0).DebugString());
     EXPECT_EQ(0, record.update_size());
-    EXPECT_FALSE(record.has_min_seen_timestamp());
-    EXPECT_FALSE(record.has_max_seen_timestamp());
-    EXPECT_EQ(baseTime, record.min_expect_timestamp());
-    EXPECT_EQ(baseTime + kInterval, record.max_expect_timestamp());
+    EXPECT_TRUE(record.has_min_seen_timestamp());
+    EXPECT_TRUE(record.has_max_seen_timestamp());
+    EXPECT_DOUBLE_EQ(record.min_seen_timestamp(),
+                     usage.timestamp() - usage.duration());
+    EXPECT_DOUBLE_EQ(record.max_seen_timestamp(),
+                     usage.timestamp());
+    EXPECT_DOUBLE_EQ(baseTime, record.min_expect_timestamp());
+    EXPECT_DOUBLE_EQ(baseTime + kInterval, record.max_expect_timestamp());
   }
 
   void testUsageTiming(double sendTime, double baseTime, double duration,
                        double recvTime, bool recvBoth = false) {
-    baseTime += process::Clock::now();
+    double start = process::Clock::now();
+    baseTime += start;
     process::Clock::advance(sendTime);
+    process::Clock::settle();
     UsageMessage usage = dummyUsage("0", Resources(),
           baseTime + duration, duration);
     master.send(recorderPid, usage);
     double remainingTime = recvTime - sendTime;
-    if (recvTime - baseTime > kInterval * 2) {
+    if (recvTime > kInterval * 2) {
       expectEmptyUsage(kInterval * 2 - sendTime);
       remainingTime = recvTime - kInterval * 2;
     }
