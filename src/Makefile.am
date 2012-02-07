@@ -363,6 +363,11 @@ mesos_mesos_SOURCES = mesos/main.cpp
 mesos_mesos_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_mesos_LDADD = libmesos.la
 
+bin_PROGRAMS += mesos-simulate
+mesos_simulate_SOURCES = fake/simulate_main.cpp
+mesos_simulate_CPPFLAGS = $(MESOS_CPPFLAGS)
+mesos_simulate_LDADD = libmesos.la
+
 
 # We need to include the webui scripts so they get installed.
 WEBUISCRIPTS = webui/bottle-0.8.3/bottle.py		\

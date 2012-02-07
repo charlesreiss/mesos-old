@@ -9,6 +9,16 @@ namespace fake {
 
 using process::PID;
 
+void Scenario::registerOptions(Configurator* configurator)
+{
+  FakeIsolationModule::registerOptions(configurator);
+}
+
+Scenario::Scenario(const Configuration& conf_)
+    : conf(conf_)
+{
+}
+
 void Scenario::spawnMaster()
 {
   spawnMaster(new mesos::internal::master::SimpleAllocator);
@@ -26,15 +36,15 @@ void Scenario::spawnSlave(const Resources& resources)
 {
   CHECK(masterPid);
   FakeIsolationModule* module = new FakeIsolationModule(tracker);
-  Slave* slave = new Slave("", resources, Configuration(), true, module);
+  Slave* slave = new Slave("", resources, conf, true, module);
   slaves.push_back(slave);
   slavePids.push_back(process::spawn(slave));
   slaveMasterDetectors.push_back(
       new BasicMasterDetector(masterPid, slavePids.back()));
 }
 
-void Scenario::spawnScheduler(const std::string& name,
-                              const std::map<TaskID, FakeTask*>& tasks)
+FakeScheduler* Scenario::spawnScheduler(
+    const std::string& name, const std::map<TaskID, FakeTask*>& tasks)
 {
   CHECK(schedulers.find(name) == schedulers.end());
   FakeScheduler* scheduler = new FakeScheduler(&tracker);
@@ -54,6 +64,7 @@ void Scenario::spawnScheduler(const std::string& name,
   foreachvalue (FakeTask* task, tasks) {
     allTasks.push_back(task);
   }
+  return scheduler;
 }
 
 void Scenario::finishSetup()
@@ -71,7 +82,7 @@ void Scenario::runFor(double seconds)
   CHECK(process::Clock::paused());
   const double kInterval = 1./2.;
   while (seconds > 0.0) {
-    process::Clock::advance(kInterval);
+    process::Clock::advance(std::min(kInterval, seconds));
     process::Clock::settle();
     seconds -= kInterval;
   }

@@ -43,6 +43,12 @@ void FakeExecutor::killTask(ExecutorDriver* driver,
   module->unregisterTask(frameworkId, executorId, taskId);
 }
 
+void FakeIsolationModule::registerOptions(Configurator* configurator)
+{
+  configurator->addOption<double>("fake_interval",
+      "tick interval for fake isolation module", 1.0);
+}
+
 void FakeIsolationModule::initialize(const Configuration& conf, bool local,
     const process::PID<Slave>& slave_)
 {
@@ -144,15 +150,15 @@ Resources minResources(Resources a, Resources b) {
 
 void FakeIsolationModuleTicker::tick() {
   if (module->tick()) {
-    LOG(INFO) << "scheduling new tick";
+    VLOG(2) << "scheduling new tick";
     timer = process::delay(interval, self(), &FakeIsolationModuleTicker::tick);
   }
 }
 
 bool FakeIsolationModule::tick() {
-  LOG(INFO) << "FakeIsolationModule::tick; this = " << (void*)this;
+  VLOG(2) << "FakeIsolationModule::tick; this = " << (void*)this;
   CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
-  LOG(INFO) << "tasks.size = " << tasks.size();
+  VLOG(2) << "tasks.size = " << tasks.size();
 
   seconds oldTime(lastTime);
   seconds newTime(process::Clock::now());
@@ -167,7 +173,7 @@ bool FakeIsolationModule::tick() {
               RunningTaskInfo& task, tasks) {
     FakeTask *fakeTask = task.fakeTask;
     if (fakeTask) {
-      LOG(INFO) << "Checking on task " << frameworkAndExec.first << " "
+      VLOG(2) << "Checking on task " << frameworkAndExec.first << " "
                 << frameworkAndExec.second;
       Resources requested = fakeTask->getUsage(oldTime, newTime);
       Resources usage = minResources(requested,
@@ -183,7 +189,7 @@ bool FakeIsolationModule::tick() {
               frameworkAndExec.first, frameworkAndExec.second, task.taskId));
       }
     } else {
-      LOG(INFO) << "Executor with no task " << frameworkAndExec.first << " "
+      VLOG(1) << "Executor with no task " << frameworkAndExec.first << " "
                 << frameworkAndExec.second;
     }
   }

@@ -27,6 +27,8 @@
 
 #include "process/pid.hpp"
 
+#include "configurator/configurator.hpp"
+#include "configurator/configuration.hpp"
 #include "detector/detector.hpp"
 #include "fake/fake_scheduler.hpp"
 #include "fake/fake_task.hpp"
@@ -42,11 +44,13 @@ typedef mesos::internal::master::Master Master;
 
 class Scenario {
 public:
+  static void registerOptions(Configurator* configurator);
+
   void spawnMaster();
   void spawnMaster(mesos::internal::master::Allocator* allocator);
   void spawnSlave(const Resources& resources);
-  void spawnScheduler(const std::string& name,
-                      const std::map<TaskID, FakeTask*>& tasks);
+  FakeScheduler* spawnScheduler(const std::string& name,
+                                const std::map<TaskID, FakeTask*>& tasks);
 
   FakeScheduler* getScheduler(const std::string& name) {
     return schedulers[name];
@@ -54,8 +58,11 @@ public:
   void finishSetup();
   void runFor(double seconds);
   void stop();
+  Scenario() {}
+  Scenario(const Configuration& conf_);
   ~Scenario() { stop(); }
 private:
+  Configuration conf;
   FakeTaskTracker tracker;
   Master* master;
   process::PID<Master> masterPid;

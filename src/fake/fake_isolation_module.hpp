@@ -25,10 +25,11 @@
 
 #include "boost/scoped_ptr.hpp"
 
+#include "configurator/configurator.hpp"
 #include "common/type_utils.hpp"
-#include "slave/isolation_module.hpp"
-#include "mesos/mesos.hpp"
 #include "common/resources.hpp"
+#include "mesos/mesos.hpp"
+#include "slave/isolation_module.hpp"
 
 #include "mesos/executor.hpp"
 
@@ -101,6 +102,8 @@ struct FakeIsolationModuleTicker : public process::Process<FakeIsolationModuleTi
 
 class FakeIsolationModule : public IsolationModule {
 public:
+  static void registerOptions(Configurator* configurator);
+
   FakeIsolationModule(const FakeTaskTracker& fakeTasks_)
       : fakeTasks(fakeTasks_), shuttingDown(false) {
     pthread_mutexattr_t mattr;
