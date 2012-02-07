@@ -198,8 +198,8 @@ protected:
     process::Clock::advance(advance);
     WAIT_UNTIL(gotRecord);
     double baseTime = process::Clock::now() - 2 * kInterval;
-    ASSERT_EQ(0, record.usage_size());
-    EXPECT_EQ(1, record.update_size());
+    EXPECT_EQ(0, record.usage_size());
+    ASSERT_EQ(1, record.update_size());
     EXPECT_EQ(update.DebugString(), record.update(0).DebugString());
     EXPECT_TRUE(record.has_min_seen_timestamp());
     EXPECT_TRUE(record.has_max_seen_timestamp());
