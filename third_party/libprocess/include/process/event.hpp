@@ -63,6 +63,9 @@ struct Event
     }
     return *result;
   }
+
+  virtual ~Event()
+  {}
 };
 
 

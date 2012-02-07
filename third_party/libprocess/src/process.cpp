@@ -2160,9 +2160,19 @@ void ProcessManager::settle()
 
 namespace timers {
 
+static void noop()
+{
+}
+
 timer create(double secs, const lambda::function<void(void)>& thunk)
 {
-  static long id = 0;
+  return create(secs, thunk, noop);
+}
+
+timer create(double secs, const lambda::function<void(void)>& thunk,
+             std::tr1::function<void(void)> cancelThunk)
+{
+  static volatile long id = 0;
 
   double timeout = Clock::now() + secs;
 
@@ -2175,10 +2185,11 @@ timer create(double secs, const lambda::function<void(void)>& thunk)
   }
 
   timer timer;
-  timer.id = id++;
+  timer.id = __sync_fetch_and_add(&id, 1);
   timer.timeout = timeout;
   timer.pid = __process__ != NULL ? __process__->self() : UPID();
   timer.thunk = thunk;
+  timer.cancelThunk = cancelThunk;
 
   VLOG(2) << "Created a timer for "
           << std::fixed << std::setprecision(9) << timeout;
@@ -2203,20 +2214,35 @@ timer create(double secs, const lambda::function<void(void)>& thunk)
 
 void cancel(const timer& timer)
 {
+  bool canceled = false;
   synchronized (timeouts) {
     // Check if the timeout is still pending, and if so, erase
     // it. In addition, erase an empty list if we just removed the
     // last timeout.
     if (timeouts->count(timer.timeout) > 0) {
+      canceled = true;
       (*timeouts)[timer.timeout].remove(timer);
       if ((*timeouts)[timer.timeout].empty()) {
         timeouts->erase(timer.timeout);
       }
     }
   }
+  if (canceled)
+  {
+    (timer.cancelThunk)();
+  }
 }
 
-} // namespace timeouts {
+} // namespace timers {
+
+namespace internal {
+
+void deleteDispatcher(std::tr1::function<void(ProcessBase*)>* dispatcher)
+{
+  delete dispatcher;
+}
+
+} // namespace internal
 
 
 ProcessBase::ProcessBase(const std::string& _id)
@@ -2324,6 +2350,8 @@ void ProcessBase::enqueue(Event* event, bool inject)
       CHECK(state == BOTTOM ||
             state == READY ||
             state == RUNNING);
+    } else {
+      delete event;
     }
   }
   unlock();

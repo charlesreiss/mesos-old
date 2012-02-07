@@ -17,6 +17,7 @@ struct timer
   double timeout;
   process::UPID pid;
   std::tr1::function<void(void)> thunk;
+  std::tr1::function<void(void)> cancelThunk;
 };
 
 
@@ -29,9 +30,17 @@ inline bool operator == (const timer& left, const timer& right)
 namespace timers {
 
 timer create(double secs, const std::tr1::function<void(void)>& thunk);
+timer create(double secs, const std::tr1::function<void(void)>& thunk,
+             std::tr1::function<void(void)> cancelThunk);
 void cancel(const timer& timer);
 
 } // namespace timers {
+
+namespace internal {
+
+void deleteDispatcher(std::tr1::function<void(ProcessBase*)>* dispatcher);
+
+}
 
 
 // Delay a dispatch to a process. Returns a timer which can attempted
@@ -55,7 +64,10 @@ timer delay(double secs,
   std::tr1::function<void(void)> dispatch =
     std::tr1::bind(internal::dispatch, pid, dispatcher);
 
-  return timers::create(secs, dispatch);
+  std::tr1::function<void(void)> cancel =
+    std::tr1::bind(internal::deleteDispatcher, dispatcher);
+
+  return timers::create(secs, dispatch, cancel);
 }
 
 
@@ -78,7 +90,10 @@ timer delay(double secs,
   std::tr1::function<void(void)> dispatch =
     std::tr1::bind(internal::dispatch, pid, dispatcher);
 
-  return timers::create(secs, dispatch);
+  std::tr1::function<void(void)> cancel =
+    std::tr1::bind(internal::deleteDispatcher, dispatcher);
+
+  return timers::create(secs, dispatch, cancel);
 }
 
 
@@ -103,7 +118,10 @@ timer delay(double secs,
   std::tr1::function<void(void)> dispatch =
     std::tr1::bind(internal::dispatch, pid, dispatcher);
 
-  return timers::create(secs, dispatch);
+  std::tr1::function<void(void)> cancel =
+    std::tr1::bind(internal::deleteDispatcher, dispatcher);
+
+  return timers::create(secs, dispatch, cancel);
 }
 
 
@@ -128,7 +146,10 @@ timer delay(double secs,
   std::tr1::function<void(void)> dispatch =
     std::tr1::bind(internal::dispatch, pid, dispatcher);
 
-  return timers::create(secs, dispatch);
+  std::tr1::function<void(void)> cancel =
+    std::tr1::bind(internal::deleteDispatcher, dispatcher);
+
+  return timers::create(secs, dispatch, cancel);
 }
 
 } // namespace process {
