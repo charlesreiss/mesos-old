@@ -97,6 +97,8 @@ void FakeIsolationModule::killExecutor(
 void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
     const ExecutorID& executorId, const ResourceHints& resources)
 {
+  VLOG(1) << "resourcesChanged: " << frameworkId << ", " << executorId
+          << " to " << resources;
   tasks[make_pair(frameworkId, executorId)].assignedResources = resources;
 }
 

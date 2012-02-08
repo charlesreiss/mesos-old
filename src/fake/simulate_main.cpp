@@ -66,7 +66,6 @@ static void run(const Configuration& conf, int seed_mix)
   bool allDone;
   std::vector<bool> done(batchSchedulers.size(), false);
   do {
-    // TODO(Charles Reiss): Don't hardcode this.
     scenario.runFor(interval);
     allDone = true;
     for (int i = 0; i < batchSchedulers.size(); ++i) {

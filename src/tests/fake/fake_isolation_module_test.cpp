@@ -23,6 +23,7 @@
 #include "tests/utils.hpp"
 #include "tests/fake/util.hpp"
 
+#include "configurator/configuration.hpp"
 #include "fake/fake_isolation_module.hpp"
 #include "fake/fake_task.hpp"
 
@@ -55,8 +56,8 @@ public:
     mockMaster->setFilter(&mockFilter);
     mockMasterPid = mockMaster->start();
     module.reset(new FakeIsolationModule(taskTracker));
-    slave.reset(new Slave(Resources::parse("cpus:4.0;mem:4096"), true,
-                          module.get()));
+    conf.set("resources", "cpus:4.0;mem:4096");
+    slave.reset(new Slave(conf, true, module.get()));
     slavePid = process::spawn(slave.get());
 
     trigger askedToRegister;
@@ -75,6 +76,8 @@ public:
     task.mutable_slave_id()->MergeFrom(getSlaveId());
     task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
     task.mutable_executor()->mutable_executor_id()->set_value(id);
+    task.mutable_resources()->MergeFrom(resources.expectedResources);
+    task.mutable_min_resources()->MergeFrom(resources.minResources);
     return task;
   }
 
@@ -169,6 +172,7 @@ protected:
   boost::scoped_ptr<FakeProtobufProcess> mockMaster;
   MockFilter mockFilter;
   FakeTaskTracker taskTracker;
+  Configuration conf;
 };
 
 TEST_F(FakeIsolationModuleTest, InitStop) {
@@ -189,7 +193,7 @@ TEST_F(FakeIsolationModuleTest, TaskRunOneSecond) {
   startSlave();
   MockFakeTask mockTask;
   double now = process::Clock::now();
-  startTask("task0", &mockTask, ResourceHints());
+  startTask("task0", &mockTask, ResourceHints::parse("cpus:4.0", ""));
   EXPECT_CALL(mockTask, getUsage(seconds(now), seconds(now + kTick))).
     WillRepeatedly(Return(Resources::parse("cpus:0.0")));
   EXPECT_CALL(mockTask, takeUsage(_, _, _)).
@@ -205,7 +209,7 @@ TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks) {
   startSlave();
 
   MockFakeTask mockTask;
-  startTask("task0", &mockTask, ResourceHints());
+  startTask("task0", &mockTask, ResourceHints::parse("cpus:4.0", ""));
   EXPECT_CALL(mockTask, getUsage(_, _)).
     WillRepeatedly(Return(Resources::parse("cpus:8.0")));
   trigger gotTaskUsageCall;
