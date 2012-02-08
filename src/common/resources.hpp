@@ -154,6 +154,10 @@ public:
 
   bool operator == (const Resources& that) const
   {
+    if (that.size() != this->size()) {
+      return false;
+    }
+
     foreach (const Resource& resource, resources) {
       Option<Resource> option = that.get(resource);
       if (option.isNone()) {
