@@ -291,9 +291,6 @@ TEST_F(MasterSlaveTest, TaskRunning)
   launchTaskForOffer(offers[0], "testTaskId");
   stopScheduler();
   stopMasterAndSlave();
-  // FIXME TODO(charles): is this the behavior we want?
-  EXPECT_EQ(ResourceHints(),
-            isolationModule->lastResources[DEFAULT_EXECUTOR_ID]);
 }
 
 TEST_F(MasterSlaveTest, AllocateMinimumIfMarked)

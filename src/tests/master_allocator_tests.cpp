@@ -230,7 +230,8 @@ protected:
     task.set_name("");
     task.mutable_task_id()->set_value(id);
     task.mutable_slave_id()->MergeFrom(theOffer.slave_id());
-    task.mutable_resources()->MergeFrom(theOffer.resources());
+    task.mutable_resources()->MergeFrom(resources);
+    task.mutable_min_resources()->MergeFrom(minResources);
     tasks->push_back(task);
   }
 
