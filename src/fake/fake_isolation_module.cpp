@@ -47,6 +47,9 @@ void FakeIsolationModule::registerOptions(Configurator* configurator)
 {
   configurator->addOption<double>("fake_interval",
       "tick interval for fake isolation module", 1.0);
+  configurator->addOption<bool>("fake_extra_cpu",
+      "simulated isolation allows processes to use CPU beyond their "
+      "allocation", false);
 }
 
 void FakeIsolationModule::initialize(const Configuration& conf, bool local,

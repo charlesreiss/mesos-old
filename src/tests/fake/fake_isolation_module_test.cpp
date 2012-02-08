@@ -178,6 +178,9 @@ public:
               ResourceHints::parse(requestExpect, requestMin));
     EXPECT_CALL(*task, getUsage(_, _)).
       WillRepeatedly(Return(Resources::parse(getUsageResult)));
+    // Default return value so test doesn't abort the test suite.
+    ON_CALL(*task, takeUsage(_, _, _)).
+      WillByDefault(Return(TASK_FAILED));
     EXPECT_CALL(*task, takeUsage(_, _, Resources::parse(takeUsageExpect))).
       WillRepeatedly(Return(TASK_RUNNING));
   }
@@ -299,5 +302,27 @@ TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyDoesNotStreal)
   MockFakeTask backgroundTask;
   makeBackgroundTask(&backgroundTask, "cpus:2.0", "", "cpus:1.0", "cpus:1.0");
   expectIsolationPolicy("cpus:1.0", "", "cpus:9.0", "cpus:3.0");
+  stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyProportional)
+{
+  conf.set("fake_extra_cpu", "1");
+
+  startSlave();
+  MockFakeTask backgroundTask;
+  makeBackgroundTask(&backgroundTask, "cpus:1.0", "", "cpus:3.0", "cpus:1.6");
+  expectIsolationPolicy("cpus:1.5", "", "cpus:3.0", "cpus:2.4");
+  stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyLessThanMax)
+{
+  conf.set("fake_extra_cpu", "1");
+
+  startSlave();
+  MockFakeTask backgroundTask;
+  makeBackgroundTask(&backgroundTask, "cpus:1.0", "", "cpus:1.5", "cpus:1.6");
+  expectIsolationPolicy("cpus:1.5", "", "cpus:3.0", "cpus:2.5");
   stopSlave();
 }
