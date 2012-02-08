@@ -30,6 +30,7 @@
 #include "configurator/configurator.hpp"
 #include "configurator/configuration.hpp"
 #include "detector/detector.hpp"
+#include "fake/fake_isolation_module.hpp"
 #include "fake/fake_scheduler.hpp"
 #include "fake/fake_task.hpp"
 #include "master/master.hpp"
@@ -73,6 +74,7 @@ private:
   std::map<std::string, MesosSchedulerDriver*> schedulerDrivers;
   std::map<std::string, FakeScheduler*> schedulers;
   std::vector<FakeTask*> allTasks;
+  std::vector<FakeIsolationModule*> isolationModules;
 };
 
 }  // namespace fake

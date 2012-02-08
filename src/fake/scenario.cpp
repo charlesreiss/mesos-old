@@ -41,6 +41,7 @@ void Scenario::spawnSlave(const Resources& resources)
   slavePids.push_back(process::spawn(slave));
   slaveMasterDetectors.push_back(
       new BasicMasterDetector(masterPid, slavePids.back()));
+  isolationModules.push_back(module);
 }
 
 FakeScheduler* Scenario::spawnScheduler(
@@ -111,6 +112,10 @@ void Scenario::stop()
     delete slave;
   }
   slaves.clear();
+  foreach (FakeIsolationModule* module, isolationModules) {
+    delete module;
+  }
+  isolationModules.clear();
   foreachvalue (FakeScheduler* scheduler, schedulers) {
     delete scheduler;
   }
