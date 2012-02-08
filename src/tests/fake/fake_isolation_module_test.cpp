@@ -41,13 +41,15 @@ static const double kTick = 1.0;
 
 class FakeIsolationModuleTest : public ::testing::Test {
 public:
-  SlaveID getSlaveId() {
+  SlaveID getSlaveId()
+  {
     SlaveID dummySlaveId;
     dummySlaveId.set_value("default");
     return dummySlaveId;
   }
 
-  void startSlave() {
+  void startSlave()
+  {
     process::Clock::pause();
     process::filter(&mockFilter);
     using testing::_;
@@ -69,7 +71,8 @@ public:
   }
 
   TaskDescription makeTaskDescription(const std::string& id,
-                                      const ResourceHints& resources) {
+                                      const ResourceHints& resources)
+  {
     TaskDescription task;
     task.set_name(id);
     task.mutable_task_id()->set_value(id);
@@ -81,13 +84,15 @@ public:
     return task;
   }
 
-  template <class T> static std::string name() {
+  template <class T> static std::string name()
+  {
     T m;
     return m.GetTypeName();
   }
 
   void startTask(std::string id, MockFakeTask* task,
-                 const ResourceHints& resources) {
+                 const ResourceHints& resources)
+  {
     TaskID taskId;
     taskId.set_value(id);
     ExecutorID executorId;
@@ -110,7 +115,8 @@ public:
     WAIT_UNTIL(gotStatusUpdate);
   }
 
-  void killTask(std::string id) {
+  void killTask(std::string id)
+  {
     trigger gotStatusUpdate;
     mockMaster->expectAndWait<StatusUpdateMessage>(slavePid, &gotStatusUpdate);
     TaskID taskId;
@@ -121,7 +127,8 @@ public:
   }
 
   void acknowledgeUpdate(const std::string& taskId,
-                         const StatusUpdateMessage& updateMessage) {
+                         const StatusUpdateMessage& updateMessage)
+  {
     EXPECT_EQ(getSlaveId(), updateMessage.update().slave_id());
     FrameworkID expectId = DEFAULT_FRAMEWORK_ID;
     EXPECT_EQ(expectId, updateMessage.update().framework_id());
@@ -135,7 +142,8 @@ public:
     mockMaster->send(slavePid, ack);
   }
 
-  void tickAndUpdate(const std::string& taskId) {
+  void tickAndUpdate(const std::string& taskId)
+  {
     trigger gotStatusUpdate;
     StatusUpdateMessage updateMessage;
     mockMaster->expectAndStore<StatusUpdateMessage>(slavePid,
@@ -145,7 +153,44 @@ public:
     acknowledgeUpdate(taskId, updateMessage);
   }
 
-  void queryUsage() {
+  void expectAskUsed(MockFakeTask* mockTask,
+                     const std::string& getUsageResult,
+                     const std::string& takeUsageExpect)
+  {
+    using testing::_;
+    ON_CALL(*mockTask, takeUsage(_, _, _)).
+      WillByDefault(Return(TASK_FAILED));
+    EXPECT_CALL(*mockTask, getUsage(_, _)).
+      WillRepeatedly(Return(Resources::parse(getUsageResult)));
+    EXPECT_CALL(*mockTask, takeUsage(_, _, Resources::parse(takeUsageExpect))).
+      WillOnce(Return(TASK_FINISHED));
+    tickAndUpdate("task0");
+  }
+
+  void makeBackgroundTask(MockFakeTask* task,
+                          const std::string& requestExpect,
+                          const std::string& requestMin,
+                          const std::string& getUsageResult,
+                          const std::string& takeUsageExpect)
+  {
+    using testing::_;
+    startTask("backgroundTask", task,
+              ResourceHints::parse(requestExpect, requestMin));
+    EXPECT_CALL(*task, getUsage(_, _)).
+      WillRepeatedly(Return(Resources::parse(getUsageResult)));
+    EXPECT_CALL(*task, takeUsage(_, _, Resources::parse(takeUsageExpect))).
+      WillRepeatedly(Return(TASK_RUNNING));
+  }
+
+  void expectIsolationPolicy(const std::string& requestExpect,
+                             const std::string& requestMin,
+                             const std::string& getUsageResult,
+                             const std::string& takeUsageExpect)
+  {
+    MockFakeTask mockTask;
+    startTask("task0", &mockTask,
+              ResourceHints::parse(requestExpect, requestMin));
+    expectAskUsed(&mockTask, getUsageResult, takeUsageExpect);
   }
 
   void stopSlave() {
@@ -175,12 +220,14 @@ protected:
   Configuration conf;
 };
 
-TEST_F(FakeIsolationModuleTest, InitStop) {
+TEST_F(FakeIsolationModuleTest, InitStop)
+{
   startSlave();
   stopSlave();
 }
 
-TEST_F(FakeIsolationModuleTest, StartKillTask) {
+TEST_F(FakeIsolationModuleTest, StartKillTask)
+{
   startSlave();
   MockFakeTask mockTask;
   startTask("task0", &mockTask, ResourceHints());
@@ -188,7 +235,8 @@ TEST_F(FakeIsolationModuleTest, StartKillTask) {
   stopSlave();
 }
 
-TEST_F(FakeIsolationModuleTest, TaskRunOneSecond) {
+TEST_F(FakeIsolationModuleTest, TaskRunOneSecond)
+{
   using testing::_;
   startSlave();
   MockFakeTask mockTask;
@@ -204,7 +252,8 @@ TEST_F(FakeIsolationModuleTest, TaskRunOneSecond) {
   stopSlave();
 }
 
-TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks) {
+TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks)
+{
   using testing::_;
   startSlave();
 
@@ -224,3 +273,31 @@ TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks) {
   stopSlave();
 }
 
+TEST_F(FakeIsolationModuleTest, ExtraCPUPolicy)
+{
+  conf.set("fake_extra_cpu", "1");
+
+  startSlave();
+  expectIsolationPolicy("cpus:1.0", "cpus:1.0", "cpus:3.0", "cpus:3.0");
+  stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyDoesNotExceedCapacity)
+{
+  conf.set("fake_extra_cpu", "1");
+
+  startSlave();
+  expectIsolationPolicy("cpus:1.0", "cpus:1.0", "cpus:9.0", "cpus:4.0");
+  stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyDoesNotStreal)
+{
+  conf.set("fake_extra_cpu", "1");
+
+  startSlave();
+  MockFakeTask backgroundTask;
+  makeBackgroundTask(&backgroundTask, "cpus:2.0", "", "cpus:1.0", "cpus:1.0");
+  expectIsolationPolicy("cpus:1.0", "", "cpus:9.0", "cpus:3.0");
+  stopSlave();
+}
