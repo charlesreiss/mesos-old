@@ -2134,7 +2134,7 @@ void ProcessManager::settle()
   CHECK(Clock::paused());
   bool done = true;
   do {
-    usleep(100);
+    usleep(10);
     done = true;
     // Hopefully this is the only place we acquire both these locks.
     synchronized (runq) {
