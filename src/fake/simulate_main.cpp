@@ -18,7 +18,7 @@ using namespace mesos;
 using namespace mesos::internal;
 using namespace mesos::internal::fake;
 
-static void run(const Configuration& conf)
+static void run(const Configuration& conf, int seed_mix)
 {
   process::Clock::pause();
   Scenario scenario(conf);
@@ -30,7 +30,7 @@ static void run(const Configuration& conf)
     scenario.spawnSlave(resources);
   }
 
-  boost::random::mt19937 rng(conf.get<int>("seed", 42));
+  boost::random::mt19937 rng(conf.get<int>("seed", 42) + seed_mix);
   boost::random::exponential_distribution<> lengthDist(
       1.0 / conf.get<double>("batch_length", 30.0));
   std::vector<std::string> batchCountsStrings;
@@ -113,6 +113,7 @@ int main(int argc, char **argv)
                                       "simulated slave resources (per slave)",
                                       "cpus:4.0;mem:40");
   configurator.addOption<int>("num_slaves", "number of simulated slaves", 1);
+  configurator.addOption<int>("repeat", "number of reptitions", 1);
 
   if (argc == 2 && std::string("--help") == argv[1]) {
     std::cerr << "Usage: " << argv[0] << std::endl
@@ -132,7 +133,10 @@ int main(int argc, char **argv)
 
   process::initialize(false);
 
-  run(conf);
+  const int repeats = conf.get<int>("repeat", 1);
+  for (int i = 0; i < repeats; ++i) {
+    run(conf, i);
+  }
 
   return EXIT_SUCCESS;
 }
