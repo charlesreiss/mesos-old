@@ -48,16 +48,9 @@ class FakeIsolationModule;
 
 class FakeExecutor : public Executor {
 public:
-  FakeExecutor(FakeIsolationModule* module_)
-        : initialized(false), module(module_) {}
+  FakeExecutor(FakeIsolationModule* module_);
 
-  void init(ExecutorDriver* driver, const ExecutorArgs& args) {
-    LOG(INFO) << "FakeExecutor: init; this=" << (void*)this;
-    CHECK(!initialized);
-    initialized = true;
-    frameworkId.MergeFrom(args.framework_id());
-    executorId.MergeFrom(args.executor_id());
-  }
+  void init(ExecutorDriver* driver, const ExecutorArgs& args);
 
   void launchTask(ExecutorDriver* driver, const TaskDescription& task);
 
@@ -67,11 +60,7 @@ public:
     LOG(FATAL) << "should not get framework message";
   }
 
-  void shutdown(ExecutorDriver* driver) {
-    CHECK(initialized);
-    LOG(INFO) << "FakeExecutor: shutdown; this=" << (void*)this;
-    initialized = false;
-  }
+  void shutdown(ExecutorDriver* driver);
 
   void error(ExecutorDriver* driver, int code, const std::string& message) {
     LOG(ERROR) << "FakeExecutor; code = " << code << "; message = " << message;
@@ -104,13 +93,7 @@ class FakeIsolationModule : public IsolationModule {
 public:
   static void registerOptions(Configurator* configurator);
 
-  FakeIsolationModule(const FakeTaskTracker& fakeTasks_)
-      : fakeTasks(fakeTasks_), shuttingDown(false) {
-    pthread_mutexattr_t mattr;
-    pthread_mutexattr_init(&mattr);
-    pthread_mutexattr_settype(&mattr, PTHREAD_MUTEX_ERRORCHECK);
-    pthread_mutex_init(&tasksLock, &mattr);
-  }
+  FakeIsolationModule(const FakeTaskTracker& fakeTasks_);
 
   void initialize(const Configuration& conf, bool local,
                   const process::PID<Slave>& slave);
@@ -140,10 +123,6 @@ public:
 
   virtual ~FakeIsolationModule();
 
-private:
-  friend class FakeExecutor;
-  friend class FakeIsolationModuleTick;
-
   struct RunningTaskInfo {
     // possibly null if no task is running
     FakeTask* fakeTask;
@@ -152,6 +131,10 @@ private:
     // includes both tasks and executor
     ResourceHints assignedResources;
   };
+
+private:
+  friend class FakeExecutor;
+  friend class FakeIsolationModuleTick;
 
   typedef hashmap<std::pair<FrameworkID, ExecutorID>,
                   std::pair<MesosExecutorDriver*, FakeExecutor*> > DriverMap;
@@ -167,6 +150,9 @@ private:
   const FakeTaskTracker& fakeTasks;
   boost::scoped_ptr<FakeIsolationModuleTicker> ticker;
   bool shuttingDown;
+
+  Resources totalResources;
+  bool extraCpu;
 };
 
 }  // namespace fake

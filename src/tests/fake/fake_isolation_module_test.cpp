@@ -294,7 +294,7 @@ TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyDoesNotExceedCapacity)
   stopSlave();
 }
 
-TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyDoesNotStreal)
+TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyDoesNotSteal)
 {
   conf.set("fake_extra_cpu", "1");
 
@@ -322,7 +322,7 @@ TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyLessThanMax)
 
   startSlave();
   MockFakeTask backgroundTask;
-  makeBackgroundTask(&backgroundTask, "cpus:1.0", "", "cpus:1.5", "cpus:1.6");
+  makeBackgroundTask(&backgroundTask, "cpus:1.0", "", "cpus:1.5", "cpus:1.5");
   expectIsolationPolicy("cpus:1.5", "", "cpus:3.0", "cpus:2.5");
   stopSlave();
 }

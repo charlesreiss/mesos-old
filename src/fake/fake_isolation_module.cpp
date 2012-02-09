@@ -20,6 +20,24 @@ namespace fake {
 using std::make_pair;
 using std::vector;
 
+FakeExecutor::FakeExecutor(FakeIsolationModule* module_)
+    : initialized(false), module(module_) {}
+
+void FakeExecutor::init(ExecutorDriver* driver,
+                        const ExecutorArgs& args)
+{
+  CHECK(!initialized);
+  initialized = true;
+  frameworkId.MergeFrom(args.framework_id());
+  executorId.MergeFrom(args.executor_id());
+}
+
+void FakeExecutor::shutdown(ExecutorDriver* driver)
+{
+  CHECK(initialized);
+  initialized = false;
+}
+
 void FakeExecutor::launchTask(ExecutorDriver* driver,
                               const TaskDescription& task)
 {
@@ -52,12 +70,22 @@ void FakeIsolationModule::registerOptions(Configurator* configurator)
       "allocation", false);
 }
 
+FakeIsolationModule::FakeIsolationModule(const FakeTaskTracker& fakeTasks_)
+      : fakeTasks(fakeTasks_), shuttingDown(false), extraCpu(false) {
+  pthread_mutexattr_t mattr;
+  pthread_mutexattr_init(&mattr);
+  pthread_mutexattr_settype(&mattr, PTHREAD_MUTEX_ERRORCHECK);
+  pthread_mutex_init(&tasksLock, &mattr);
+}
+
 void FakeIsolationModule::initialize(const Configuration& conf, bool local,
     const process::PID<Slave>& slave_)
 {
   LOG(INFO) << "initialize; this = " << (void*)this;
   slave = slave_;
   interval = conf.get<double>("fake_interval", 1.0);
+  extraCpu = conf.get<bool>("fake_extra_cpu", true);
+  totalResources = Resources::parse(conf.get<std::string>("resources", ""));
   lastTime = process::Clock::now();
   ticker.reset(new FakeIsolationModuleTicker(this, interval));
   process::spawn(ticker.get());
@@ -160,6 +188,51 @@ void FakeIsolationModuleTicker::tick() {
   }
 }
 
+namespace {
+
+struct DesiredUsage {
+  typedef std::pair<FrameworkID, ExecutorID> FrameworkExecutorID;
+  FrameworkExecutorID id;
+  FakeIsolationModule::RunningTaskInfo* task;
+  Resources desiredUsage;
+  Resources assignedUsage;
+
+  double excessCpu;
+  double cpuWeight;
+
+  void setDesired(const Resources& desired) {
+    desiredUsage = desired;
+    excessCpu = desired.get("cpus", Value::Scalar()).value();
+  }
+
+  void assign(const Resources& usage) {
+    desiredUsage -= usage;
+    assignedUsage += usage;
+    excessCpu -= usage.get("cpus", Value::Scalar()).value();
+  }
+
+  void assign(const Resource& resource) {
+    desiredUsage -= resource;
+    assignedUsage += resource;
+    if (resource.name() == "cpus") {
+      excessCpu -= resource.scalar().value();
+    }
+  }
+
+  DesiredUsage() : excessCpu(0.0), cpuWeight(0.0) {}
+};
+
+inline std::ostream& operator<<(std::ostream& out, const DesiredUsage& usage)
+{
+  return out << usage.id.first << ", " << usage.id.second
+             << ": assigned " << usage.assignedUsage
+             << "; desired " << usage.desiredUsage
+             << "; extra CPU = " << usage.excessCpu
+             << "; CPU weight = " << usage.cpuWeight;
+}
+
+} // unnamed namespace
+
 bool FakeIsolationModule::tick() {
   VLOG(2) << "FakeIsolationModule::tick; this = " << (void*)this;
   CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
@@ -168,38 +241,101 @@ bool FakeIsolationModule::tick() {
   seconds oldTime(lastTime);
   seconds newTime(process::Clock::now());
 
-  // Version 0: Ignore min_* requests. For each task, assume that the task
+  // Version 1: Ignore min_* requests. For each task, assume that the task
   // gets min(its usage, its allocation).
+  //
+  // If the extraCpu flag is set, distribute left-over CPU in proportion to the
+  // size of each task's CPU assignment.
 
   typedef std::pair<FrameworkID, ExecutorID> FrameworkExecutorID;
   typedef boost::tuple<FrameworkID, ExecutorID, TaskID> TaskTuple;
-  vector<TaskTuple> toUnregister;
-  foreachpair(const FrameworkExecutorID& frameworkAndExec,
-              RunningTaskInfo& task, tasks) {
-    FakeTask *fakeTask = task.fakeTask;
-    if (fakeTask) {
-      VLOG(2) << "Checking on task " << frameworkAndExec.first << " "
-                << frameworkAndExec.second;
-      Resources requested = fakeTask->getUsage(oldTime, newTime);
-      Resources usage = minResources(requested,
+  // 1) Gather all resource requests; assign usage within resource setting.
+  std::vector<DesiredUsage> usages;
+  Resources totalUsed;
+  foreachpair (const FrameworkExecutorID& frameworkAndExec,
+               RunningTaskInfo& task, tasks) {
+    if (task.fakeTask) {
+      usages.push_back(DesiredUsage());
+      DesiredUsage* usage = &usages.back();
+      usage->id = frameworkAndExec;
+      usage->task = &task;
+      usage->setDesired(task.fakeTask->getUsage(oldTime, newTime));
+      Resources toAssign = minResources(usage->desiredUsage,
           task.assignedResources.expectedResources);
-      TaskState state = fakeTask->takeUsage(oldTime, newTime, usage);
-      if (state != TASK_RUNNING) {
-        MesosExecutorDriver* driver = drivers[frameworkAndExec].first;
-        TaskStatus status;
-        status.mutable_task_id()->MergeFrom(task.taskId);
-        status.set_state(state);
-        driver->sendStatusUpdate(status);
-        toUnregister.push_back(boost::make_tuple(
-              frameworkAndExec.first, frameworkAndExec.second, task.taskId));
+      usage->assign(toAssign);
+      usage->cpuWeight =
+          task.assignedResources.expectedResources.get(
+              "cpus", Value::Scalar()).value();
+      totalUsed += toAssign;
+
+      VLOG(1) << "Created usage " << *usage;
+    }
+  }
+
+  // 2) If using free CPU is enabled, distribute it.
+  if (extraCpu) {
+    const double kSmall = 1e-6;
+    const double kLarge = 1e6;
+    double usedCpus = totalUsed.get("cpus", Value::Scalar()).value();
+    double extraCpus = totalResources.get("cpus", Value::Scalar()).value() -
+        usedCpus;
+    while (extraCpus >= kSmall) {
+      double totalWeight = 0.0;
+      double totalExcess = 0.0;
+      int numExcess = 0;
+      foreach(const DesiredUsage& usage, usages) {
+        totalExcess += std::max(0.0, usage.excessCpu);
+        if (usage.excessCpu > 0.0) {
+          totalWeight += usage.cpuWeight;
+          numExcess += 1;
+        }
       }
-    } else {
-      VLOG(1) << "Executor with no task " << frameworkAndExec.first << " "
-                << frameworkAndExec.second;
+
+      VLOG(1) << "excess CPU = " << totalExcess << "; "
+              << "weight = " << totalWeight;
+
+      if (totalExcess <= kSmall) {
+        break;
+      }
+
+      double totalAssignAmount = std::min(totalExcess, extraCpus);
+      double perUnit = totalAssignAmount / totalWeight;
+      VLOG(1) << "assigning excess in units of " << perUnit;
+      foreach (DesiredUsage& usage, usages) {
+        double assignAmount = (perUnit <= kSmall || perUnit >= kLarge) ?
+            extraCpus / numExcess : usage.cpuWeight * perUnit;
+        assignAmount = std::min(usage.excessCpu, assignAmount);
+        Resource usageAssign;
+        usageAssign.set_name("cpus");
+        usageAssign.set_type(Value::SCALAR);
+        usageAssign.mutable_scalar()->set_value(assignAmount);
+        usage.assign(usageAssign);
+        extraCpus -= assignAmount;
+        usedCpus += assignAmount;
+      }
+    }
+  }
+
+  // 3) Use assigned usages to actually consume simulated resources.
+  vector<TaskTuple> toUnregister;
+  foreach (const DesiredUsage& usage, usages) {
+    VLOG(1) << "decided on usage for " << usage;
+    FakeTask* fakeTask = usage.task->fakeTask;
+    TaskState state =
+        fakeTask->takeUsage(oldTime, newTime, usage.assignedUsage);
+    if (state != TASK_RUNNING) {
+      MesosExecutorDriver* driver = drivers[usage.id].first;
+      TaskStatus status;
+      status.mutable_task_id()->MergeFrom(usage.task->taskId);
+      status.set_state(state);
+      driver->sendStatusUpdate(status);
+      toUnregister.push_back(boost::make_tuple(
+            usage.id.first, usage.id.second, usage.task->taskId));
     }
   }
   CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
 
+  // Unregister tasks which returned a terminal status.
   foreach (const TaskTuple& tuple, toUnregister) {
     unregisterTask(tuple.get<0>(), tuple.get<1>(), tuple.get<2>());
   }
