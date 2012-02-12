@@ -326,3 +326,61 @@ TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyLessThanMax)
   expectIsolationPolicy("cpus:1.5", "", "cpus:3.0", "cpus:2.5");
   stopSlave();
 }
+
+TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
+{
+  using testing::_;
+  conf.set("fake_usage_interval",
+           boost::lexical_cast<std::string>(kTick * 2.));
+  startSlave();
+  MockFakeTask mockTask;
+  double start = process::Clock::now();
+  startTask("task0", &mockTask, ResourceHints::parse("cpus:1.0", ""));
+
+  trigger tookFirst, tookSecond, tookThird;
+  EXPECT_CALL(mockTask, getUsage(seconds(start), seconds(start + kTick))).
+    WillRepeatedly(Return(Resources::parse("cpus:0.75")));
+  EXPECT_CALL(mockTask, getUsage(seconds(start + kTick),
+                                 seconds(start + kTick * 2))).
+    WillRepeatedly(Return(Resources::parse("cpus:0.625")));
+  EXPECT_CALL(mockTask, getUsage(seconds(start + kTick * 2),
+                                 seconds(start + kTick * 3))).
+    WillRepeatedly(Return(Resources::parse("cpus:0.25")));
+  EXPECT_CALL(mockTask, takeUsage(seconds(start), seconds(start + kTick), _)).
+    WillOnce(DoAll(Trigger(&tookFirst), Return(TASK_RUNNING)));
+  EXPECT_CALL(mockTask, takeUsage(
+        seconds(start + kTick), seconds(start + kTick * 2), _)).
+    WillOnce(DoAll(Trigger(&tookSecond), Return(TASK_RUNNING)));
+  EXPECT_CALL(mockTask, takeUsage(
+        seconds(start + kTick * 2), seconds(start + kTick * 3), _)).
+    WillOnce(DoAll(Trigger(&tookThird), Return(TASK_FINISHED)));
+
+  process::Clock::advance(kTick);
+  WAIT_UNTIL(tookFirst);
+
+  trigger gotFirstUsage;
+  UsageMessage firstUsage;
+  mockMaster->expectAndStore<UsageMessage>(process::UPID(), &firstUsage,
+      &gotFirstUsage);
+  process::Clock::advance(kTick);
+  WAIT_UNTIL(tookSecond);
+  WAIT_UNTIL(gotFirstUsage);
+  process::Clock::advance(kTick);
+  WAIT_UNTIL(tookThird);
+  trigger gotSecondUsage;
+  UsageMessage secondUsage;
+  mockMaster->expectAndStore<UsageMessage>(process::UPID(), &secondUsage,
+      &gotSecondUsage);
+  process::Clock::advance(kTick);
+  WAIT_UNTIL(gotSecondUsage);
+
+  EXPECT_DOUBLE_EQ(start + kTick * 2.0, firstUsage.timestamp());
+  EXPECT_DOUBLE_EQ(kTick * 2.0, firstUsage.duration());
+  EXPECT_EQ(Resources::parse("cpus:0.6875"), firstUsage.resources());
+  EXPECT_EQ("task0", firstUsage.executor_id().value());
+  FrameworkID expectFrameworkId = DEFAULT_FRAMEWORK_ID;
+  EXPECT_EQ(expectFrameworkId, firstUsage.framework_id());
+  EXPECT_DOUBLE_EQ(start + kTick * 4.0, secondUsage.timestamp());
+  EXPECT_DOUBLE_EQ(kTick * 2.0, secondUsage.duration());
+  EXPECT_EQ(Resources::parse("cpus:0.125"), secondUsage.resources());
+}
