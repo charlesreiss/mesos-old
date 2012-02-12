@@ -205,7 +205,8 @@ public:
     process::Clock::resume();
   }
 
-  void TearDown() {
+  ~FakeIsolationModuleTest() {
+    stopSlave();
     module.reset(0);
     process::filter(0);
   }
