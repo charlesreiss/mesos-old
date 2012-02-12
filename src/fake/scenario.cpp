@@ -36,7 +36,15 @@ void Scenario::spawnSlave(const Resources& resources)
 {
   CHECK(masterPid);
   FakeIsolationModule* module = new FakeIsolationModule(tracker);
-  Slave* slave = new Slave("", resources, conf, true, module);
+  Configuration confForSlave = conf;
+  {
+    std::ostringstream ost;
+    foreach (const Resource& resource, resources) {
+      ost << resource.name() << ":" << resource.scalar().value() << ";";
+    }
+    confForSlave.set("resources", ost.str());
+  }
+  Slave* slave = new Slave("", resources, confForSlave, true, module);
   slaves.push_back(slave);
   slavePids.push_back(process::spawn(slave));
   slaveMasterDetectors.push_back(
