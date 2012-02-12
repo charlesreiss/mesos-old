@@ -552,19 +552,20 @@ TEST(libprocess, select)
   EXPECT_EQ(42, future.get().get());
 }
 
+
 class SettleProcess : public Process<SettleProcess>
 {
 public:
   SettleProcess() : calledDispatch(false) {}
 
-  void initialize() {
-    VLOG(1) << "initialize";
+  virtual void initialize()
+  {
     usleep(10000);
     delay(0.0, self(), &SettleProcess::afterDelay);
   }
 
-  void afterDelay() {
-    VLOG(1) << "afterDelay";
+  void afterDelay()
+  {
     dispatch(self(), &SettleProcess::afterDispatch);
     usleep(10000);
     TimeoutProcess timeoutProcess;
@@ -573,13 +574,15 @@ public:
     wait(timeoutProcess);
   }
 
-  void afterDispatch() {
-    VLOG(1) << "afterDispatch";
+  void afterDispatch()
+  {
     usleep(10000);
     calledDispatch = true;
   }
-  bool calledDispatch;
+
+  volatile bool calledDispatch;
 };
+
 
 TEST(libprocess, settle)
 {
@@ -597,6 +600,7 @@ TEST(libprocess, settle)
     Clock::resume();
   }
 }
+
 
 // #define ENUMERATE1(item) item##1
 // #define ENUMERATE2(item) ENUMERATE1(item), item##2

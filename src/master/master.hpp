@@ -253,7 +253,7 @@ private:
 
   double startTime; // Start time used to calculate uptime.
 
-  process::timer timerTickTimer;
+  process::Timer timerTickTimer;
 };
 
 

@@ -305,7 +305,7 @@ bool FakeIsolationModule::tick() {
         double assignAmount = (perUnit <= kSmall || perUnit >= kLarge) ?
             extraCpus / numExcess : usage.cpuWeight * perUnit;
         assignAmount = std::min(usage.excessCpu, assignAmount);
-        Resource usageAssign;
+        mesos::Resource usageAssign;
         usageAssign.set_name("cpus");
         usageAssign.set_type(Value::SCALAR);
         usageAssign.mutable_scalar()->set_value(assignAmount);

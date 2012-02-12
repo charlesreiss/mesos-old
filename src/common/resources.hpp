@@ -154,7 +154,7 @@ public:
 
   bool operator == (const Resources& that) const
   {
-    if (that.size() != this->size()) {
+    if (size() != that.size()) {
       return false;
     }
 

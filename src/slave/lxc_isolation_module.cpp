@@ -32,11 +32,11 @@
 
 #include "launcher/launcher.hpp"
 
+using namespace process;
+
 using namespace mesos;
 using namespace mesos::internal;
 using namespace mesos::internal::slave;
-
-using namespace process;
 
 using launcher::ExecutorLauncher;
 
@@ -369,7 +369,7 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
   info->lastSample = now;
   Resources result;
   if (haveMem) {
-    Resource mem;
+    mesos::Resource mem;
     mem.set_name("mem");
     mem.set_type(Value::SCALAR);
     mem.mutable_scalar()->set_value(curMemBytes / 1024.0 / 1024.0);
@@ -378,7 +378,7 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
   if (haveCpu) {
     if (info->haveSample) {
       double cpuRate = (curCpu - info->lastCpu) / duration / 1e9;
-      Resource cpu;
+      mesos::Resource cpu;
       cpu.set_name("cpus");
       cpu.set_type(Value::SCALAR);
       cpu.mutable_scalar()->set_value(cpuRate);

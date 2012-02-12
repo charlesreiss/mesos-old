@@ -49,7 +49,8 @@ pythoneggdir = $(pythondir)
 javalibdir = $(libdir)/java
 
 # Used for building Python eggs.
-SETUPTOOLS = $(top_srcdir)/third_party/distribute-0.6.19/distribute-0.6.19-py2.6.egg
+SETUPTOOLS = \
+  $(abs_top_srcdir)/third_party/distribute-0.6.19/distribute-0.6.19-py2.6.egg
 
 # Protocol buffer compiler.
 PROTOC = ../$(PROTOBUF)/src/protoc
@@ -87,7 +88,7 @@ MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(BOOST)
 MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(PROTOBUF)/src
 MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GLOG)/src
 MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GLOG)/src
-MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(LIBPROCESS)/include
+MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_srcdir)/$(LIBPROCESS)/include
 
 if WITH_INCLUDED_ZOOKEEPER
   MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(ZOOKEEPER)/include
@@ -316,13 +317,13 @@ libmesos_la_DEPENDNECIES = libmesos_no_third_party.la
 # For non-convenience libraries we need to link them in to make the shared
 # library each time. (Currently, we don't support platforms where this is not
 # possible.)
-libmesos_la_LIBADD += $(top_builddir)/$(PROTOBUF)/src/.libs/libprotobuf.la
-libmesos_la_LIBADD += $(top_builddir)/$(GLOG)/.libs/libglog.la
-libmesos_la_LIBADD += $(top_builddir)/$(LIBPROCESS)/libprocess.a
-libmesos_la_LIBADD += $(top_builddir)/$(LIBEV)/.libs/libev.la
+libmesos_la_LIBADD += ../$(PROTOBUF)/src/.libs/libprotobuf.la
+libmesos_la_LIBADD += ../$(GLOG)/.libs/libglog.la
+libmesos_la_LIBADD += ../$(LIBPROCESS)/libprocess.a
+libmesos_la_LIBADD += ../$(LIBEV)/.libs/libev.la
 
 if WITH_INCLUDED_ZOOKEEPER
-  libmesos_la_LIBADD += $(top_builddir)/$(ZOOKEEPER)/.libs/libzookeeper_mt.a
+  libmesos_la_LIBADD += ../$(ZOOKEEPER)/.libs/libzookeeper_mt.a
 endif
 
 
@@ -387,26 +388,6 @@ nobase_dist_webui_SCRIPTS += $(WEBUISCRIPTS)
 # We also need to include the killtree script.
 dist_pkglibexec_SCRIPTS += scripts/killtree.sh
 
-if HAS_JAVA
-# Protocol buffers JAR.
-PROTOBUF_JAR = ../protobuf.jar
-
-# TODO(charles): Move into third_party makefile.
-$(PROTOBUF_JAR): # TODO(charles): Specify dependencies for the jar.
-	@echo "Building protobuf.jar ..."
-	@$(MKDIR_P) ../$(PROTOBUF)/java/src/main/java
-	@$(PROTOC) --java_out=$(top_builddir)/$(PROTOBUF)/java/src/main/java \
-          -I$(top_builddir)/$(PROTOBUF)/src \
-          $(top_builddir)/$(PROTOBUF)/src/google/protobuf/descriptor.proto
-	@$(JAVA_HOME)/bin/javac \
-          -d ../$(PROTOBUF)/java/src/main/java \
-          $(top_builddir)/$(PROTOBUF)/java/src/main/java/com/google/protobuf/*.java \
-          ../$(PROTOBUF)/java/src/main/java/com/google/protobuf/*.java
-	@$(JAVA_HOME)/bin/jar cf $@ -C ../$(PROTOBUF)/java/src/main/java com
-
-CLEANFILES += $(PROTOBUF_JAR)
-endif
-
 # Java related files are listed outside if HAS_JAVA so we can add them to
 # EXTRA_DIST unconditionally.
 
@@ -433,9 +414,25 @@ JAVA_EXAMPLES_SRC = $(srcdir)/examples/java/TestExceptionFramework.java	\
 	$(srcdir)/examples/java/TestMultipleExecutorsFramework.java
 EXTRA_DIST += $(JAVA_EXAMPLES_SRC)
 
-CLEANFILES += $(MESOS_JAR) $(EXAMPLES_JAR)
-
 if HAS_JAVA
+# Protocol buffers JAR.
+PROTOBUF_JAR = ../protobuf.jar
+
+# TODO(charles): Move into third_party/Makefile.am.
+$(PROTOBUF_JAR): # TODO(charles): Specify dependencies for the jar.
+	@echo "Building protobuf.jar ..."
+	@$(MKDIR_P) ../$(PROTOBUF)/java/src/main/java
+	@$(PROTOC) --java_out=../$(PROTOBUF)/java/src/main/java \
+          -I../$(PROTOBUF)/src \
+          ../$(PROTOBUF)/src/google/protobuf/descriptor.proto
+	@$(JAVA_HOME)/bin/javac \
+          -d ../$(PROTOBUF)/java/src/main/java \
+          ../$(PROTOBUF)/java/src/main/java/com/google/protobuf/*.java \
+          ../$(PROTOBUF)/java/src/main/java/com/google/protobuf/*.java
+	@$(JAVA_HOME)/bin/jar cf $@ -C ../$(PROTOBUF)/java/src/main/java com
+
+CLEANFILES += $(PROTOBUF_JAR)
+
 $(MESOS_JAR): $(MESOS_JAR_SRC) $(JAVA_PROTOS) $(PROTOBUF_JAR)
 	@echo "Building mesos.jar ..."
 	@rm -f java/classes/org/apache/mesos/*
@@ -521,7 +518,7 @@ java/jni/org_apache_mesos_Log.h: $(MESOS_JAR)
 	@$(JAVA_HOME)/bin/javah -d java/jni -classpath		\
           $(PROTOBUF_JAR):java/classes org.apache.mesos.Log
 
-$(EXAMPLES_JAR): $(JAVA_EXAMPLES_SOURCES)
+$(EXAMPLES_JAR): $(JAVA_EXAMPLES_SRC)
 	@echo "Building examples.jar ..."
 	@$(MKDIR_P) examples/java
 	@$(JAVA_HOME)/bin/javac -cp					\
@@ -575,31 +572,34 @@ if HAS_PYTHON
 # system versions of our dependencies (since we won't be able to
 # create a standalone egg anyways).
 
+# TODO(Charles Reiss): Don't hard code this verison number.
+
+PROTOBUF_EGG =								\
+  ../$(PROTOBUF)/python/dist/protobuf-2.3.0$(PYTHON_EGG_PUREPY_POSTFIX).egg
+
+$(PROTOBUF_EGG):
+	@echo "Building protobuf Python egg ..."
+	@cd ../$(PROTOBUF)/python && \
+	  PYTHONPATH=${PYTHONPATH}:$(SETUPTOOLS) $(PYTHON) setup.py bdist_egg
+
+CLEANFILES += $(PROTOBUF_EGG)
+
 # We need to be able to "name" the egg that gets generated via
 # setup.py so that we don't attempt to rebuild it each time, hence the
 # need for PYTHON_EGG_POSTFIX.
 MESOS_EGG = python/dist/mesos-$(PACKAGE_VERSION)$(PYTHON_EGG_POSTFIX).egg
 
 $(MESOS_EGG): python/setup.py $(srcdir)/python/src/mesos.py	\
-	       $(PYTHON_PROTOS) libmesos_no_third_party.la	\
-	       $(PROTOBUF_EGG)
+	      $(PYTHON_PROTOS) libmesos_no_third_party.la	\
+	      $(PROTOBUF_EGG)
 	@echo "Building Mesos Python egg ..."
-	@$(MKDIR_P) python/src
-	@cp -pf $(srcdir)/python/src/mesos.py python/src
-	@PYTHONPATH=$(SETUPTOOLS) LDFLAGS="$(LDFLAGS) $(PYTHON_JAVA_LDFLAGS)" $(PYTHON) python/setup.py bdist_egg
+	@if test "$(top_srcdir)" != "$(top_builddir)"; then \
+	  $(MKDIR_P) python/src; \
+	  cp -pf $(srcdir)/python/src/mesos.py python/src; \
+	fi
+	@PYTHONPATH=$(SETUPTOOLS) $(PYTHON) python/setup.py bdist_egg
 
 CLEANFILES += $(MESOS_EGG) python/build/temp.*/native/*.o python/build/lib.*/*
-
-# TODO(Charles Reiss): Don't hard code this verison number.
-PROTOBUF_EGG =								\
-  ../$(PROTOBUF)/python/dist/protobuf-2.3.0$(PYTHON_EGG_PUREPY_POSTFIX).egg
-
-$(PROTOBUF_EGG):
-	@echo "Building protobuf Python egg ..."
-	cd ../$(PROTOBUF)/python && \
-	  PYTHONPATH=${PYTHONPATH}:$(SETUPTOOLS) $(PYTHON) setup.py bdist_egg
-
-CLEANFILES += $(PROTOBUF_EGG)
 
 pythonegg_DATA = $(MESOS_EGG)
 
@@ -688,8 +688,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
 mesos_tests_CPPFLAGS += -DBUILD_DIR=\"$(abs_top_builddir)\"
-mesos_tests_CPPFLAGS += -I$(top_builddir)/$(GTEST)/include
-mesos_tests_CPPFLAGS += -I$(top_builddir)/$(GMOCK)/include
+mesos_tests_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GTEST)/include
+mesos_tests_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GMOCK)/include
 
 mesos_tests_LDADD = ../third_party/libgmock.la libmesos.la
 
@@ -738,7 +738,7 @@ dist_check_SCRIPTS += $(EXTERNALSCRIPTS)
 TESTS += mesos-tests
 
 clean-check:
-	-rm -rf $(top_builddir)/test_output
+	-rm -rf ../test_output
 
 PHONY_TARGETS += clean-check
 

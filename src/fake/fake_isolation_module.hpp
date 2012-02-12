@@ -86,7 +86,7 @@ struct FakeIsolationModuleTicker : public process::Process<FakeIsolationModuleTi
 
   FakeIsolationModule* module;
   double interval;
-  process::timer timer;
+  process::Timer timer;
 };
 
 class FakeIsolationModule : public IsolationModule {
