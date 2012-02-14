@@ -437,7 +437,8 @@ class FakeProtobufProcess
     T m;
     EXPECT_MESSAGE(*filter, Eq(m.GetTypeName()), match(from), Eq(selfPid)).
       Times(times).
-      WillRepeatedly(testing::Return(true));
+      WillRepeatedly(testing::Return(true)).
+      RetiresOnSaturation();
   }
 
   template <class T>
@@ -465,14 +466,20 @@ class FakeProtobufProcess
     using testing::DoAll;
     using testing::Return;
     T dummy;
+    testing::ExpectationSet earlyMessages;
     if (times > 1) {
-      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from), Eq(selfPid)).
+      earlyMessages += EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()),
+                                      match(from), Eq(selfPid)).
         WillRepeatedly(Return(true)).
-        Times(times - 1);
+        Times(times - 1).
+        RetiresOnSaturation();
     }
     if (times > 0) {
-      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from), Eq(selfPid)).
-        WillOnce(DoAll(Trigger(done), Return(true)));
+      EXPECT_MESSAGE(*filter, Eq(dummy.GetTypeName()), match(from),
+                     Eq(selfPid)).
+        After(earlyMessages).
+        WillOnce(DoAll(Trigger(done), Return(true))).
+        RetiresOnSaturation();
     } else {
       done->value = true;
     }
