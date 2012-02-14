@@ -212,8 +212,6 @@ public:
   }
 
 protected:
-  hashmap<std::string, UsageMessage> lastUsage;
-
   boost::scoped_ptr<Slave> slave;
   process::PID<Slave> slavePid;
   boost::scoped_ptr<FakeIsolationModule> module;

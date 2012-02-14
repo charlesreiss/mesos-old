@@ -84,9 +84,10 @@ void FakeIsolationModule::initialize(const Configuration& conf, bool local,
   LOG(INFO) << "initialize; this = " << (void*)this;
   slave = slave_;
   interval = conf.get<double>("fake_interval", 1.0);
+  usageInterval = conf.get<double>("fake_usage_interval", 1.0);
   extraCpu = conf.get<bool>("fake_extra_cpu", true);
   totalResources = Resources::parse(conf.get<std::string>("resources", ""));
-  lastTime = process::Clock::now();
+  lastUsageTime = lastTime = process::Clock::now();
   ticker.reset(new FakeIsolationModuleTicker(this, interval));
   process::spawn(ticker.get());
   CHECK(local);
@@ -323,6 +324,7 @@ bool FakeIsolationModule::tick() {
     FakeTask* fakeTask = usage.task->fakeTask;
     TaskState state =
         fakeTask->takeUsage(oldTime, newTime, usage.assignedUsage);
+      recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage);
     if (state != TASK_RUNNING) {
       MesosExecutorDriver* driver = drivers[usage.id].first;
       TaskStatus status;
@@ -341,6 +343,11 @@ bool FakeIsolationModule::tick() {
   }
 
   lastTime = newTime.value;
+
+  if (lastUsageTime + usageInterval >= lastTime) {
+    sendUsage();
+  }
+
   return !shuttingDown;
 }
 
@@ -365,6 +372,64 @@ FakeIsolationModule::~FakeIsolationModule()
     delete driver;
     delete executor;
   }
+}
+
+FakeIsolationModule::ResourceRecord::ResourceRecord()
+    : cpuTime(0.0), memoryTime(0.0), maxMemory(0.0)
+{
+}
+
+void FakeIsolationModule::ResourceRecord::accumulate(
+    seconds secs, const Resources& measurement)
+{
+  cpuTime += measurement.get("cpus", Value::Scalar()).value() * secs.value;
+  memoryTime +=
+      measurement.get("memory", Value::Scalar()).value() * secs.value;
+  maxMemory = std::max(
+      measurement.get("memory", Value::Scalar()).value(),
+      maxMemory);
+}
+
+Resources FakeIsolationModule::ResourceRecord::getResult(seconds secs) const
+{
+  Resources result;
+  {
+    mesos::Resource cpu;
+    cpu.set_type(Value::SCALAR);
+    cpu.set_name("cpus");
+    cpu.mutable_scalar()->set_value(cpuTime / secs.value);
+    result += cpu;
+  }
+  {
+    mesos::Resource mem;
+    mem.set_type(Value::SCALAR);
+    mem.set_name("mem");
+    mem.mutable_scalar()->set_value(maxMemory);
+    result += mem;
+  }
+  return result;
+}
+
+void FakeIsolationModule::ResourceRecord::clear()
+{
+  cpuTime = memoryTime = maxMemory = 0.0;
+}
+
+void FakeIsolationModule::sendUsage()
+{
+  seconds interval(process::Clock::now() - lastUsageTime);
+  lastUsageTime = process::Clock::now();
+  foreachpair(const ResourceRecordMap::key_type& key, ResourceRecord& record,
+      recentUsage) {
+    UsageMessage message;
+    message.mutable_framework_id()->MergeFrom(key.first);
+    message.mutable_executor_id()->MergeFrom(key.second);
+    message.set_timestamp(lastUsageTime);
+    message.set_duration(interval.value);
+    message.mutable_resources()->MergeFrom(record.getResult(interval));
+    dispatch(slave, &Slave::sendUsageUpdate, message);
+  }
+  recentUsage.clear();
 }
 
 }  // namespace fake

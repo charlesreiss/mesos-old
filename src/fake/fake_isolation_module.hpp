@@ -132,6 +132,8 @@ public:
     ResourceHints assignedResources;
   };
 
+  void sendUsage();
+
 private:
   friend class FakeExecutor;
   friend class FakeIsolationModuleTick;
@@ -153,6 +155,25 @@ private:
 
   Resources totalResources;
   bool extraCpu;
+
+  // Recent usage history, for forming usage messages. For now, we assume
+  // usage sampling is exactly aligned with simulation timesteps.
+  struct ResourceRecord {
+    double cpuTime;
+    double memoryTime;
+    double maxMemory;
+
+    ResourceRecord();
+
+    void accumulate(seconds secs, const Resources& measurement);
+    Resources getResult(seconds secs) const;
+    void clear();
+  };
+  typedef hashmap<std::pair<FrameworkID, ExecutorID>, ResourceRecord>
+      ResourceRecordMap;
+  ResourceRecordMap recentUsage;
+  double usageInterval;
+  double lastUsageTime;
 };
 
 }  // namespace fake
