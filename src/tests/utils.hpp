@@ -455,7 +455,8 @@ class FakeProtobufProcess
     EXPECT_MESSAGE(*filter, Eq(destination->GetTypeName()), match(from),
                         Eq(selfPid)).
       WillOnce(Invoke(std::tr1::bind(&expectAndStoreHelper<T>, destination,
-                                     std::tr1::placeholders::_1, done)));
+                                     std::tr1::placeholders::_1, done))).
+      RetiresOnSaturation();
   }
 
   template <class T>
