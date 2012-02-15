@@ -334,17 +334,17 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
   startSlave();
   MockFakeTask mockTask;
   double start = process::Clock::now();
-  startTask("task0", &mockTask, ResourceHints::parse("cpus:1.0", ""));
+  startTask("task0", &mockTask, ResourceHints::parse("cpus:1.0;mem:0.5", ""));
 
   trigger tookFirst, tookSecond, tookThird;
   EXPECT_CALL(mockTask, getUsage(seconds(start), seconds(start + kTick))).
-    WillRepeatedly(Return(Resources::parse("cpus:0.75")));
+    WillRepeatedly(Return(Resources::parse("cpus:0.75;mem:0.25")));
   EXPECT_CALL(mockTask, getUsage(seconds(start + kTick),
                                  seconds(start + kTick * 2))).
-    WillRepeatedly(Return(Resources::parse("cpus:0.625")));
+    WillRepeatedly(Return(Resources::parse("cpus:0.625;mem:0.5")));
   EXPECT_CALL(mockTask, getUsage(seconds(start + kTick * 2),
                                  seconds(start + kTick * 3))).
-    WillRepeatedly(Return(Resources::parse("cpus:0.25")));
+    WillRepeatedly(Return(Resources::parse("cpus:0.25;mem:0.375")));
   EXPECT_CALL(mockTask, takeUsage(seconds(start), seconds(start + kTick), _)).
     WillOnce(DoAll(Trigger(&tookFirst), Return(TASK_RUNNING)));
   EXPECT_CALL(mockTask, takeUsage(
@@ -375,11 +375,11 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
 
   EXPECT_DOUBLE_EQ(start + kTick * 2.0, firstUsage.timestamp());
   EXPECT_DOUBLE_EQ(kTick * 2.0, firstUsage.duration());
-  EXPECT_EQ(Resources::parse("cpus:0.6875"), firstUsage.resources());
+  EXPECT_EQ(Resources::parse("cpus:0.6875;mem:0.5"), firstUsage.resources());
   EXPECT_EQ("task0", firstUsage.executor_id().value());
   FrameworkID expectFrameworkId = DEFAULT_FRAMEWORK_ID;
   EXPECT_EQ(expectFrameworkId, firstUsage.framework_id());
   EXPECT_DOUBLE_EQ(start + kTick * 4.0, secondUsage.timestamp());
   EXPECT_DOUBLE_EQ(kTick * 2.0, secondUsage.duration());
-  EXPECT_EQ(Resources::parse("cpus:0.125"), secondUsage.resources());
+  EXPECT_EQ(Resources::parse("cpus:0.125;mem:0.375"), secondUsage.resources());
 }

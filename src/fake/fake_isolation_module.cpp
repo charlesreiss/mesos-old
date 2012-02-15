@@ -1,3 +1,6 @@
+#include "fake/fake_isolation_module.hpp"
+
+#include <iomanip>
 #include <vector>
 
 #include <boost/bind.hpp>
@@ -9,7 +12,6 @@
 #include <process/process.hpp>
 #include <process/timer.hpp>
 
-#include "fake/fake_isolation_module.hpp"
 #include "mesos/executor.hpp"
 #include "slave/slave.hpp"
 
@@ -344,7 +346,11 @@ bool FakeIsolationModule::tick() {
 
   lastTime = newTime.value;
 
-  if (lastUsageTime + usageInterval >= lastTime) {
+  if (lastUsageTime + usageInterval <= lastTime) {
+    LOG(INFO) << "sending usage at " << std::setprecision(10) << std::fixed
+              << lastTime
+              << "; last was " << lastUsageTime
+              << "; interval is " << usageInterval;
     sendUsage();
   }
 
@@ -384,9 +390,9 @@ void FakeIsolationModule::ResourceRecord::accumulate(
 {
   cpuTime += measurement.get("cpus", Value::Scalar()).value() * secs.value;
   memoryTime +=
-      measurement.get("memory", Value::Scalar()).value() * secs.value;
+      measurement.get("mem", Value::Scalar()).value() * secs.value;
   maxMemory = std::max(
-      measurement.get("memory", Value::Scalar()).value(),
+      measurement.get("mem", Value::Scalar()).value(),
       maxMemory);
 }
 
