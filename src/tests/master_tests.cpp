@@ -236,13 +236,14 @@ protected:
     }
     schedDriver->stop();
     schedDriver->join();
+    WAIT_UNTIL(shutdownCall); // To ensure can deallocate MockExecutor.
     if (useMockAllocator) {
       WAIT_UNTIL(gotFrameworkRemoved);
     }
   }
 
-  void stopMasterAndSlave(bool shutdownAllocator = true) {
-
+  void stopMasterAndSlave(bool shutdownAllocator = true)
+  {
     if (useMockAllocator) {
       EXPECT_CALL(mockAllocator, slaveRemoved(_)).Times(1);
     }
@@ -259,10 +260,6 @@ protected:
     process::wait(master);
 
     m.reset(0);
-
-    if (shutdownAllocator) {
-      WAIT_UNTIL(shutdownCall); // To ensure can deallocate MockExecutor.
-    }
   }
 
   trigger shutdownCall;
@@ -418,7 +415,7 @@ TEST_F(MasterSlaveTest, FrameworkMessage)
 
   string execData;
 
-  trigger execFrameworkMessageCall, shutdownCall;
+  trigger execFrameworkMessageCall;
 
   EXPECT_CALL(exec, frameworkMessage(_, _))
     .WillOnce(DoAll(SaveArg<1>(&execData),
@@ -549,6 +546,9 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
   EXPECT_EQ(task2.task_id(), exec2Task.task_id());
 
   stopScheduler();
+
+  WAIT_UNTIL(exec1ShutdownCall);
+  WAIT_UNTIL(exec2ShutdownCall);
 
   stopMasterAndSlave();
 }
