@@ -197,11 +197,13 @@ public:
   }
 
   void stopSlave() {
-    process::terminate(slavePid);
-    process::terminate(mockMasterPid);
-    process::wait(slavePid);
-    process::wait(mockMasterPid);
-    process::wait(module.get());
+    if (slavePid) {
+      process::terminate(slavePid);
+      process::terminate(mockMasterPid);
+      process::wait(slavePid);
+      process::wait(mockMasterPid);
+      process::wait(module.get());
+    }
     process::Clock::resume();
   }
 
@@ -324,6 +326,46 @@ TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyLessThanMax)
   makeBackgroundTask(&backgroundTask, "cpus:1.0", "", "cpus:1.5", "cpus:1.5");
   expectIsolationPolicy("cpus:1.5", "", "cpus:3.0", "cpus:2.5");
   stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicy)
+{
+  conf.set("fake_extra_mem", "1");
+
+  startSlave();
+  expectIsolationPolicy("mem:1024", "", "mem:8192", "mem:4096");
+  stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicyMin)
+{
+  conf.set("fake_extra_mem", "1");
+  conf.set("fake_assign_min", "1");
+
+  startSlave();
+  MockFakeTask backgroundTask;
+  makeBackgroundTask(&backgroundTask,
+      "mem:1024", "mem:512", "mem:512", "mem:512");
+  expectIsolationPolicy("mem:1024", "", "mem:8192", "mem:3584");
+  stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicyMinUnused)
+{
+  conf.set("fake_extra_mem", "1");
+  conf.set("fake_assign_min", "1");
+
+  startSlave();
+  MockFakeTask backgroundTask;
+  makeBackgroundTask(&backgroundTask,
+      "mem:1024", "mem:512", "mem:128", "mem:128");
+  expectIsolationPolicy("mem:1024", "", "mem:8192", "mem:8064");
+  stopSlave();
+}
+
+TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicyProportional)
+{
+  ASSERT_TRUE(false);  // unimplemented.
 }
 
 TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
