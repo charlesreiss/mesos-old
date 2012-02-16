@@ -254,6 +254,7 @@ inline std::ostream& operator<<(std::ostream& out, const DesiredUsage& usage)
 
 void distributeFree(const std::string& name,
                     double DesiredUsage::* weightMember,
+                    double DesiredUsage::* excessMember,
                     const Resources& totalUsed,
                     const Resources& totalResources,
                     std::vector<DesiredUsage>* usages)
@@ -268,8 +269,8 @@ void distributeFree(const std::string& name,
     double totalExcess = 0.0;
     int numExcess = 0;
     foreach (const DesiredUsage& usage, *usages) {
-      totalExcess += std::max(0.0, usage.excessCpu);
-      if (usage.excessCpu > 0.0) {
+      totalExcess += std::max(0.0, usage.*excessMember);
+      if (usage.*excessMember > 0.0) {
         totalWeight += usage.*weightMember;
         numExcess += 1;
       }
@@ -288,7 +289,7 @@ void distributeFree(const std::string& name,
     foreach (DesiredUsage& usage, *usages) {
       double assignAmount = (perUnit <= kSmall || perUnit >= kLarge) ?
           extra / numExcess : usage.*weightMember * perUnit;
-      assignAmount = std::min(usage.excessCpu, assignAmount);
+      assignAmount = std::min(usage.*excessMember, assignAmount);
       mesos::Resource usageAssign;
       usageAssign.set_name(name);
       usageAssign.set_type(Value::SCALAR);
@@ -344,13 +345,13 @@ bool FakeIsolationModule::tick() {
 
   // 2a) If using free CPU is enabled, distribute it.
   if (extraCpu) {
-    distributeFree("cpus", &DesiredUsage::cpuWeight, totalUsed, totalResources,
-        &usages);
+    distributeFree("cpus", &DesiredUsage::cpuWeight, &DesiredUsage::excessCpu,
+        totalUsed, totalResources, &usages);
   }
 
   if (extraMem) {
-    distributeFree("mem", &DesiredUsage::memWeight, totalUsed, totalResources,
-        &usages);
+    distributeFree("mem", &DesiredUsage::memWeight, &DesiredUsage::excessMem,
+        totalUsed, totalResources, &usages);
   }
 
   // 3) Use assigned usages to actually consume simulated resources.

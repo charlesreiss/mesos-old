@@ -331,6 +331,7 @@ TEST_F(FakeIsolationModuleTest, ExtraCPUPolicyLessThanMax)
 TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicy)
 {
   conf.set("fake_extra_mem", "1");
+  conf.set("fake_assign_min", "1");
 
   startSlave();
   expectIsolationPolicy("mem:1024", "", "mem:8192", "mem:4096");
