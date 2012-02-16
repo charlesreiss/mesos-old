@@ -360,13 +360,23 @@ TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicyMinUnused)
   MockFakeTask backgroundTask;
   makeBackgroundTask(&backgroundTask,
       "mem:1024", "mem:512", "mem:128", "mem:128");
-  expectIsolationPolicy("mem:1024", "", "mem:8192", "mem:8064");
+  expectIsolationPolicy("mem:1024", "", "mem:8192", "mem:3968");
   stopSlave();
 }
 
-TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicyProportional)
+// TODO(Charles Reiss): Decide on a policy for the uneven base allocation
+// case.
+TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicyProportionalEqual)
 {
-  ASSERT_TRUE(false);  // unimplemented.
+  conf.set("fake_extra_mem", "1");
+  conf.set("fake_assign_min", "1");
+
+  startSlave();
+  MockFakeTask backgroundTask;
+  makeBackgroundTask(&backgroundTask,
+      "mem:1024", "mem:512", "mem:4096", "mem:2048");
+  expectIsolationPolicy("mem:1024", "mem:512", "mem:8192", "mem:2048");
+  stopSlave();
 }
 
 TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
