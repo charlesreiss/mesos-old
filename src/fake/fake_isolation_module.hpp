@@ -155,6 +155,8 @@ private:
 
   Resources totalResources;
   bool extraCpu;
+  bool extraMem;
+  bool assignMin;
 
   // Recent usage history, for forming usage messages. For now, we assume
   // usage sampling is exactly aligned with simulation timesteps.
