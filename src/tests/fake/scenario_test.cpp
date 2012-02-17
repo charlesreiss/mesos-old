@@ -71,3 +71,33 @@ TEST_F(FakeScenarioTest, FiveTasksTwoSlavesBatch)
 {
   batchTest(2, 3, 60.1);
 }
+
+TEST_F(FakeScenarioTest, PopulateScenarioOneBatchTask)
+{
+  process::Clock::pause();
+  std::string scenarioText =
+    "{\n"
+    "  \"batch\": {\n"
+    "    \"b0\": {\n"
+    "      \"request\": \"mem:20;cpus:1.0\",\n"
+    "      \"const_resources\": \"mem:5\",\n"
+    "      \"max_cpus\": 1.0,\n"
+    "      \"tasks\": {\n"
+    "         \"t0\": {\"cpu_time\": 10.0}\n"
+    "      }\n"
+    "    }\n"
+    "  },\n"
+    "  \"slaves\": [\n"
+    "     {\"resources\": \"mem:20;cpus:2.0\"}\n"
+    "  ]\n"
+    "}\n";
+  std::istringstream in(scenarioText);
+  Scenario scenario;
+  populateScenarioFrom(&in, &scenario);
+  scenario.finishSetup();
+  scenario.runFor(10.1);
+  EXPECT_EQ(0, scenario.getScheduler("b0")->countPending());
+  EXPECT_EQ(0, scenario.getScheduler("b0")->countRunning());
+  scenario.stop();
+  process::Clock::resume();
+}

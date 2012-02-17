@@ -19,10 +19,13 @@
 #ifndef __FAKE_SCENARIO_HPP__
 #define __FAKE_SCENARIO_HPP__
 
+#include <istream>
 #include <string>
 #include <vector>
 #include <map>
 
+#include "boost/property_tree/ptree_fwd.hpp"
+#include "boost/property_tree/ptree.hpp"
 #include "boost/scoped_ptr.hpp"
 
 #include "process/pid.hpp"
@@ -59,10 +62,12 @@ public:
   void finishSetup();
   void runFor(double seconds);
   void stop();
-  Scenario() {}
+  Scenario();
   Scenario(const Configuration& conf_);
   ~Scenario() { stop(); }
 private:
+  void init();
+
   Configuration conf;
   FakeTaskTracker tracker;
   Master* master;
@@ -76,6 +81,10 @@ private:
   std::vector<FakeTask*> allTasks;
   std::vector<FakeIsolationModule*> isolationModules;
 };
+
+void populateScenarioFrom(const boost::property_tree::ptree& spec,
+                          Scenario* scenario);
+void populateScenarioFrom(std::istream* in, Scenario* scenario);
 
 }  // namespace fake
 }  // namespace internal

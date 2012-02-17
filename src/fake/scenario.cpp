@@ -2,6 +2,8 @@
 
 #include "fake/fake_isolation_module.hpp"
 #include "master/simple_allocator.hpp"
+#include "fake/fake_task_simple.hpp"
+#include "boost/property_tree/json_parser.hpp"
 
 namespace mesos {
 namespace internal {
@@ -14,8 +16,11 @@ void Scenario::registerOptions(Configurator* configurator)
   FakeIsolationModule::registerOptions(configurator);
 }
 
-Scenario::Scenario(const Configuration& conf_)
-    : conf(conf_)
+Scenario::Scenario() : master(0), conf()
+{
+}
+
+Scenario::Scenario(const Configuration& conf_) : master(0), conf(conf_)
 {
 }
 
@@ -34,6 +39,7 @@ void Scenario::spawnMaster(mesos::internal::master::Allocator* allocator)
 
 void Scenario::spawnSlave(const Resources& resources)
 {
+  VLOG(1) << "start slave with resources=" << resources;
   CHECK(masterPid);
   FakeIsolationModule* module = new FakeIsolationModule(tracker);
   Configuration confForSlave = conf;
@@ -145,6 +151,52 @@ void Scenario::stop()
     delete task;
   }
   allTasks.clear();
+}
+
+using boost::property_tree::ptree;
+
+void populateScenarioFrom(const ptree& spec,
+                          Scenario* scenario)
+{
+  scenario->spawnMaster();
+  foreachpair (const std::string& unusedSlaveName,
+               const ptree& slaveSpec, spec.get_child("slaves")) {
+    CHECK_EQ(unusedSlaveName, "");
+    const Resources slaveResources(
+        Resources::parse(slaveSpec.get<std::string>("resources", "")));
+    scenario->spawnSlave(slaveResources);
+  }
+  const ptree& batchJobs = spec.get_child("batch");
+  foreachpair (const std::string& schedName, const ptree& batch, batchJobs) {
+    const ResourceHints batchRequest(
+        ResourceHints::parse(
+          batch.get<std::string>("request", ""),
+          batch.get<std::string>("request_min", "")));
+    const Resources constResources(
+        Resources::parse(batch.get<std::string>("const_resources", "")));
+    const double maxCpus(batch.get<double>("max_cpus", -1.0));
+    CHECK_GT(maxCpus, 0.0);
+    std::map<TaskID, FakeTask*> tasks;
+    foreachpair (const std::string& key,
+                 const ptree& task, batch.get_child("tasks")) {
+      TaskID taskId;
+      taskId.set_value(key);
+      const double taskTime = task.get<double>("cpu_time", -1.0);
+      CHECK_GE(taskTime, 0.0);
+      tasks[taskId] = new BatchTask(constResources, batchRequest,
+                                    taskTime, maxCpus);
+      VLOG(2) << "parsed " << *tasks[taskId];
+    }
+    scenario->spawnScheduler(schedName, tasks);
+  }
+}
+
+void populateScenarioFrom(std::istream* in,
+                          Scenario* scenario)
+{
+  ptree spec;
+  boost::property_tree::json_parser::read_json(*in, spec);
+  populateScenarioFrom(spec, scenario);
 }
 
 }  // namespace fake
