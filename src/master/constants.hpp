@@ -36,7 +36,7 @@ const double UNUSED_RESOURCES_TIMEOUT = 5.0;
 const double MIN_CPUS = 0.01;
 
 // Minimum amount of memory / task.
-const int32_t MIN_MEM = 32 * Megabyte;
+const int32_t MIN_MEM = 1 * Megabyte;
 
 // Maximum number of CPUs per machine.
 const int32_t MAX_CPUS = 1000 * 1000;
