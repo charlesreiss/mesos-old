@@ -19,6 +19,8 @@
 #ifndef FOREACH_HPP
 #define FOREACH_HPP
 
+#undef foreach
+
 #include <google/protobuf/repeated_field.h>
 
 #include <boost/foreach.hpp>
@@ -55,8 +57,10 @@ struct is_noncopyable< google::protobuf::RepeatedPtrField<T> > : mpl::true_ {};
 		 !BOOST_FOREACH_ID(_foreach_continue);                                          \
 		 BOOST_FOREACH_ID(_foreach_continue) = true)
 
-#define foreach BOOST_FOREACH
-#define foreachpair BOOST_FOREACH_PAIR
+#undef foreach
+#define foreach(VAR, LIST) BOOST_FOREACH(VAR, LIST)
+#undef foreachpair
+#define foreachpair(VAR1, VAR2, LIST) BOOST_FOREACH_PAIR(VAR1, VAR2, LIST)
 
 namespace mesos {
 namespace internal {
