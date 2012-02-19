@@ -86,7 +86,7 @@ public:
 
   void startScheduler() {
     if (!scheduler.get()) {
-      scheduler.reset(new FakeScheduler(&tasks));
+      scheduler.reset(new FakeScheduler(Attributes(), &tasks));
     }
     trigger gotFramework;
     driver.reset(

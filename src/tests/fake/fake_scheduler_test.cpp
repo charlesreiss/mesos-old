@@ -76,7 +76,7 @@ class FakeSchedulerTest : public testing::Test {
 public:
   void registerScheduler()
   {
-    scheduler.reset(new FakeScheduler(&tracker));
+    scheduler.reset(new FakeScheduler(Attributes(), &tracker));
     scheduler->registered(&schedulerDriver, DEFAULT_FRAMEWORK_ID);
   }
 

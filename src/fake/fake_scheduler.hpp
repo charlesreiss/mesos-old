@@ -24,6 +24,7 @@
 #include "fake/fake_task.hpp"
 
 #include "common/type_utils.hpp"
+#include "common/attributes.hpp"
 
 #include <mesos/scheduler.hpp>
 
@@ -38,7 +39,9 @@ using std::map;
 
 class FakeScheduler : public Scheduler {
 public:
-  FakeScheduler(FakeTaskTracker* taskTracker_) : taskTracker(taskTracker_) {}
+  FakeScheduler(const Attributes& attributes_,
+                FakeTaskTracker* taskTracker_)
+    : attributes(attributes_), taskTracker(taskTracker_) {}
   void registered(SchedulerDriver* driver, const FrameworkID& frameworkId);
   void resourceOffers(SchedulerDriver* driver,
                       const std::vector<Offer>& offers);
@@ -74,11 +77,16 @@ public:
     return tasksRunning.size();
   }
 
+  const Attributes& getAttributes() {
+    return attributes;
+  }
+
 private:
   FakeTaskTracker* taskTracker;
   map<TaskID, FakeTask*> tasksPending;
   map<TaskID, FakeTask*> tasksRunning;
   FrameworkID frameworkId;
+  Attributes attributes;
 };
 
 }  // namespace fake

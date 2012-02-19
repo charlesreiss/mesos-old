@@ -54,10 +54,14 @@ public:
   void spawnMaster(mesos::internal::master::Allocator* allocator);
   void spawnSlave(const Resources& resources);
   FakeScheduler* spawnScheduler(const std::string& name,
+                                const Attributes& attributes,
                                 const std::map<TaskID, FakeTask*>& tasks);
 
   FakeScheduler* getScheduler(const std::string& name) {
     return schedulers[name];
+  }
+  const std::map<std::string, FakeScheduler*>& getSchedulers() {
+    return schedulers;
   }
   void finishSetup();
   void runFor(double seconds);

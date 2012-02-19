@@ -59,10 +59,11 @@ void Scenario::spawnSlave(const Resources& resources)
 }
 
 FakeScheduler* Scenario::spawnScheduler(
-    const std::string& name, const std::map<TaskID, FakeTask*>& tasks)
+    const std::string& name, const Attributes& attributes,
+    const std::map<TaskID, FakeTask*>& tasks)
 {
   CHECK(schedulers.find(name) == schedulers.end());
-  FakeScheduler* scheduler = new FakeScheduler(&tracker);
+  FakeScheduler* scheduler = new FakeScheduler(attributes, &tracker);
   scheduler->setTasks(tasks);
   ExecutorInfo info;
   info.mutable_executor_id()->set_value("SHOULD-NOT-BE-RUN");
@@ -177,17 +178,26 @@ void populateScenarioFrom(const ptree& spec,
     const double maxCpus(batch.get<double>("max_cpus", -1.0));
     CHECK_GT(maxCpus, 0.0);
     std::map<TaskID, FakeTask*> tasks;
+    double totalTime = 0.0;
     foreachpair (const std::string& key,
                  const ptree& task, batch.get_child("tasks")) {
       TaskID taskId;
       taskId.set_value(key);
       const double taskTime = task.get<double>("cpu_time", -1.0);
       CHECK_GE(taskTime, 0.0);
+      totalTime += taskTime;
       tasks[taskId] = new BatchTask(constResources, batchRequest,
                                     taskTime, maxCpus);
       VLOG(2) << "parsed " << *tasks[taskId];
     }
-    scenario->spawnScheduler(schedName, tasks);
+    Attributes schedAttributes(
+        Attributes::parse(batch.get<std::string>("attributes", "")));
+    // FIXME hack
+    schedAttributes.add(
+        Attributes::parse("total_time",
+                          boost::lexical_cast<std::string>(totalTime)));
+    schedAttributes.add(Attributes::parse("type", "batch"));
+    scenario->spawnScheduler(schedName, schedAttributes, tasks);
   }
 }
 

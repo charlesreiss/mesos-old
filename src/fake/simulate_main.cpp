@@ -19,7 +19,7 @@ using namespace mesos;
 using namespace mesos::internal;
 using namespace mesos::internal::fake;
 
-void header(const Configuration& conf)
+static void header(const Configuration& conf)
 {
   foreachpair (const std::string& key, const std::string& value,
                conf.getMap()) {
@@ -34,16 +34,15 @@ void header(const Configuration& conf)
   std::cout << "total_time" << "\n";
 }
 
-static void run(const Configuration& conf, int seed_mix)
+static void setupFromConfig(const Configuration& conf, int seed_mix,
+                            Scenario* scenario)
 {
-  process::Clock::pause();
-  Scenario scenario(conf);
-  scenario.spawnMaster();
+  scenario->spawnMaster();
   const int numSlaves = conf.get<int>("num_slaves", 1);
   const Resources resources(
       Resources::parse(conf.get<std::string>("slave_resources", "")));
   for (int i = 0; i < numSlaves; ++i) {
-    scenario.spawnSlave(resources);
+    scenario->spawnSlave(resources);
   }
 
   boost::random::mt19937 rng(conf.get<int>("seed", 42) + seed_mix);
@@ -60,7 +59,6 @@ static void run(const Configuration& conf, int seed_mix)
       Resources::parse(conf.get<std::string>("batch_use_constant", "")));
   const double batchMaxCpus(conf.get<double>("batch_use_cpus", 2.0));
   std::vector<FakeScheduler*> batchSchedulers;
-  std::vector<double> totalCpuTimes;
   foreach (std::string countString, batchCountsStrings) {
     int count = boost::lexical_cast<int>(countString);
     std::string name = "batch-" + boost::lexical_cast<std::string>(
@@ -76,24 +74,33 @@ static void run(const Configuration& conf, int seed_mix)
                                     taskTime, batchMaxCpus);
       LOG(INFO) << "Created " << *tasks[taskId];
     }
-    totalCpuTimes.push_back(curCpuTime);
-    batchSchedulers.push_back(scenario.spawnScheduler(name, tasks));
+    batchSchedulers.push_back(scenario->spawnScheduler(name, Attributes(), tasks));
   }
+}
 
+static void run(const Configuration& conf, bool needHeader,
+    Scenario* scenario)
+{
   double start = process::Clock::now();
-  scenario.finishSetup();
-
-
   const double interval = conf.get<double>("fake_interval", 0.5);
   bool allDone;
-  std::vector<bool> done(batchSchedulers.size(), false);
-  std::vector<double> finishTime(batchSchedulers.size());
+  const std::map<std::string, FakeScheduler*>& schedulersMap =
+    scenario->getSchedulers();
+  std::vector<FakeScheduler*> schedulers;
+  std::vector<double> totalCpuTimes;
+  foreachvalue (FakeScheduler* scheduler, schedulersMap) {
+    schedulers.push_back(scheduler);
+    totalCpuTimes.push_back(
+        scheduler->getAttributes().get("total_time", Value::Scalar()).value());
+  }
+  std::vector<bool> done(schedulers.size(), false);
+  std::vector<double> finishTime(schedulers.size());
   do {
-    scenario.runFor(interval);
+    scenario->runFor(interval);
     allDone = true;
-    for (int i = 0; i < batchSchedulers.size(); ++i) {
+    for (int i = 0; i < schedulers.size(); ++i) {
       if (!done[i]) {
-        FakeScheduler* scheduler = batchSchedulers[i];
+        FakeScheduler* scheduler = schedulers[i];
         done[i] = (scheduler->countPending() + scheduler->countRunning()) == 0;
         if (done[i]) {
           finishTime[i] = process::Clock::now() - start;
@@ -105,13 +112,21 @@ static void run(const Configuration& conf, int seed_mix)
   } while (!allDone);
 
   double end = process::Clock::now();
-  scenario.stop();
+  scenario->stop();
 
   for (int i = 0; i < finishTime.size(); ++i) {
     std::cout << totalCpuTimes[i] << "," << finishTime[i] << ",";
   }
   std::cout << (end - start) << std::endl;
+}
 
+static void run(const Configuration& conf, int runNumber)
+{
+  process::Clock::pause();
+  Scenario scenario(conf);
+  setupFromConfig(conf, runNumber, &scenario);
+  scenario.finishSetup();
+  run(conf, runNumber == 0, &scenario);
   process::Clock::resume();
 }
 

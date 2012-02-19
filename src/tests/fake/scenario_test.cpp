@@ -29,7 +29,7 @@ protected:
     for (int i = 0; i < numTasks; ++i) {
       makeBatchTask(i, &tasks);
     }
-    scenario.spawnScheduler("batch", tasks);
+    scenario.spawnScheduler("batch", Attributes::parse(""), tasks);
     scenario.finishSetup();
     scenario.runFor(time);
     EXPECT_EQ(0, scenario.getScheduler("batch")->countPending());
@@ -98,6 +98,8 @@ TEST_F(FakeScenarioTest, PopulateScenarioOneBatchTask)
   scenario.runFor(10.1);
   EXPECT_EQ(0, scenario.getScheduler("b0")->countPending());
   EXPECT_EQ(0, scenario.getScheduler("b0")->countRunning());
+  EXPECT_EQ(Attributes::parse("total_time:10.0;type:batch"),
+            scenario.getScheduler("b0")->getAttributes());
   scenario.stop();
   process::Clock::resume();
 }
