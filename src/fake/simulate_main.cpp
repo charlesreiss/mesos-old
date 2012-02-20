@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <iostream>
+#include <fstream>
 #include <string>
 
 #include "boost/algorithm/string/classification.hpp"
@@ -130,6 +131,37 @@ static void run(const Configuration& conf, int runNumber)
   process::Clock::resume();
 }
 
+static std::string readRecord(std::istream* in)
+{
+  std::string result;
+  for (;;) {
+    std::string line;
+    std::getline(*in, line);
+    if (line == "")
+      break;
+    result += line;
+    result += '\n';
+  }
+  return result;
+}
+
+static void runFromFile(const Configuration& conf, const std::string& file)
+{
+  process::Clock::pause();
+  std::ifstream in(file.c_str());
+  CHECK(in.good());
+  bool haveHeader = false;
+  for (;;) {
+    std::string record = readRecord(&in);
+    std::istringstream recordIn(record);
+    Scenario scenario;
+    populateScenarioFrom(&recordIn, &scenario);
+    run(conf, !haveHeader, &scenario);
+    haveHeader = true;
+  }
+  process::Clock::resume();
+}
+
 int main(int argc, char **argv)
 {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
@@ -139,6 +171,7 @@ int main(int argc, char **argv)
   Master::registerOptions(&configurator);
   Scenario::registerOptions(&configurator);
 
+  configurator.addOption<std::string>("json_file", "JSON file");
   configurator.addOption<int>("seed", "Random seed");
   configurator.addOption<double>("batch_length",
                                  "Average batch task lengths");
@@ -173,11 +206,15 @@ int main(int argc, char **argv)
 
   process::initialize(false);
 
-  header(conf);
+  if (conf.get<std::string>("json_file", "") != "") {
+    runFromFile(conf, conf.get<std::string>("json_file", ""));
+  } else {
+    header(conf);
 
-  const int repeats = conf.get<int>("repeat", 1);
-  for (int i = 0; i < repeats; ++i) {
-    run(conf, i);
+    const int repeats = conf.get<int>("repeat", 1);
+    for (int i = 0; i < repeats; ++i) {
+      run(conf, i);
+    }
   }
 
   return EXIT_SUCCESS;
