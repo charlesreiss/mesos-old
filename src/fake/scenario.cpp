@@ -1,7 +1,7 @@
 #include "fake/scenario.hpp"
 
 #include "fake/fake_isolation_module.hpp"
-#include "master/simple_allocator.hpp"
+#include "master/allocator_factory.hpp"
 #include "fake/fake_task_simple.hpp"
 #include "boost/property_tree/json_parser.hpp"
 
@@ -26,7 +26,8 @@ Scenario::Scenario(const Configuration& conf_) : master(0), conf(conf_)
 
 void Scenario::spawnMaster()
 {
-  spawnMaster(new mesos::internal::master::SimpleAllocator);
+  spawnMaster(mesos::internal::master::AllocatorFactory::instantiate(
+        conf.get<std::string>("allocator", "simple"), 0));
 }
 
 void Scenario::spawnMaster(mesos::internal::master::Allocator* allocator)
@@ -160,6 +161,8 @@ void populateScenarioFrom(const ptree& spec,
                           Scenario* scenario)
 {
   scenario->spawnMaster();
+  scenario->setLabelColumns(spec.get<std::string>("label_cols"));
+  scenario->setLabel(spec.get<std::string>("label", ""));
   foreachpair (const std::string& unusedSlaveName,
                const ptree& slaveSpec, spec.get_child("slaves")) {
     CHECK_EQ(unusedSlaveName, "");

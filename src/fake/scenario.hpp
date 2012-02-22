@@ -66,6 +66,18 @@ public:
   void finishSetup();
   void runFor(double seconds);
   void stop();
+  const std::string& getLabel() const {
+    return label;
+  }
+  void setLabel(const std::string& label_) {
+    label = label_;
+  }
+  const std::string& getLabelColumns() const {
+    return labelColumns;
+  }
+  void setLabelColumns(const std::string& labelColumns_) {
+    labelColumns = labelColumns_;
+  }
   Scenario();
   Scenario(const Configuration& conf_);
   ~Scenario() { stop(); }
@@ -84,6 +96,8 @@ private:
   std::map<std::string, FakeScheduler*> schedulers;
   std::vector<FakeTask*> allTasks;
   std::vector<FakeIsolationModule*> isolationModules;
+  std::string label;
+  std::string labelColumns;
 };
 
 void populateScenarioFrom(const boost::property_tree::ptree& spec,

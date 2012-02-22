@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <numeric>
 #include <string>
 
 #include "boost/algorithm/string/classification.hpp"
@@ -32,7 +33,7 @@ static void header(const Configuration& conf)
   for (int i = 0; i < numBatches; ++i) {
     std::cout << "batch" << i << "_cpu,batch" << i << "_finish,";
   }
-  std::cout << "total_time" << "\n";
+  std::cout << "total_time" << std::endl;
 }
 
 static void setupFromConfig(const Configuration& conf, int seed_mix,
@@ -79,9 +80,25 @@ static void setupFromConfig(const Configuration& conf, int seed_mix,
   }
 }
 
-static void run(const Configuration& conf, bool needHeader,
-    Scenario* scenario)
+const void headerFromScenario(const Configuration& conf, Scenario* scenario)
 {
+  if (scenario->getLabelColumns() != "") {
+    std::cout << scenario->getLabelColumns() << ',';
+  } else {
+    std::cout << "run_id,";
+  }
+  foreachkey (const std::string& name, scenario->getSchedulers()) {
+    std::cout << name << "_total_time," << name << "_finish_time" << ",";
+  }
+  std::cout << "all_total_time,all_finish_time\n";
+}
+
+static void run(const Configuration& conf, bool needHeader,
+    const std::string& id, Scenario* scenario)
+{
+  if (needHeader) {
+    headerFromScenario(conf, scenario);
+  }
   double start = process::Clock::now();
   const double interval = conf.get<double>("fake_interval", 0.5);
   bool allDone;
@@ -115,10 +132,17 @@ static void run(const Configuration& conf, bool needHeader,
   double end = process::Clock::now();
   scenario->stop();
 
+  if (scenario->getLabel() != "") {
+    std::cout << scenario->getLabel() << ',';
+  } else {
+    std::cout << id << ",";
+  }
+
   for (int i = 0; i < finishTime.size(); ++i) {
     std::cout << totalCpuTimes[i] << "," << finishTime[i] << ",";
   }
-  std::cout << (end - start) << std::endl;
+  std::cout << std::accumulate(totalCpuTimes.begin(), totalCpuTimes.end(), 0.0)
+            << "," << (end - start) << std::endl;
 }
 
 static void run(const Configuration& conf, int runNumber)
@@ -127,7 +151,8 @@ static void run(const Configuration& conf, int runNumber)
   Scenario scenario(conf);
   setupFromConfig(conf, runNumber, &scenario);
   scenario.finishSetup();
-  run(conf, runNumber == 0, &scenario);
+  run(conf, runNumber == 0, boost::lexical_cast<std::string>(runNumber),
+      &scenario);
   process::Clock::resume();
 }
 
@@ -151,12 +176,18 @@ static void runFromFile(const Configuration& conf, const std::string& file)
   std::ifstream in(file.c_str());
   CHECK(in.good());
   bool haveHeader = false;
+  int id = 0;
   for (;;) {
     std::string record = readRecord(&in);
+    if (0 == record.size()) {
+      return;
+    }
     std::istringstream recordIn(record);
-    Scenario scenario;
+    Scenario scenario(conf);
     populateScenarioFrom(&recordIn, &scenario);
-    run(conf, !haveHeader, &scenario);
+    run(conf, !haveHeader, boost::lexical_cast<std::string>(id),
+        &scenario);
+    ++id;
     haveHeader = true;
   }
   process::Clock::resume();
