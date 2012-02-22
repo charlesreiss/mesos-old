@@ -118,6 +118,7 @@ public:
   void killTask(std::string id)
   {
     trigger gotStatusUpdate;
+    mockMaster->expect<ExitedExecutorMessage>();
     mockMaster->expectAndWait<StatusUpdateMessage>(slavePid, &gotStatusUpdate);
     TaskID taskId;
     taskId.set_value(id);
@@ -164,6 +165,7 @@ public:
       WillRepeatedly(Return(Resources::parse(getUsageResult)));
     EXPECT_CALL(*mockTask, takeUsage(_, _, Resources::parse(takeUsageExpect))).
       WillOnce(Return(TASK_FINISHED));
+    mockMaster->expect<ExitedExecutorMessage>();
     tickAndUpdate("task0");
   }
 
@@ -272,8 +274,8 @@ TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks)
   WAIT_UNTIL(gotTaskUsageCall);
   EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpus:4.0"))).
     WillOnce(Return(TASK_FINISHED));
+  mockMaster->expect<ExitedExecutorMessage>();
   tickAndUpdate("task0");
-
   stopSlave();
 }
 
@@ -436,3 +438,4 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
   EXPECT_DOUBLE_EQ(kTick * 2.0, secondUsage.duration());
   EXPECT_EQ(Resources::parse("cpus:0.125;mem:0.375"), secondUsage.resources());
 }
+

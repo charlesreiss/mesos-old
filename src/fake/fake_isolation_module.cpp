@@ -121,6 +121,8 @@ void FakeIsolationModule::launchExecutor(
                 executorInfo.executor_id().value(),
                 "ignored-directory-name");
   LOG(INFO) << "started driver";
+  dispatch(slave, &Slave::executorStarted, frameworkId,
+           executorInfo.executor_id(), (pid_t)42);
 }
 
 void FakeIsolationModule::killExecutor(
@@ -137,6 +139,8 @@ void FakeIsolationModule::killExecutor(
     delete executor;
   }
   tasks.erase(make_pair(frameworkId, executorId));
+
+  dispatch(slave, &Slave::executorExited, frameworkId, executorId, 0);
 }
 
 void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
@@ -176,6 +180,7 @@ void FakeIsolationModule::unregisterTask(
   CHECK_NOTNULL(taskInfo->fakeTask);
   taskInfo->fakeTask = 0;
   CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
+  dispatch(self(), &IsolationModule::killExecutor, frameworkId, executorId);
 }
 
 namespace {
