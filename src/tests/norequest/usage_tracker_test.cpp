@@ -123,7 +123,8 @@ TEST_F(UsageTrackerTest, ForgetPlaced) {
       tracker->gaurenteedForFramework(framework("testFramework")));
 }
 
-TEST_F(UsageTrackerTest, FreeBySlaveSimple) {
+TEST_F(UsageTrackerTest, FreeBySlaveSimple)
+{
   setupSlave("testSlave");
   EXPECT_EQ(Resources::parse("cpus:32;mem:4096"),
             tracker->freeForSlave(slave("testSlave")));
@@ -138,7 +139,8 @@ TEST_F(UsageTrackerTest, FreeBySlaveSimple) {
             tracker->freeForSlave(slave("testSlave")));
 }
 
-TEST_F(UsageTrackerTest, FreeBySlaveActualUsage) {
+TEST_F(UsageTrackerTest, FreeBySlaveActualUsage)
+{
   setupSlave("testSlave");
   placeSimple("testFramework", "testSlave",
       Resources::parse("cpus:5.5;mem:1024"),
@@ -149,7 +151,8 @@ TEST_F(UsageTrackerTest, FreeBySlaveActualUsage) {
             tracker->freeForSlave(slave("testSlave")));
 }
 
-TEST_F(UsageTrackerTest, FreeBySlaveTwoFrameworks) {
+TEST_F(UsageTrackerTest, FreeBySlaveTwoFrameworks)
+{
   setupSlave("testSlave");
   placeSimple("one", "testSlave",
       Resources::parse("cpus:5.5;mem:1024"),
@@ -169,7 +172,8 @@ TEST_F(UsageTrackerTest, FreeBySlaveTwoFrameworks) {
             tracker->freeForSlave(slave("testSlave")));
 }
 
-TEST_F(UsageTrackerTest, FrameworkAccountingTwoSlaves) {
+TEST_F(UsageTrackerTest, FrameworkAccountingTwoSlaves)
+{
   setupSlave("slave1");
   setupSlave("slave2");
   placeSimple("testFramework", "slave1",
@@ -202,7 +206,8 @@ TEST_F(UsageTrackerTest, FrameworkAccountingTwoSlaves) {
                                            executor("testExecutor")));
 }
 
-TEST_F(UsageTrackerTest, RecordUsageIncomplete) {
+TEST_F(UsageTrackerTest, RecordUsageIncomplete)
+{
   setupSlave("slave1");
   placeSimple("testFramework", "slave1", Resources(),
       Resources::parse("cpus:1.0;mem:1024"));
@@ -213,7 +218,8 @@ TEST_F(UsageTrackerTest, RecordUsageIncomplete) {
 }
 
 // TODO(charles): do we need to make this prediction mode configurable?
-TEST_F(UsageTrackerTest, ReduceTasksFreesUsage) {
+TEST_F(UsageTrackerTest, ReduceTasksFreesUsage)
+{
   setupSlave("slave1");
   placeSimple("testFramework", "slave1", Resources(),
       Resources::parse("cpus:1.0;mem:1024"), 2);
@@ -227,7 +233,8 @@ TEST_F(UsageTrackerTest, ReduceTasksFreesUsage) {
             tracker->freeForSlave(slave("slave1")));
 }
 
-TEST_F(UsageTrackerTest, ReduceTaskFreesUsageZeroBase) {
+TEST_F(UsageTrackerTest, ReduceTaskFreesUsageZeroBase)
+{
   setupSlave("slave1");
   placeSimple("testFramework", "slave1", Resources(),
       Resources::parse("cpus:1.0;mem:1024"), 2);
@@ -250,7 +257,8 @@ TEST_F(UsageTrackerTest, ReduceTaskFreesUsageZeroBase) {
 
 }
 
-TEST_F(UsageTrackerTest, AddTasksUsesPredictionNoZero) {
+TEST_F(UsageTrackerTest, AddTasksUsesPredictionNoZero)
+{
   setupSlave("slave1");
   placeSimple("testFramework", "slave1", Resources(),
       Resources::parse("cpus:1.0;mem:1024"), 2);
@@ -264,7 +272,8 @@ TEST_F(UsageTrackerTest, AddTasksUsesPredictionNoZero) {
             tracker->freeForSlave(slave("slave1")));
 }
 
-TEST_F(UsageTrackerTest, AddTasksUsesPredictionAfterZero) {
+TEST_F(UsageTrackerTest, AddTasksUsesPredictionAfterZero)
+{
   setupSlave("slave1");
   placeSimple("testFramework", "slave1", Resources(),
       Resources::parse("cpus:1.0;mem:1024"), 2);
@@ -280,7 +289,8 @@ TEST_F(UsageTrackerTest, AddTasksUsesPredictionAfterZero) {
             tracker->freeForSlave(slave("slave1")));
 }
 
-TEST_F(UsageTrackerTest, AddTasksUsesPredictionZeroBase) {
+TEST_F(UsageTrackerTest, AddTasksUsesPredictionZeroBase)
+{
   setupSlave("slave1");
   placeSimple("testFramework", "slave1", Resources(),
       Resources::parse("cpus:1.0;mem:1024"), 2);
