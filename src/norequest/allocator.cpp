@@ -80,6 +80,7 @@ void
 NoRequestAllocator::executorAdded(const FrameworkID& frameworkId,
                                   const SlaveID& slaveId,
                                   const ExecutorInfo& info) {
+  LOG(INFO) << "executor added " << info.DebugString();
   placeUsage(frameworkId, info.executor_id(), slaveId, 0, 0, info);
 }
 
@@ -87,6 +88,7 @@ void
 NoRequestAllocator::executorRemoved(const FrameworkID& frameworkId,
                                     const SlaveID& slaveId,
                                     const ExecutorInfo& info) {
+  LOG(INFO) << "executor removed " << info.DebugString();
   tracker->forgetExecutor(frameworkId, info.executor_id(), slaveId);
 }
 
