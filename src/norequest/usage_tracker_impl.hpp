@@ -105,7 +105,7 @@ inline std::size_t hash_value(const ExecutorKey& value) {
 
 class UsageTrackerImpl : public UsageTracker {
 public:
-  UsageTrackerImpl() : lastTickTime(0.0) {}
+  UsageTrackerImpl(const Configuration& conf_);
   void recordUsage(const UsageMessage& update);
   void placeUsage(const FrameworkID& frameworkId,
                   const ExecutorID& executorId,

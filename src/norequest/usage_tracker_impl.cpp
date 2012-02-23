@@ -90,6 +90,35 @@ void assignResourcesKeepOthers(const Resources& newResources,
   *oldResources += extraResources;
 }
 
+void addZerosFrom(const Resources& source, Resources* dest)
+{
+  foreach (const Resource& sourceResource, source) {
+    if (sourceResource.type() != Value::SCALAR) {
+      continue;
+    }
+    if (dest->get(sourceResource).isNone()) {
+      Resource newResource = sourceResource;
+      newResource.mutable_scalar()->set_value(0.0);
+      *dest += newResource;
+    }
+  }
+}
+
+Resources subtractWithNegatives(const Resources& a, const Resources& b)
+{
+  Resources aWithZeros = a;
+  addZerosFrom(b, &aWithZeros);
+  aWithZeros -= b;
+  Resources result;
+  foreach (const Resource& resource, aWithZeros) {
+    if (resource.type() != Value::SCALAR ||
+        resource.scalar().value() != 0.0) {
+      result += resource;
+    }
+  }
+  return result;
+}
+
 } // anonymous namespace
 
 void
@@ -127,12 +156,12 @@ ResourceEstimates::observeUsage(double now, double duration,
       LOG(INFO) << " (delta: " << lastUsedPerTaskDiff << ")";
     }
   } else {
-    LOG(INFO) << "Not updating per-task estimate; tasks = " << curTasks
+    LOG(INFO) << "not updating per-task estimate; tasks = " << curTasks
               << "; now - duration = " << (now - duration)
               << "; setTaskTime = " << setTaskTime;
   }
   LOG(INFO) << "set observed usage to " << usage << " from\n" << *this;
-  Resources usageDiff = usage - usedResources;
+  Resources usageDiff = subtractWithNegatives(usage, usedResources);
   usedResources = usage;
   usageDuration = duration;
   Resources nextDiff = updateNextWithGuess(now, usedResources);
@@ -159,6 +188,7 @@ ResourceEstimates::setGuess(double now, const Resources& guess) {
 
 void
 ResourceEstimates::setTasks(double now, int newTasks) {
+  LOG(INFO) << "adjusting tasks with newTasks = " << newTasks;
   if (lastUsedPerTask.isSome()) {
     // TODO(charles): expire these estimates???
     Resources zeroTasks;
@@ -180,7 +210,7 @@ void
 ResourceEstimates::setMin(double now, const Resources& newMinResources) {
   // TODO(charles): does this handle removing a resource type from
   // our minimum?
-  Resources minDiff = newMinResources - minResources;
+  Resources minDiff = subtractWithNegatives(newMinResources, minResources);
   minResources = newMinResources;
   Resources chargedDiff = updateCharged();
   foreach (ResourceEstimates* aggregate, linked) {
@@ -229,12 +259,23 @@ UsageTrackerImpl::estimateFor(const FrameworkID& frameworkId,
   }
 }
 
+UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
+    : lastTickTime(0.0)
+{
+}
+
 void
 UsageTrackerImpl::recordUsage(const UsageMessage& update) {
   LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
   Resources usage = update.resources();
   estimateFor(update.framework_id(), update.executor_id(), update.slave_id())->
     observeUsage(update.timestamp(), update.duration(), usage);
+  // TODO(Charles Reiss): Make this conditional on this update not being
+  // an old, stray update.
+  if (!update.still_running()) {
+    forgetExecutor(update.framework_id(), update.executor_id(),
+                   update.slave_id());
+  }
 }
 
 void
@@ -244,6 +285,9 @@ UsageTrackerImpl::placeUsage(const FrameworkID& frameworkId,
                              const Resources& minResources,
                              const Option<Resources>& estResources,
                              int numTasks) {
+  LOG(INFO) << "placeUsage(" << frameworkId << "," << executorId
+            << "," << slaveId << ", min: " << minResources
+            << ", est: " << estResources << ", " << numTasks << ")";
   ResourceEstimates* executor = estimateFor(frameworkId, executorId, slaveId);
   executor->setMin(lastTickTime, minResources);
   if (estResources.isSome()) {
@@ -256,6 +300,8 @@ void
 UsageTrackerImpl::forgetExecutor(const FrameworkID& frameworkId,
                                  const ExecutorID& executorId,
                                  const SlaveID& slaveId) {
+  LOG(INFO) << "forgetExecutor(" << frameworkId << "," << executorId
+            << slaveId << ")";
   placeUsage(frameworkId, executorId, slaveId, Resources(),
              Option<Resources>(Resources()), 0);
   estimateByExecutor.erase(ExecutorKey(
@@ -272,6 +318,7 @@ void
 UsageTrackerImpl::timerTick(double curTime) {
   const double kForgetTime = 2.0;
   lastTickTime = curTime;
+  LOG(INFO) << "timerTick(" << curTime << ")";
   // TODO(charles): do we still want this behavior?
   std::vector<ExecutorKey> toRemove;
   foreachpair (const ExecutorKey& key, const ResourceEstimates estimates,

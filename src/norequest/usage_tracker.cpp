@@ -25,8 +25,8 @@ namespace mesos {
 namespace internal {
 namespace norequest {
 
-UsageTracker* getUsageTracker() {
-  return new UsageTrackerImpl;
+UsageTracker* getUsageTracker(const Configuration& conf) {
+  return new UsageTrackerImpl(conf);
 }
 
 } // namespace norequest {

@@ -234,6 +234,10 @@ message UsageMessage {
   // rate), the duration over which this usage measurement occured. 'timestamp'
   // then indicates the end of the measurement period.
   optional double duration = 6;
+  // Is the Executor in question still running as of 'timestamp'. This prevents
+  // us from needing to resolve races between executor exited messages and usage
+  // messages.
+  optional bool still_running = 7 [default = true];
 }
 
 // Tells a slave to shut down all executors of the given framework.

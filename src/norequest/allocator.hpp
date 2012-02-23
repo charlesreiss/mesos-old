@@ -40,8 +40,11 @@ using master::Slave;
 
 class NoRequestAllocator : public Allocator {
 public:
+  // XXX FIXME pass Configuration for real
   NoRequestAllocator() :
-    dontMakeOffers(false), tracker(getUsageTracker()), master(0) { }
+    dontMakeOffers(false), tracker(getUsageTracker(Configuration())),
+    master(0) {}
+
   NoRequestAllocator(AllocatorMasterInterface* _master,
                      UsageTracker* _tracker) :
     dontMakeOffers(false), tracker(_tracker), master(_master) { }
@@ -50,6 +53,7 @@ public:
   void initialize(AllocatorMasterInterface* _master) {
     master = _master;
   }
+
   void initialize(master::Master* _master) {
     master = _master;
   }

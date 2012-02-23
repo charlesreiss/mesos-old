@@ -19,6 +19,7 @@
 #ifndef __NOREQUEST_USAGE_TRACKER_HPP__
 #define __NOREQUEST_USAGE_TRACKER_HPP__
 
+#include "configurator/configuration.hpp"
 #include "common/resources.hpp"
 #include "master/allocator.hpp"
 
@@ -65,7 +66,7 @@ public:
   virtual ~UsageTracker() {}
 };
 
-UsageTracker* getUsageTracker();
+UsageTracker* getUsageTracker(const Configuration& conf);
 
 } // namespace norequest {
 } // namespace internal {

@@ -31,9 +31,10 @@ const Resources kDefaultSlaveResources(Resources::parse("cpus:32;mem:4096"));
 class UsageTrackerTest : public ::testing::Test {
 protected:
   void SetUp() {
-    tracker.reset(getUsageTracker());
+    tracker.reset(getUsageTracker(Configuration()));
     tracker->timerTick(kStartTime);
   }
+
   void TearDown() {
     tracker.reset(0);
   }
@@ -76,13 +77,15 @@ protected:
 
   UsageMessage getUpdate(const std::string& slaveId,
       const std::string& frameworkId,
-      double time, const Resources& resources) {
+      double time, const Resources& resources, bool stillRunning = true) {
     UsageMessage update;
     update.mutable_slave_id()->set_value(slaveId);
     update.mutable_framework_id()->set_value(frameworkId);
     update.mutable_executor_id()->set_value("testExecutor");
     update.mutable_resources()->MergeFrom(resources);
     update.set_timestamp(time);
+    update.set_duration(0.01);
+    update.set_still_running(stillRunning);
     return update;
   }
 
@@ -93,8 +96,27 @@ protected:
     tracker->recordUsage(getUpdate(slaveId, frameworkId, time, resources));
   }
 
+  void recordUsageDead(const std::string& slaveId,
+      const std::string& frameworkId,
+      double time, const Resources& resources) {
+    time += kStartTime;
+    tracker->recordUsage(
+        getUpdate(slaveId, frameworkId, time, resources, false));
+  }
+
   boost::scoped_ptr<UsageTracker> tracker;
 };
+
+static Resources removeZeros(const Resources& in)
+{
+  Resources out;
+  foreach (const Resource& resource, in) {
+    if (resource.type() != Value::SCALAR || resource.scalar().value() != 0.0) {
+      out += resource;
+    }
+  }
+  return out;
+}
 
 TEST_F(UsageTrackerTest, PlaceUsageOnce) {
   placeSimple("testFramework", "testSlave",
@@ -120,7 +142,8 @@ TEST_F(UsageTrackerTest, ForgetPlaced) {
   tracker->timerTick(kStartTime + 3.0);
   tracker->timerTick(kStartTime + 4.0);
   EXPECT_EQ(Resources::parse(""),
-      tracker->gaurenteedForFramework(framework("testFramework")));
+            removeZeros(tracker->gaurenteedForFramework(
+                framework("testFramework"))));
 }
 
 TEST_F(UsageTrackerTest, FreeBySlaveSimple)
@@ -307,4 +330,19 @@ TEST_F(UsageTrackerTest, AddTasksUsesPredictionZeroBase)
             tracker->nextUsedForFramework(framework("testFramework")));
   EXPECT_EQ(kDefaultSlaveResources - Resources::parse("cpus:6.0;mem:1280"),
             tracker->freeForSlave(slave("slave1")));
+}
+
+TEST_F(UsageTrackerTest, NotStillRunningClearsUsage)
+{
+  setupSlave("slave1");
+  placeSimple("testFramework", "slave1", Resources(),
+      Resources::parse("cpus:1.0;mem:1024"), 2);
+  recordUsageSimple("slave1", "testFramework", 0.1,
+                    Resources::parse("cpus:3.0;mem:768"));
+  recordUsageDead("slave1", "testFramework", 0.2,
+                  Resources::parse("cpus:3.0;mem:768"));
+  EXPECT_EQ(Resources::parse(""),
+            removeZeros(
+                tracker->nextUsedForFramework(framework("testFramework"))));
+  EXPECT_EQ(kDefaultSlaveResources, tracker->freeForSlave(slave("slave1")));
 }
