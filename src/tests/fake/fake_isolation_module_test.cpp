@@ -432,10 +432,12 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
   EXPECT_DOUBLE_EQ(kTick * 2.0, firstUsage.duration());
   EXPECT_EQ(Resources::parse("cpus:0.6875;mem:0.5"), firstUsage.resources());
   EXPECT_EQ("task0", firstUsage.executor_id().value());
+  EXPECT_TRUE(firstUsage.still_running());
   FrameworkID expectFrameworkId = DEFAULT_FRAMEWORK_ID;
   EXPECT_EQ(expectFrameworkId, firstUsage.framework_id());
   EXPECT_DOUBLE_EQ(start + kTick * 4.0, secondUsage.timestamp());
   EXPECT_DOUBLE_EQ(kTick * 2.0, secondUsage.duration());
   EXPECT_EQ(Resources::parse("cpus:0.125;mem:0.375"), secondUsage.resources());
+  EXPECT_FALSE(secondUsage.still_running());
 }
 

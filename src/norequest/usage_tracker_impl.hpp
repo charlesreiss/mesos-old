@@ -60,7 +60,8 @@ struct ResourceEstimates {
     linked[1] = second;
   }
 
-  void observeUsage(double now, double duration, const Resources& usage);
+  void observeUsage(double now, double duration, const Resources& usage,
+      bool updateEstimates);
   void setGuess(double now, const Resources& guess);
   // TODO(charles): call after/before set guess?
   void setTasks(double now, int tasks);

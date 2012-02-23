@@ -341,8 +341,10 @@ TEST_F(UsageTrackerTest, NotStillRunningClearsUsage)
                     Resources::parse("cpus:3.0;mem:768"));
   recordUsageDead("slave1", "testFramework", 0.2,
                   Resources::parse("cpus:3.0;mem:768"));
-  EXPECT_EQ(Resources::parse(""),
+  EXPECT_EQ(Resources(),
             removeZeros(
                 tracker->nextUsedForFramework(framework("testFramework"))));
   EXPECT_EQ(kDefaultSlaveResources, tracker->freeForSlave(slave("slave1")));
+  EXPECT_EQ(Resources(), removeZeros(
+        tracker->usedForFramework(framework("testFramework"))));
 }

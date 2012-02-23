@@ -123,42 +123,45 @@ Resources subtractWithNegatives(const Resources& a, const Resources& b)
 
 void
 ResourceEstimates::observeUsage(double now, double duration,
-                                const Resources& usage) {
+                                const Resources& usage,
+                                bool updateEstimates) {
   LOG(INFO) << "observeUsage on \n" << *this;
-  if (now - duration > setTaskTime && curTasks > 0) {
-    LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-    Resources tasksUsage = usage;
-    if (lastUsedForZero.isSome()) {
-      tasksUsage -= lastUsedForZero.get();
-    }
-    lastUsedPerTask = multiplyResources(tasksUsage, 1.0 / curTasks);
-    lastUsedPerTaskTasks = curTasks;
-    lastUsedPerTaskTime = now;
-  } else if (now - duration > setTaskTime && curTasks == 0) {
-    Resources lastUsedForZeroDiff = usage;
-    if (lastUsedForZero.isSome()) {
-      lastUsedForZeroDiff -= lastUsedForZero.get();
-    }
-    LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-    LOG(INFO) << "lastUsedForZeroDiff = " << lastUsedForZeroDiff;
-    lastUsedForZero = usage;
-    LOG(INFO) << "lastUsedForZero = " << usage;
-    if (lastUsedPerTask.isSome()) {
-      Resources lastUsedPerTaskDiff =
-        multiplyResources(lastUsedForZeroDiff, 1.0 / lastUsedPerTaskTasks);
-      Resources newUsedPerTask = lastUsedPerTask.get();
-      LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
-      newUsedPerTask -= lastUsedPerTaskDiff;
-      LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
+  if (updateEstimates) {
+    if (now - duration > setTaskTime && curTasks > 0) {
       LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-      lastUsedPerTask = newUsedPerTask;
+      Resources tasksUsage = usage;
+      if (lastUsedForZero.isSome()) {
+        tasksUsage -= lastUsedForZero.get();
+      }
+      lastUsedPerTask = multiplyResources(tasksUsage, 1.0 / curTasks);
+      lastUsedPerTaskTasks = curTasks;
+      lastUsedPerTaskTime = now;
+    } else if (now - duration > setTaskTime && curTasks == 0) {
+      Resources lastUsedForZeroDiff = usage;
+      if (lastUsedForZero.isSome()) {
+        lastUsedForZeroDiff -= lastUsedForZero.get();
+      }
       LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-      LOG(INFO) << " (delta: " << lastUsedPerTaskDiff << ")";
+      LOG(INFO) << "lastUsedForZeroDiff = " << lastUsedForZeroDiff;
+      lastUsedForZero = usage;
+      LOG(INFO) << "lastUsedForZero = " << usage;
+      if (lastUsedPerTask.isSome()) {
+        Resources lastUsedPerTaskDiff =
+          multiplyResources(lastUsedForZeroDiff, 1.0 / lastUsedPerTaskTasks);
+        Resources newUsedPerTask = lastUsedPerTask.get();
+        LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
+        newUsedPerTask -= lastUsedPerTaskDiff;
+        LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
+        LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+        lastUsedPerTask = newUsedPerTask;
+        LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+        LOG(INFO) << " (delta: " << lastUsedPerTaskDiff << ")";
+      }
+    } else {
+      LOG(INFO) << "not updating per-task estimate; tasks = " << curTasks
+                << "; now - duration = " << (now - duration)
+                << "; setTaskTime = " << setTaskTime;
     }
-  } else {
-    LOG(INFO) << "not updating per-task estimate; tasks = " << curTasks
-              << "; now - duration = " << (now - duration)
-              << "; setTaskTime = " << setTaskTime;
   }
   LOG(INFO) << "set observed usage to " << usage << " from\n" << *this;
   Resources usageDiff = subtractWithNegatives(usage, usedResources);
@@ -269,7 +272,7 @@ UsageTrackerImpl::recordUsage(const UsageMessage& update) {
   LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
   Resources usage = update.resources();
   estimateFor(update.framework_id(), update.executor_id(), update.slave_id())->
-    observeUsage(update.timestamp(), update.duration(), usage);
+    observeUsage(update.timestamp(), update.duration(), usage, true);
   // TODO(Charles Reiss): Make this conditional on this update not being
   // an old, stray update.
   if (!update.still_running()) {
@@ -304,8 +307,11 @@ UsageTrackerImpl::forgetExecutor(const FrameworkID& frameworkId,
             << slaveId << ")";
   placeUsage(frameworkId, executorId, slaveId, Resources(),
              Option<Resources>(Resources()), 0);
-  estimateByExecutor.erase(ExecutorKey(
-        boost::make_tuple(frameworkId, executorId, slaveId)));
+  const ExecutorKey key(boost::make_tuple(frameworkId, executorId, slaveId));
+  if (estimateByExecutor.count(key) > 0) {
+    estimateByExecutor[key].observeUsage(lastTickTime, 0., Resources(), false);
+  }
+  estimateByExecutor.erase(key);
 }
 
 void
