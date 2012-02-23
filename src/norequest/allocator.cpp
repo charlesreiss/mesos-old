@@ -255,7 +255,7 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
                  const ResourceHints& offerRes,
                  freeResources) {
       if (!(refusers.count(slave) && refusers[slave].count(framework->id)) &&
-          !framework->filters(slave, offerRes.expectedResources)) {
+          !framework->filters(slave, offerRes)) {
         offerable[slave] = offerRes;
         LOG(INFO) << "offering " << framework->id << " "
                   << offerRes << " on slave " << slave->id;

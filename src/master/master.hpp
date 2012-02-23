@@ -516,7 +516,11 @@ struct Framework
     if (iter != slaveFilter.end()) {
       DLOG(INFO) << "Checking filter " << resources << " versus "
                  << iter->second.upToResources;
-      return resources <= iter->second.upToResources;
+      return
+        resources.expectedResources
+            <= iter->second.upToResources.expectedResources &&
+        resources.minResources
+            <= iter->second.upToResources.minResources;
     } else {
       return false;
     }

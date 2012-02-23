@@ -339,6 +339,7 @@ TEST_F(UsageTrackerTest, NotStillRunningClearsUsage)
       Resources::parse("cpus:1.0;mem:1024"), 2);
   recordUsageSimple("slave1", "testFramework", 0.1,
                     Resources::parse("cpus:3.0;mem:768"));
+  tracker->timerTick(0.1);
   recordUsageDead("slave1", "testFramework", 0.2,
                   Resources::parse("cpus:3.0;mem:768"));
   EXPECT_EQ(Resources(),

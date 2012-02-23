@@ -109,14 +109,7 @@ Resources subtractWithNegatives(const Resources& a, const Resources& b)
   Resources aWithZeros = a;
   addZerosFrom(b, &aWithZeros);
   aWithZeros -= b;
-  Resources result;
-  foreach (const Resource& resource, aWithZeros) {
-    if (resource.type() != Value::SCALAR ||
-        resource.scalar().value() != 0.0) {
-      result += resource;
-    }
-  }
-  return result;
+  return aWithZeros;
 }
 
 } // anonymous namespace
@@ -124,7 +117,8 @@ Resources subtractWithNegatives(const Resources& a, const Resources& b)
 void
 ResourceEstimates::observeUsage(double now, double duration,
                                 const Resources& usage,
-                                bool updateEstimates) {
+                                bool updateEstimates,
+                                bool clearUnknown) {
   LOG(INFO) << "observeUsage on \n" << *this;
   if (updateEstimates) {
     if (now - duration > setTaskTime && curTasks > 0) {
@@ -167,7 +161,7 @@ ResourceEstimates::observeUsage(double now, double duration,
   Resources usageDiff = subtractWithNegatives(usage, usedResources);
   usedResources = usage;
   usageDuration = duration;
-  Resources nextDiff = updateNextWithGuess(now, usedResources);
+  Resources nextDiff = updateNextWithGuess(now, usedResources, clearUnknown);
   Resources chargedDiff = updateCharged();
   LOG(INFO) << "deltas usage " << usageDiff << "; next: " << nextDiff
             << "; charged: " << chargedDiff;
@@ -181,7 +175,7 @@ ResourceEstimates::observeUsage(double now, double duration,
 
 void
 ResourceEstimates::setGuess(double now, const Resources& guess) {
-  Resources nextDiff = updateNextWithGuess(now, guess);
+  Resources nextDiff = updateNextWithGuess(now, guess, true);
   foreach (ResourceEstimates* aggregate, linked) {
     aggregate->nextUsedResources += nextDiff;
   }
@@ -232,10 +226,16 @@ ResourceEstimates::setTime(double now) {
 }
 
 Resources
-ResourceEstimates::updateNextWithGuess(double now, Resources guess) {
+ResourceEstimates::updateNextWithGuess(double now, Resources guess,
+      bool clearUnknown) {
   Resources oldNextResources = nextUsedResources;
-  assignResourcesKeepOthers(guess, &nextUsedResources);
-  return nextUsedResources - oldNextResources;
+  if (clearUnknown) {
+    nextUsedResources = guess;
+  } else {
+    assignResourcesKeepOthers(guess, &nextUsedResources);
+  }
+  LOG(INFO) << "update next: " << oldNextResources << " -> " << nextUsedResources;
+  return subtractWithNegatives(nextUsedResources, oldNextResources);
 }
 
 Resources
@@ -243,7 +243,7 @@ ResourceEstimates::updateCharged() {
   Resources oldChargedResources = chargedResources;
   assignResourcesKeepOthers(maxResources(usedResources, minResources),
                   &chargedResources);
-  return chargedResources - oldChargedResources;
+  return subtractWithNegatives(chargedResources, oldChargedResources);
 }
 
 ResourceEstimates*
@@ -309,7 +309,8 @@ UsageTrackerImpl::forgetExecutor(const FrameworkID& frameworkId,
              Option<Resources>(Resources()), 0);
   const ExecutorKey key(boost::make_tuple(frameworkId, executorId, slaveId));
   if (estimateByExecutor.count(key) > 0) {
-    estimateByExecutor[key].observeUsage(lastTickTime, 0., Resources(), false);
+    estimateByExecutor[key].observeUsage(lastTickTime, 0., Resources(),
+        false, true);
   }
   estimateByExecutor.erase(key);
 }

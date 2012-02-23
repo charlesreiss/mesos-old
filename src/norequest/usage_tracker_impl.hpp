@@ -61,7 +61,7 @@ struct ResourceEstimates {
   }
 
   void observeUsage(double now, double duration, const Resources& usage,
-      bool updateEstimates);
+      bool updateEstimates, bool clearUnknown = false);
   void setGuess(double now, const Resources& guess);
   // TODO(charles): call after/before set guess?
   void setTasks(double now, int tasks);
@@ -76,7 +76,7 @@ struct ResourceEstimates {
   }
 private:
   void adjustLastUsedPerTask();
-  Resources updateNextWithGuess(double now, Resources guess);
+  Resources updateNextWithGuess(double now, Resources guess, bool clearUnknown);
   Resources updateCharged();
 
 };
