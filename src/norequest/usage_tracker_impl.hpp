@@ -40,6 +40,7 @@ struct ResourceEstimates {
   Resources usedResources;
   Resources minResources;
   Resources chargedResources;
+  Resources deadChargedResources;
   Resources nextUsedResources;
 
   int curTasks;
@@ -60,8 +61,10 @@ struct ResourceEstimates {
     linked[1] = second;
   }
 
-  void observeUsage(double now, double duration, const Resources& usage,
-      bool updateEstimates, bool clearUnknown = false);
+  // Expire charged resources for finished tasks.
+  void expireCharge();
+  void observeUsage(double now, double duration, const Resources& usage);
+  void clearUsage(double now, bool clearCharge);
   void setGuess(double now, const Resources& guess);
   // TODO(charles): call after/before set guess?
   void setTasks(double now, int tasks);
@@ -75,9 +78,12 @@ struct ResourceEstimates {
     linked[0] = linked[1] = 0;
   }
 private:
+  void updateEstimates(double now, double duration, const Resources& usage);
+  void setUsage(double now, double duration, const Resources& usage,
+      bool clearUnknown, bool keepCharge);
   void adjustLastUsedPerTask();
   Resources updateNextWithGuess(double now, Resources guess, bool clearUnknown);
-  Resources updateCharged();
+  Resources updateCharged(bool clearUnknown);
 
 };
 
@@ -116,7 +122,8 @@ public:
                   int numTasks);
   void forgetExecutor(const FrameworkID& frameworkId,
                       const ExecutorID& executorId,
-                      const SlaveID& slaveId);
+                      const SlaveID& slaveId,
+                      bool clearCharge);
   void setCapacity(const SlaveID& slaveId,
                    const Resources& resources);
   void timerTick(double curTime);

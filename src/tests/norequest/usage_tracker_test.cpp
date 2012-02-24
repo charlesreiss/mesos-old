@@ -141,8 +141,11 @@ TEST_F(UsageTrackerTest, ForgetPlaced) {
   tracker->timerTick(kStartTime + 2.0);
   tracker->timerTick(kStartTime + 3.0);
   tracker->timerTick(kStartTime + 4.0);
-  EXPECT_EQ(Resources::parse(""),
+  EXPECT_EQ(Resources(),
             removeZeros(tracker->gaurenteedForFramework(
+                framework("testFramework"))));
+  EXPECT_EQ(Resources(),
+            removeZeros(tracker->chargeForFramework(
                 framework("testFramework"))));
 }
 
@@ -348,4 +351,9 @@ TEST_F(UsageTrackerTest, NotStillRunningClearsUsage)
   EXPECT_EQ(kDefaultSlaveResources, tracker->freeForSlave(slave("slave1")));
   EXPECT_EQ(Resources(), removeZeros(
         tracker->usedForFramework(framework("testFramework"))));
+  EXPECT_EQ(Resources::parse("cpus:3.0;mem:768"), removeZeros(
+        tracker->chargeForFramework(framework("testFramework"))));
+  tracker->timerTick(0.2);
+  EXPECT_EQ(Resources(), removeZeros(
+        tracker->chargeForFramework(framework("testFramework"))));
 }

@@ -172,7 +172,7 @@ struct ChargedShareComparator {
         }
       }
     }
-    LOG(INFO) << "computed share of " << framework << " = " << share;
+    LOG(INFO) << "computed share of " << framework->id << " = " << share;
     return share;
   }
 

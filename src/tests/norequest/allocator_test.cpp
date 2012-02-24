@@ -72,8 +72,8 @@ public:
                                 const SlaveID&, const Resources&,
                                 const Option<Resources>&,
                                 int));
-  MOCK_METHOD3(forgetExecutor, void(const FrameworkID&, const ExecutorID&,
-                                    const SlaveID&));
+  MOCK_METHOD4(forgetExecutor, void(const FrameworkID&, const ExecutorID&,
+                                    const SlaveID&, bool));
   MOCK_METHOD2(setCapacity, void(const SlaveID&, const Resources&));
   MOCK_METHOD1(timerTick, void(double));
   MOCK_CONST_METHOD1(chargeForFramework, Resources(const FrameworkID&));
@@ -535,7 +535,7 @@ TEST_F(NoRequestAllocatorTest, ExecutorRemovedDoesForgetUsage) {
       Resources::parse("cpus:0.1;mem:512"), 0);
   allocator->executorAdded(frameworks[0].id, slaves[0].id, executorInfo);
   EXPECT_CALL(tracker, forgetExecutor(frameworks[0].id, DEFAULT_EXECUTOR_ID,
-                                      slaves[0].id));
+                                      slaves[0].id, false));
   allocator->executorRemoved(frameworks[0].id, slaves[0].id, executorInfo);
 }
 

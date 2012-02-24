@@ -39,7 +39,8 @@ public:
                           int numTasks) = 0;
   virtual void forgetExecutor(const FrameworkID& frameworkId,
                               const ExecutorID& executorId,
-                              const SlaveID& slaveId) = 0;
+                              const SlaveID& slaveId,
+                              bool clearCharge = false) = 0;
   virtual void setCapacity(const SlaveID& slaveId,
                            const Resources& resources) = 0;
   virtual void timerTick(double cur_time) = 0;

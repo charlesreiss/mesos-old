@@ -115,62 +115,91 @@ Resources subtractWithNegatives(const Resources& a, const Resources& b)
 } // anonymous namespace
 
 void
-ResourceEstimates::observeUsage(double now, double duration,
-                                const Resources& usage,
-                                bool updateEstimates,
-                                bool clearUnknown) {
-  LOG(INFO) << "observeUsage on \n" << *this;
-  if (updateEstimates) {
-    if (now - duration > setTaskTime && curTasks > 0) {
-      LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-      Resources tasksUsage = usage;
-      if (lastUsedForZero.isSome()) {
-        tasksUsage -= lastUsedForZero.get();
-      }
-      lastUsedPerTask = multiplyResources(tasksUsage, 1.0 / curTasks);
-      lastUsedPerTaskTasks = curTasks;
-      lastUsedPerTaskTime = now;
-    } else if (now - duration > setTaskTime && curTasks == 0) {
-      Resources lastUsedForZeroDiff = usage;
-      if (lastUsedForZero.isSome()) {
-        lastUsedForZeroDiff -= lastUsedForZero.get();
-      }
-      LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-      LOG(INFO) << "lastUsedForZeroDiff = " << lastUsedForZeroDiff;
-      lastUsedForZero = usage;
-      LOG(INFO) << "lastUsedForZero = " << usage;
-      if (lastUsedPerTask.isSome()) {
-        Resources lastUsedPerTaskDiff =
-          multiplyResources(lastUsedForZeroDiff, 1.0 / lastUsedPerTaskTasks);
-        Resources newUsedPerTask = lastUsedPerTask.get();
-        LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
-        newUsedPerTask -= lastUsedPerTaskDiff;
-        LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
-        LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-        lastUsedPerTask = newUsedPerTask;
-        LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-        LOG(INFO) << " (delta: " << lastUsedPerTaskDiff << ")";
-      }
-    } else {
-      LOG(INFO) << "not updating per-task estimate; tasks = " << curTasks
-                << "; now - duration = " << (now - duration)
-                << "; setTaskTime = " << setTaskTime;
+ResourceEstimates::updateEstimates(double now, double duration,
+    const Resources& usage)
+{
+  if (now - duration > setTaskTime && curTasks > 0) {
+    LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+    Resources tasksUsage = usage;
+    if (lastUsedForZero.isSome()) {
+      tasksUsage -= lastUsedForZero.get();
     }
+    lastUsedPerTask = multiplyResources(tasksUsage, 1.0 / curTasks);
+    lastUsedPerTaskTasks = curTasks;
+    lastUsedPerTaskTime = now;
+  } else if (now - duration > setTaskTime && curTasks == 0) {
+    Resources lastUsedForZeroDiff = usage;
+    if (lastUsedForZero.isSome()) {
+      lastUsedForZeroDiff -= lastUsedForZero.get();
+    }
+    LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+    LOG(INFO) << "lastUsedForZeroDiff = " << lastUsedForZeroDiff;
+    lastUsedForZero = usage;
+    LOG(INFO) << "lastUsedForZero = " << usage;
+    if (lastUsedPerTask.isSome()) {
+      Resources lastUsedPerTaskDiff =
+        multiplyResources(lastUsedForZeroDiff, 1.0 / lastUsedPerTaskTasks);
+      Resources newUsedPerTask = lastUsedPerTask.get();
+      LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
+      newUsedPerTask -= lastUsedPerTaskDiff;
+      LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
+      LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+      lastUsedPerTask = newUsedPerTask;
+      LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
+      LOG(INFO) << " (delta: " << lastUsedPerTaskDiff << ")";
+    }
+  } else {
+    LOG(INFO) << "not updating per-task estimate; tasks = " << curTasks
+              << "; now - duration = " << (now - duration)
+              << "; setTaskTime = " << setTaskTime;
   }
-  LOG(INFO) << "set observed usage to " << usage << " from\n" << *this;
+}
+
+void
+ResourceEstimates::setUsage(double now, double duration,
+    const Resources& usage, bool clearUnknown, bool keepCharge)
+{
   Resources usageDiff = subtractWithNegatives(usage, usedResources);
   usedResources = usage;
   usageDuration = duration;
   Resources nextDiff = updateNextWithGuess(now, usedResources, clearUnknown);
-  Resources chargedDiff = updateCharged();
+  Resources chargedDiff = updateCharged(clearUnknown);
   LOG(INFO) << "deltas usage " << usageDiff << "; next: " << nextDiff
             << "; charged: " << chargedDiff;
   foreach (ResourceEstimates* aggregate, linked) {
     aggregate->usedResources += usageDiff;
     aggregate->nextUsedResources += nextDiff;
-    aggregate->chargedResources += chargedDiff;
+    if (keepCharge) {
+      aggregate->deadChargedResources =
+        subtractWithNegatives(aggregate->deadChargedResources, chargedDiff);
+    } else {
+      aggregate->chargedResources += chargedDiff;
+    }
   }
   setTime(now);
+}
+
+void
+ResourceEstimates::expireCharge()
+{
+  chargedResources -= deadChargedResources;
+  deadChargedResources = Resources();
+}
+
+void
+ResourceEstimates::observeUsage(double now, double duration,
+                                const Resources& usage)
+{
+  LOG(INFO) << "observeUsage on \n" << *this;
+  updateEstimates(now, duration, usage);
+  LOG(INFO) << "set observed usage to " << usage << " from\n" << *this;
+  setUsage(now, duration, usage, false, false);
+}
+
+void
+ResourceEstimates::clearUsage(double now, bool clearCharge)
+{
+  setUsage(now, 0.0, Resources(), true, !clearCharge);
 }
 
 void
@@ -209,7 +238,7 @@ ResourceEstimates::setMin(double now, const Resources& newMinResources) {
   // our minimum?
   Resources minDiff = subtractWithNegatives(newMinResources, minResources);
   minResources = newMinResources;
-  Resources chargedDiff = updateCharged();
+  Resources chargedDiff = updateCharged(false);
   foreach (ResourceEstimates* aggregate, linked) {
     aggregate->minResources += minDiff;
     aggregate->chargedResources += chargedDiff;
@@ -239,10 +268,14 @@ ResourceEstimates::updateNextWithGuess(double now, Resources guess,
 }
 
 Resources
-ResourceEstimates::updateCharged() {
+ResourceEstimates::updateCharged(bool clearUnknown) {
   Resources oldChargedResources = chargedResources;
-  assignResourcesKeepOthers(maxResources(usedResources, minResources),
-                  &chargedResources);
+  Resources newCharged = maxResources(usedResources, minResources);
+  if (clearUnknown) {
+    chargedResources = newCharged;
+  } else {
+    assignResourcesKeepOthers(newCharged, &chargedResources);
+  }
   return subtractWithNegatives(chargedResources, oldChargedResources);
 }
 
@@ -272,12 +305,12 @@ UsageTrackerImpl::recordUsage(const UsageMessage& update) {
   LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
   Resources usage = update.resources();
   estimateFor(update.framework_id(), update.executor_id(), update.slave_id())->
-    observeUsage(update.timestamp(), update.duration(), usage, true);
+    observeUsage(update.timestamp(), update.duration(), usage);
   // TODO(Charles Reiss): Make this conditional on this update not being
   // an old, stray update.
   if (!update.still_running()) {
     forgetExecutor(update.framework_id(), update.executor_id(),
-                   update.slave_id());
+                   update.slave_id(), false);
   }
 }
 
@@ -302,15 +335,13 @@ UsageTrackerImpl::placeUsage(const FrameworkID& frameworkId,
 void
 UsageTrackerImpl::forgetExecutor(const FrameworkID& frameworkId,
                                  const ExecutorID& executorId,
-                                 const SlaveID& slaveId) {
+                                 const SlaveID& slaveId,
+                                 bool clearCharge) {
   LOG(INFO) << "forgetExecutor(" << frameworkId << "," << executorId
             << slaveId << ")";
-  placeUsage(frameworkId, executorId, slaveId, Resources(),
-             Option<Resources>(Resources()), 0);
   const ExecutorKey key(boost::make_tuple(frameworkId, executorId, slaveId));
   if (estimateByExecutor.count(key) > 0) {
-    estimateByExecutor[key].observeUsage(lastTickTime, 0., Resources(),
-        false, true);
+    estimateByExecutor[key].clearUsage(lastTickTime, clearCharge);
   }
   estimateByExecutor.erase(key);
 }
@@ -326,9 +357,19 @@ UsageTrackerImpl::timerTick(double curTime) {
   const double kForgetTime = 2.0;
   lastTickTime = curTime;
   LOG(INFO) << "timerTick(" << curTime << ")";
+  foreachvalue (ResourceEstimates& estimates, frameworkEstimates) {
+    estimates.expireCharge();
+  }
+  foreachvalue (ResourceEstimates& estimates, slaveEstimates) {
+    estimates.expireCharge();
+  }
+  foreachvalue (ResourceEstimates& estimates, estimateByExecutor) {
+    estimates.expireCharge();
+  }
+
   // TODO(charles): do we still want this behavior?
   std::vector<ExecutorKey> toRemove;
-  foreachpair (const ExecutorKey& key, const ResourceEstimates estimates,
+  foreachpair (const ExecutorKey& key, const ResourceEstimates& estimates,
                estimateByExecutor) {
     if (curTime - estimates.estimateTime > kForgetTime &&
         estimates.curTasks == 0) {
@@ -338,7 +379,7 @@ UsageTrackerImpl::timerTick(double curTime) {
     }
   }
   foreach (const ExecutorKey& key, toRemove) {
-    forgetExecutor(key.v.get<0>(), key.v.get<1>(), key.v.get<2>());
+    forgetExecutor(key.v.get<0>(), key.v.get<1>(), key.v.get<2>(), true);
   }
 }
 
