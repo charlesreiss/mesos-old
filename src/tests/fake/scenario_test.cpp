@@ -89,7 +89,8 @@ TEST_F(FakeScenarioTest, PopulateScenarioOneBatchTask)
     "  },\n"
     "  \"slaves\": [\n"
     "     {\"resources\": \"mem:20;cpus:2.0\"}\n"
-    "  ]\n"
+    "  ],\n"
+    "  \"label\":\"\", \"label_cols\":\"\"\n"
     "}\n";
   std::istringstream in(scenarioText);
   Scenario scenario;
