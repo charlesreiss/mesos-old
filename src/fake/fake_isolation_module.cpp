@@ -366,7 +366,8 @@ bool FakeIsolationModule::tick() {
     FakeTask* fakeTask = usage.task->fakeTask;
     TaskState state =
         fakeTask->takeUsage(oldTime, newTime, usage.assignedUsage);
-      recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage);
+      recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage,
+          state != TASK_RUNNING);
     if (state != TASK_RUNNING) {
       MesosExecutorDriver* driver = drivers[usage.id].first;
       TaskStatus status;
@@ -421,12 +422,12 @@ FakeIsolationModule::~FakeIsolationModule()
 }
 
 FakeIsolationModule::ResourceRecord::ResourceRecord()
-    : cpuTime(0.0), memoryTime(0.0), maxMemory(0.0)
+    : cpuTime(0.0), memoryTime(0.0), maxMemory(0.0), dead(false)
 {
 }
 
 void FakeIsolationModule::ResourceRecord::accumulate(
-    seconds secs, const Resources& measurement)
+    seconds secs, const Resources& measurement, bool dead_)
 {
   cpuTime += measurement.get("cpus", Value::Scalar()).value() * secs.value;
   memoryTime +=
@@ -434,6 +435,7 @@ void FakeIsolationModule::ResourceRecord::accumulate(
   maxMemory = std::max(
       measurement.get("mem", Value::Scalar()).value(),
       maxMemory);
+  dead = dead_;
 }
 
 Resources FakeIsolationModule::ResourceRecord::getResult(seconds secs) const
@@ -473,6 +475,7 @@ void FakeIsolationModule::sendUsage()
     message.set_timestamp(lastUsageTime);
     message.set_duration(interval.value);
     message.mutable_resources()->MergeFrom(record.getResult(interval));
+    message.set_still_running(!record.dead);
     dispatch(slave, &Slave::sendUsageUpdate, message);
   }
   recentUsage.clear();

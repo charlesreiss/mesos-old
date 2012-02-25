@@ -164,10 +164,11 @@ private:
     double cpuTime;
     double memoryTime;
     double maxMemory;
+    bool dead;
 
     ResourceRecord();
 
-    void accumulate(seconds secs, const Resources& measurement);
+    void accumulate(seconds secs, const Resources& measurement, bool dead);
     Resources getResult(seconds secs) const;
     void clear();
   };

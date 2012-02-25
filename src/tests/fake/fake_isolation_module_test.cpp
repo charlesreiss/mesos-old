@@ -32,6 +32,8 @@ using namespace mesos::internal;
 using namespace mesos::internal::fake;
 using namespace mesos::internal::test;
 
+using process::UPID;
+
 using std::make_pair;
 
 using testing::AtLeast;
@@ -117,14 +119,15 @@ public:
 
   void killTask(std::string id)
   {
-    trigger gotStatusUpdate;
-    mockMaster->expect<ExitedExecutorMessage>();
+    trigger gotStatusUpdate, gotExitedExecutor;
+    mockMaster->expectAndWait<ExitedExecutorMessage>(UPID(), &gotExitedExecutor);
     mockMaster->expectAndWait<StatusUpdateMessage>(slavePid, &gotStatusUpdate);
     TaskID taskId;
     taskId.set_value(id);
-    process::dispatch(slave.get(), &Slave::killTask,
-                      DEFAULT_FRAMEWORK_ID, taskId);
+    process::dispatch(slave.get(), &Slave::killTask, DEFAULT_FRAMEWORK_ID,
+                      taskId);
     WAIT_UNTIL(gotStatusUpdate);
+    WAIT_UNTIL(gotExitedExecutor);
   }
 
   void acknowledgeUpdate(const std::string& taskId,
@@ -165,8 +168,10 @@ public:
       WillRepeatedly(Return(Resources::parse(getUsageResult)));
     EXPECT_CALL(*mockTask, takeUsage(_, _, Resources::parse(takeUsageExpect))).
       WillOnce(Return(TASK_FINISHED));
-    mockMaster->expect<ExitedExecutorMessage>();
+    trigger gotExitedExecutor;
+    mockMaster->expectAndWait<ExitedExecutorMessage>(UPID(), &gotExitedExecutor);
     tickAndUpdate("task0");
+    WAIT_UNTIL(gotExitedExecutor);
   }
 
   void makeBackgroundTask(MockFakeTask* task,
@@ -251,8 +256,7 @@ TEST_F(FakeIsolationModuleTest, TaskRunOneSecond)
   EXPECT_CALL(mockTask, getUsage(seconds(now), seconds(now + kTick))).
     WillRepeatedly(Return(Resources::parse("cpus:0.0")));
   EXPECT_CALL(mockTask, takeUsage(_, _, _)).
-    WillOnce(Return(TASK_FINISHED));
-
+    WillOnce(Return(TASK_RUNNING));
   tickAndUpdate("task0");
   killTask("task0");
   stopSlave();
@@ -274,8 +278,10 @@ TEST_F(FakeIsolationModuleTest, TaskRunTwoTicks)
   WAIT_UNTIL(gotTaskUsageCall);
   EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpus:4.0"))).
     WillOnce(Return(TASK_FINISHED));
-  mockMaster->expect<ExitedExecutorMessage>();
+  trigger gotExecutorExited;
+  mockMaster->expectAndWait<ExitedExecutorMessage>(UPID(), &gotExecutorExited);
   tickAndUpdate("task0");
+  WAIT_UNTIL(gotExecutorExited);
   stopSlave();
 }
 
