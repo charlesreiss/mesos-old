@@ -90,6 +90,12 @@ NoRequestAllocator::executorRemoved(const FrameworkID& frameworkId,
                                     const ExecutorInfo& info) {
   LOG(INFO) << "executor removed " << info.DebugString();
   tracker->forgetExecutor(frameworkId, info.executor_id(), slaveId);
+  Slave* slave = master->getSlave(slaveId);
+  refusers.erase(slave);
+  std::vector<Slave*> slave_alone;
+  slave_alone.push_back(slave);
+  // TODO(Charles): Unit test for this happening
+  makeNewOffers(slave_alone);
 }
 
 
@@ -309,6 +315,11 @@ void NoRequestAllocator::offersRevived(Framework* framework) {
 void NoRequestAllocator::timerTick() {
   tracker->timerTick(process::Clock::now());
   makeNewOffers(master->getActiveSlaves());
+  // FIXME: Charles -- this is a workaround for an unknown bug where we miss
+  // some time where we're supposed to remove something from refusers.
+  foreachvalue (boost::unordered_set<FrameworkID>& refuserSet, refusers) {
+    refuserSet.clear();
+  }
 }
 
 void NoRequestAllocator::gotUsage(const UsageMessage& update) {
