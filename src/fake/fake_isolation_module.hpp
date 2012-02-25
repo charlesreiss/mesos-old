@@ -115,6 +115,7 @@ public:
   void registerTask(const FrameworkID& frameworkId,
                     const ExecutorID& executorId,
                     const TaskID& taskId);
+
   void unregisterTask(const FrameworkID& frameworkId,
                       const ExecutorID& executorId,
                       const TaskID& taskId);
