@@ -368,6 +368,8 @@ bool FakeIsolationModule::tick() {
         fakeTask->takeUsage(oldTime, newTime, usage.assignedUsage);
       recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage,
           state != TASK_RUNNING);
+    VLOG(1) << "state == "
+            << TaskState_descriptor()->FindValueByNumber(state)->name();
     if (state != TASK_RUNNING) {
       MesosExecutorDriver* driver = drivers[usage.id].first;
       TaskStatus status;
