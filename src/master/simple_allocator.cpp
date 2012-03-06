@@ -31,7 +31,7 @@ namespace mesos {
 namespace internal {
 namespace master {
 
-void SimpleAllocator::initialize(Master* _master)
+void SimpleAllocator::initialize(Master* _master, const Configuration& conf)
 {
   master = _master;
   initialized = true;

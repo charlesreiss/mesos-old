@@ -285,7 +285,7 @@ void Master::initialize()
   slavesManager = new SlavesManager(conf, self());
   spawn(slavesManager);
 
-  allocator->initialize(this);
+  allocator->initialize(this, conf);
 
   elected = false;
 

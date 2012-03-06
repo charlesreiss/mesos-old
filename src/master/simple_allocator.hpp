@@ -38,7 +38,7 @@ public:
 
   virtual ~SimpleAllocator() {}
 
-  virtual void initialize(Master* _master);
+  virtual void initialize(Master* _master, const Configuration& _conf);
 
   virtual void frameworkAdded(Framework* framework);
 

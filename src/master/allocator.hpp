@@ -39,7 +39,7 @@ class Allocator {
 public:
   virtual ~Allocator() {}
 
-  virtual void initialize(Master* _master) {}
+  virtual void initialize(Master* _master, const Configuration& conf) {}
 
   virtual void frameworkAdded(Framework* framework) {}
 

@@ -42,20 +42,36 @@ class NoRequestAllocator : public Allocator {
 public:
   // XXX FIXME pass Configuration for real
   NoRequestAllocator() :
-    dontMakeOffers(false), tracker(getUsageTracker(Configuration())),
+    dontDeleteTracker(true), dontMakeOffers(false), tracker(0),
     master(0) {}
 
   NoRequestAllocator(AllocatorMasterInterface* _master,
                      UsageTracker* _tracker) :
-    dontMakeOffers(false), tracker(_tracker), master(_master) { }
-  ~NoRequestAllocator() {}
+    dontDeleteTracker(true), dontMakeOffers(false), tracker(_tracker),
+    master(_master) { }
 
-  void initialize(AllocatorMasterInterface* _master) {
-    master = _master;
+  ~NoRequestAllocator() {
+    if (!dontDeleteTracker && tracker) {
+      delete tracker;
+    }
   }
 
-  void initialize(master::Master* _master) {
+  void initialize(AllocatorMasterInterface* _master, const Configuration& _conf) {
     master = _master;
+    conf = _conf;
+    if (!tracker) {
+      tracker = getUsageTracker(conf);
+      dontDeleteTracker = false;
+    }
+  }
+
+  void initialize(master::Master* _master, const Configuration& _conf) {
+    master = _master;
+    conf = _conf;
+    if (!tracker) {
+      tracker = getUsageTracker(conf);
+      dontDeleteTracker = false;
+    }
   }
 
   void frameworkAdded(Framework* framework);
@@ -95,7 +111,9 @@ private:
   Resources totalResources;
   AllocatorMasterInterface* master;
   UsageTracker* tracker;
+  bool dontDeleteTracker;
   bool dontMakeOffers;
+  Configuration conf;
 
   boost::unordered_map<Slave*, boost::unordered_set<FrameworkID> > refusers;
 };

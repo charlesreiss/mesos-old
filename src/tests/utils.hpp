@@ -156,7 +156,7 @@ public:
 class MockAllocator : public master::Allocator
 {
 public:
-  MOCK_METHOD1(initialize, void(master::Master*));
+  MOCK_METHOD2(initialize, void(master::Master*, const Configuration&));
   MOCK_METHOD1(frameworkAdded, void(master::Framework*));
   MOCK_METHOD1(frameworkRemoved, void(master::Framework*));
   MOCK_METHOD1(slaveAdded, void(master::Slave*));

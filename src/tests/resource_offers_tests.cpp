@@ -444,7 +444,7 @@ TEST(ResourceOffersTest, ResourceRequest)
   MockScheduler sched;
   MockAllocator allocator;
 
-  EXPECT_CALL(allocator, initialize(_))
+  EXPECT_CALL(allocator, initialize(_, _))
     .WillOnce(Return());
 
   EXPECT_CALL(allocator, frameworkAdded(_))

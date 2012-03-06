@@ -120,7 +120,8 @@ MATCHER_P3(WithOffer, slave, resources, minResources, "") {
 
 class NoRequestAllocatorTest : public ::testing::Test {
 protected:
-  void SetUp() {
+  void SetUp()
+  {
     process::Clock::pause();
     allocator.reset(new NoRequestAllocator(&master, &tracker));
     ON_CALL(master, getActiveFrameworks()).
@@ -138,14 +139,16 @@ protected:
     testing::DefaultValue<Resources>::Set(Resources::parse("default:0"));
   }
 
-  void TearDown() {
+  void TearDown()
+  {
     foreach (Task* task, tasks) {
       delete task;
     }
     process::Clock::resume();
   }
 
-  vector<Framework*> getFrameworkList() {
+  vector<Framework*> getFrameworkList()
+  {
     LOG(INFO) << "getFrameworkList; size = " << frameworks.size();
     if (frameworks.size() > 0) {
       return vector<Framework*>(frameworks.c_array(),

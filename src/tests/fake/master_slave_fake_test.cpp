@@ -64,7 +64,7 @@ public:
     process::Clock::pause();
     trigger allocatorTicked;
     ASSERT_TRUE(GTEST_IS_THREADSAFE);
-    EXPECT_CALL(allocator, initialize(_));
+    EXPECT_CALL(allocator, initialize(_, _));
     EXPECT_CALL(allocator, timerTick()).
       WillOnce(Trigger(&allocatorTicked));
     master.reset(new Master(&allocator));
