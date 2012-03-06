@@ -78,6 +78,8 @@ void FakeIsolationModule::registerOptions(Configurator* configurator)
       "allocation", false);
   configurator->addOption<bool>("fake_assign_min",
       "use minimum for gaurenteed allocation instead of expected", false);
+  configurator->addOption<double>("fake_mem_slack",
+      "slack memory", false);
 }
 
 FakeIsolationModule::FakeIsolationModule(const FakeTaskTracker& fakeTasks_)
@@ -99,6 +101,7 @@ void FakeIsolationModule::initialize(const Configuration& conf, bool local,
   extraCpu = conf.get<bool>("fake_extra_cpu", false);
   extraMem = conf.get<bool>("fake_extra_mem", false);
   assignMin = conf.get<bool>("fake_assign_min", false);
+  slackMem = conf.get<double>("fake_slack_mem", 0.05);
   totalResources = Resources::parse(conf.get<std::string>("resources", ""));
   lastUsageTime = lastTime = process::Clock::now();
   ticker.reset(new FakeIsolationModuleTicker(this, interval));
@@ -144,10 +147,17 @@ void FakeIsolationModule::killExecutor(
 }
 
 void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
-    const ExecutorID& executorId, const ResourceHints& resources)
+    const ExecutorID& executorId, const ResourceHints& _resources)
 {
   VLOG(1) << "resourcesChanged: " << frameworkId << ", " << executorId
-          << " to " << resources;
+          << " to " << _resources;
+  ResourceHints resources = _resources;
+  mesos::Resource slackMemResource;
+  slackMemResource.set_name("mem");
+  slackMemResource.set_type(Value::SCALAR);
+  slackMemResource.mutable_scalar()->set_value(slackMem);
+  resources.expectedResources += slackMemResource;
+  resources.minResources += slackMemResource;
   tasks[make_pair(frameworkId, executorId)].assignedResources = resources;
 }
 

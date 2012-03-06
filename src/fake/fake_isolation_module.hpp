@@ -178,6 +178,7 @@ private:
   ResourceRecordMap recentUsage;
   double usageInterval;
   double lastUsageTime;
+  double slackMem;
 };
 
 }  // namespace fake

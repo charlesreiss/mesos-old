@@ -43,6 +43,11 @@ static const double kTick = 1.0;
 
 class FakeIsolationModuleTest : public ::testing::Test {
 public:
+  void SetUp()
+  {
+    conf.set("fake_slack_mem", 0.0);
+  }
+
   SlaveID getSlaveId()
   {
     SlaveID dummySlaveId;
