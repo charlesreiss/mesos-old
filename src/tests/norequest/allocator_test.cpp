@@ -501,7 +501,7 @@ TEST_F(NoRequestAllocatorTest, ExecutorAddedDoesPlaceUsageOneTask) {
   expectPlaceUsage("framework0", "slave0",
       Resources::parse("cpus:24;mem:100"),
       Resources::parse("cpus:0.5;mem:200"), 1);
-  addTask("task-framework0-0", &frameworks[0], &slaves[0],
+  Task *task = addTask("task-framework0-0", &frameworks[0], &slaves[0],
       Resources::parse("cpus:24;mem:100"),
       Resources::parse("cpus:0.5;mem:200"));
   ExecutorInfo executorInfo;
@@ -553,4 +553,36 @@ TEST_F(NoRequestAllocatorTest, GotUsageForwards) {
   update.set_duration(2.0);
   EXPECT_CALL(tracker, recordUsage(EqProto(update)));
   allocator->gotUsage(update);
+}
+
+TEST_F(NoRequestAllocatorTest, ReOfferAfterUsage) {
+  process::Clock::pause();
+  initTwoFrameworksOneSlave();
+  allocator->stopMakingOffers();
+  expectPlaceUsage("framework1", "slave0",
+                   Option<Resources>(Resources::parse("cpus:24;mem:768")),
+                   Resources(), 1);
+  Task* task = addTask("task-framework1-1", &frameworks[1], &slaves[0],
+                       Resources::parse("cpus:24;mem:768"));
+  allocator->startMakingOffers();
+  UsageMessage update;
+  update.mutable_slave_id()->set_value("slave0");
+  update.mutable_framework_id()->set_value("framework1");
+  update.mutable_executor_id()->MergeFrom(DEFAULT_EXECUTOR_ID);
+  update.mutable_resources()->MergeFrom(Resources::parse("cpus:12;mem:384"));
+  update.set_timestamp(process::Clock::now());
+  update.set_duration(1.0);
+  EXPECT_CALL(tracker, chargeForFramework(EqId("framework0"))).
+    WillRepeatedly(Return(Resources::parse("")));
+  EXPECT_CALL(tracker, chargeForFramework(EqId("framework1"))).
+    WillRepeatedly(Return(Resources::parse("cpus:5.0;mem:128")));
+  setSlaveFree("slave0",
+               Resources::parse("cpus:27;mem:896"),
+               Resources::parse("cpus:32;mem:1024"));
+  expectOffer(&frameworks[0], &slaves[0],
+              Resources::parse("cpus:27.0;mem:896"),
+              Resources::parse("cpus:32.0;mem:1024"));
+  EXPECT_CALL(tracker, recordUsage(EqProto(update)));
+  allocator->gotUsage(update);
+  process::Clock::resume();
 }

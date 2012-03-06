@@ -24,8 +24,6 @@
 #include "norequest/allocator.hpp"
 #include <process/process.hpp>
 
-#define SUGGEST_TASKS
-
 using boost::unordered_map;
 using boost::unordered_set;
 
@@ -314,12 +312,12 @@ void NoRequestAllocator::offersRevived(Framework* framework) {
 
 void NoRequestAllocator::timerTick() {
   tracker->timerTick(process::Clock::now());
-  makeNewOffers(master->getActiveSlaves());
   // FIXME: Charles -- this is a workaround for an unknown bug where we miss
   // some time where we're supposed to remove something from refusers.
   foreachvalue (boost::unordered_set<FrameworkID>& refuserSet, refusers) {
     refuserSet.clear();
   }
+  makeNewOffers(master->getActiveSlaves());
 }
 
 void NoRequestAllocator::gotUsage(const UsageMessage& update) {
@@ -333,7 +331,11 @@ void NoRequestAllocator::gotUsage(const UsageMessage& update) {
     refusers.erase(slave);
     vector<Slave*> singleSlave;
     singleSlave.push_back(slave);
+    LOG(INFO) << "Trying to make new offers based on usage update for "
+              << update.slave_id();
     makeNewOffers(singleSlave);
+  } else {
+    LOG(WARNING) << "Got usage from non-slave " << update.slave_id();
   }
 }
 
