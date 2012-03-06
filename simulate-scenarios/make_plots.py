@@ -62,14 +62,14 @@ def make_boxplot(data, x_var, y_var, **plot_options):
 
 norequest = load_file(args.base + '/norequest.csv')
 simple_strong = load_file(args.base + '/simple-strong.csv')
-#simple_weak = load_file(args.base + '/simple-weak.csv')
+simple_weak = load_file(args.base + '/simple-weak.csv')
 pyp.figure()
 make_error_bars(norequest, args.var, 'batch0_finish_time', color='red',
     label='norequest')
 make_error_bars(simple_strong, args.var, 'batch0_finish_time',
-color='green', label='simple, strong isolation')
-#make_error_bars(simple_weak, args.var, 'batch0_finish_time',
-#color='blue', label='simple, weak isolation')
+    color='green', label='simple, strong isolation')
+make_error_bars(simple_weak, args.var, 'batch0_finish_time',
+    color='blue', label='simple, weak isolation')
 #make_error_bars(norequest, 'estimate_cpu', 'batch0_finish_time', color='red',
 #    label='norequest')
 #make_error_bars(simple_strong, 'estimate_cpu', 'batch0_finish_time',
