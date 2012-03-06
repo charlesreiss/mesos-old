@@ -94,6 +94,7 @@ void FakeScheduler::statusUpdate(SchedulerDriver* driver,
   case TASK_FAILED: case TASK_KILLED: case TASK_LOST:
     tasksPending[status.task_id()] = tasksRunning[status.task_id()];
     tasksRunning.erase(status.task_id());
+    driver->reviveOffers();
     break;
   }
 }

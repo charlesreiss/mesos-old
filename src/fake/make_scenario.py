@@ -151,7 +151,8 @@ def sample_batch_job(ignore_id, set_memory=None):
   if args.memory_low:
     request_memory = args.memory_max * 0.9
   else:
-    request_memory = min(args.memory_max, (int(actual_memory)/args.memory_accuracy + 1)*args.memory_accuracy)
+    request_memory = min(args.memory_max,
+        (int(actual_memory/args.memory_accuracy) + 1)*args.memory_accuracy)
   mean_time = TIME_DIST()
   def time_dist():
     return random.expovariate(1.0/mean_time)
