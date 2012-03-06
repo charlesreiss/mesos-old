@@ -77,8 +77,18 @@ public:
     return tasksRunning.size();
   }
 
-  const Attributes& getAttributes() {
+  const Attributes& getAttributes() const {
     return attributes;
+  }
+
+  int count(TaskState terminalState) const
+  {
+    map<TaskState, int>::const_iterator it = numTerminal.find(terminalState);
+    if (it != numTerminal.end()) {
+      return it->second;
+    } else {
+      return 0;
+    }
   }
 
 private:
@@ -87,6 +97,7 @@ private:
   map<TaskID, FakeTask*> tasksRunning;
   FrameworkID frameworkId;
   Attributes attributes;
+  map<TaskState, int> numTerminal;
 };
 
 }  // namespace fake

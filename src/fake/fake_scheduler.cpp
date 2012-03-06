@@ -76,6 +76,10 @@ void FakeScheduler::offerRescinded(SchedulerDriver* driver,
 void FakeScheduler::statusUpdate(SchedulerDriver* driver,
                                  const TaskStatus& status)
 {
+  if (status.state() != TASK_STARTING && status.state() != TASK_RUNNING) {
+    numTerminal[status.state()]++;
+  }
+
   switch (status.state()) {
   case TASK_STARTING: case TASK_RUNNING:
     break;

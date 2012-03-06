@@ -195,6 +195,8 @@ TEST_F(FakeSchedulerTest, FinishTask) {
   MockFakeTask mockTask;
   makeAndAcceptOfferDefault("task0", &mockTask);
   updateTask("task0", TASK_FINISHED);
+
+  EXPECT_EQ(1, scheduler->count(TASK_FINISHED));
 }
 
 TEST_F(FakeSchedulerTest, RespawnTask) {
@@ -205,6 +207,8 @@ TEST_F(FakeSchedulerTest, RespawnTask) {
     WillOnce(Return(OK));
   updateTask("task0", TASK_LOST);
   makeAndAcceptOfferDefault("task0", 0);
+
+  EXPECT_EQ(1, scheduler->count(TASK_LOST));
 }
 
 TEST_F(FakeSchedulerTest, TwoTasksDontFit) {
