@@ -209,6 +209,37 @@ inline std::size_t hash_value(const ExecutorID& executorId)
   return seed;
 }
 
+struct ExecutorKey {
+  ExecutorKey(const FrameworkID& _frameworkId,
+              const ExecutorID& _executorId,
+              const SlaveID& _slaveId)
+    : frameworkId(_frameworkId), executorId(_executorId), slaveId(_slaveId)
+  {}
+
+  FrameworkID frameworkId;
+  ExecutorID executorId;
+  SlaveID slaveId;
+  bool operator==(const ExecutorKey& other) const
+  {
+    return frameworkId == other.frameworkId &&
+           executorId == other.executorId &&
+           slaveId == other.slaveId;
+  }
+};
+
+inline std::ostream& operator<<(std::ostream& out, const ExecutorKey& key)
+{
+  return out << key.frameworkId << " " << key.executorId << " " << key.slaveId;
+}
+
+inline std::size_t hash_value(const ExecutorKey& key)
+{
+  size_t seed = 0;
+  boost::hash_combine(seed, key.frameworkId);
+  boost::hash_combine(seed, key.executorId);
+  boost::hash_combine(seed, key.slaveId);
+  return seed;
+}
 
 namespace internal {
 

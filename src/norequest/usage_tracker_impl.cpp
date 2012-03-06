@@ -283,7 +283,7 @@ ResourceEstimates*
 UsageTrackerImpl::estimateFor(const FrameworkID& frameworkId,
                               const ExecutorID& executorId,
                               const SlaveID& slaveId) {
-  ExecutorKey key(boost::make_tuple(frameworkId, executorId, slaveId));
+  ExecutorKey key(frameworkId, executorId, slaveId);
   hashmap<ExecutorKey, ResourceEstimates>::iterator it =
     estimateByExecutor.find(key);
   if (it == estimateByExecutor.end()) {
@@ -339,7 +339,7 @@ UsageTrackerImpl::forgetExecutor(const FrameworkID& frameworkId,
                                  bool clearCharge) {
   LOG(INFO) << "forgetExecutor(" << frameworkId << "," << executorId
             << slaveId << ")";
-  const ExecutorKey key(boost::make_tuple(frameworkId, executorId, slaveId));
+  const ExecutorKey key(frameworkId, executorId, slaveId);
   if (estimateByExecutor.count(key) > 0) {
     estimateByExecutor[key].clearUsage(lastTickTime, clearCharge);
   }
@@ -373,13 +373,12 @@ UsageTrackerImpl::timerTick(double curTime) {
                estimateByExecutor) {
     if (curTime - estimates.estimateTime > kForgetTime &&
         estimates.curTasks == 0) {
-      LOG(INFO) << "Found stale entry " << key.v.get<0>() << " "
-                << key.v.get<1>() << " " << key.v.get<2>();
+      LOG(INFO) << "Found stale entry " << key;
       toRemove.push_back(key);
     }
   }
   foreach (const ExecutorKey& key, toRemove) {
-    forgetExecutor(key.v.get<0>(), key.v.get<1>(), key.v.get<2>(), true);
+    forgetExecutor(key.frameworkId, key.executorId, key.slaveId, true);
   }
 }
 
@@ -415,7 +414,7 @@ Resources
 UsageTrackerImpl::nextUsedForExecutor(const SlaveID& slaveId,
                                       const FrameworkID& frameworkId,
                                       const ExecutorID& executorId) const {
-  const ExecutorKey key(boost::make_tuple(frameworkId, executorId, slaveId));
+  const ExecutorKey key(frameworkId, executorId, slaveId);
   return lookupOrDefault(estimateByExecutor, key).nextUsedResources;
 }
 
@@ -423,7 +422,7 @@ Resources
 UsageTrackerImpl::gaurenteedForExecutor(const SlaveID& slaveId,
                                        const FrameworkID& frameworkId,
                                        const ExecutorID& executorId) const {
-  const ExecutorKey key(boost::make_tuple(frameworkId, executorId, slaveId));
+  const ExecutorKey key(frameworkId, executorId, slaveId);
   return lookupOrDefault(estimateByExecutor, key).minResources;
 }
 

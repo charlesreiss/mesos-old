@@ -90,26 +90,6 @@ private:
 // for debugging
 std::ostream& operator<<(std::ostream& out, const ResourceEstimates&);
 
-struct ExecutorKey {
-  ExecutorKey(const boost::tuple<FrameworkID, ExecutorID, SlaveID>& _v)
-      : v(_v) {}
-  boost::tuple<FrameworkID, ExecutorID, SlaveID> v;
-};
-
-inline bool operator==(const ExecutorKey& first, const ExecutorKey& second) {
-  return first.v.get<0>() == second.v.get<0>() &&
-         first.v.get<1>() == second.v.get<1>() &&
-         first.v.get<2>() == second.v.get<2>();
-}
-
-inline std::size_t hash_value(const ExecutorKey& value) {
-  std::size_t seed = 0;
-  boost::hash_combine(seed, value.v.get<0>());
-  boost::hash_combine(seed, value.v.get<1>());
-  boost::hash_combine(seed, value.v.get<2>());
-  return seed;
-}
-
 class UsageTrackerImpl : public UsageTracker {
 public:
   UsageTrackerImpl(const Configuration& conf_);
