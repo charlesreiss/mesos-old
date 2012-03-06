@@ -28,6 +28,9 @@ parser.add_argument('--repeat', default=10, type=int,
 parser.add_argument('--num_background', default=4, type=int,
                     help='number of background jobs')
 parser.add_argument('--slaves', default=4, type=int, help='number of slaves')
+parser.add_argument('--stretch_time', default=1.0, type=float)
+parser.add_argument('--vary_memory', action='store_true', default=False)
+parser.add_argument('--vary_cpu', action='store_true', default=False)
 
 args = parser.parse_args()
 
@@ -164,7 +167,7 @@ def sample_batch_job(ignore_id, set_memory=None):
     total_mem_secs += actual_memory * cpu_time
     cpu_times.append(cpu_time)
   for cpu_time in sorted(cpu_times, reverse=True):
-    job.add_task(cpu_time = cpu_time)
+    job.add_task(cpu_time = cpu_time * args.stretch_time)
   return job
 
 def sample_size():
@@ -193,23 +196,16 @@ def print_scenario(estimate_mem, estimate_cpu):
           ).dump()
     print ""
 
-for x in xrange(0):
-  VARY_MEM_REQUEST = False
-  VARY_CPU_REQUEST = False
-  if x == 1:
-    VARY_MEM_REQUEST = True
-  elif x == 0:
-    VARY_CPU_REQUEST = True
-
+if args.vary_memory or args.vary_cpu:
   for run in xrange(11):
     estimate_mem = args.experiment_memory
-    if VARY_MEM_REQUEST:
+    if args.vary_memory:
       if args.memory_low:
         estimate_mem = (0.9 + run / 5.0) * args.experiment_memory
       else:
         estimate_mem = (1.0 + run / 5.0) * args.experiment_memory
     estimate_cpu = args.experiment_cpu_request
-    if VARY_CPU_REQUEST:
+    if args.vary_cpu:
       estimate_cpu = ((run + 1) / 5.0) * args.experiment_cpu_max
     print_scenario(estimate_mem, estimate_cpu)
 
