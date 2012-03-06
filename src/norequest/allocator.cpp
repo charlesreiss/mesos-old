@@ -88,6 +88,7 @@ NoRequestAllocator::executorRemoved(const FrameworkID& frameworkId,
                                     const ExecutorInfo& info) {
   LOG(INFO) << "executor removed " << info.DebugString();
   tracker->forgetExecutor(frameworkId, info.executor_id(), slaveId);
+  knownTasks.erase(ExecutorKey(frameworkId, info.executor_id(), slaveId));
   Slave* slave = master->getSlave(slaveId);
   refusers.erase(slave);
   std::vector<Slave*> slave_alone;
@@ -103,25 +104,18 @@ NoRequestAllocator::placeUsage(const FrameworkID& frameworkId,
                                const SlaveID& slaveId,
                                Task* newTask, Task* removedTask,
                                Option<ExecutorInfo> maybeExecutorInfo) {
-  Slave* slave = master->getSlave(slaveId);
-  // TODO(charles): this should be tracked by the Slave.
-  // TODO(charles): are we sure we're always in sync?
   Resources minResources = tracker->gaurenteedForExecutor(
       slaveId, frameworkId, executorId);
   LOG(INFO) << "min = " << minResources;
-  int numTasks = 0;
-  typedef std::pair<FrameworkID, TaskID> FrameworkAndTaskID;
-  foreachpair (FrameworkAndTaskID key, Task* task, slave->tasks) {
-    if (key.first == frameworkId && task->executor_id() == executorId) {
-      numTasks += 1;
-    }
-  }
-  // Note that we don't need to adjust numTasks below because we will
-  // be called _after_ the Master's information is updated.
+  boost::unordered_set<Task*>* tasks = &knownTasks[
+    ExecutorKey(frameworkId, executorId, slaveId)];
   // TODO(charles): estimate resources more intelligently
   //                in usage tracker to centralize policy?
   Option<Resources> estimate = Option<Resources>::none();
   if (newTask) {
+    // TODO(Charles): Take into account Executor usage if executorAdded()
+    //                not yet called.
+    tasks->insert(newTask);
     estimate = Option<Resources>(
         tracker->nextUsedForExecutor(slaveId, frameworkId, executorId) +
         newTask->resources());
@@ -133,15 +127,17 @@ NoRequestAllocator::placeUsage(const FrameworkID& frameworkId,
     LOG(INFO) << "estimate = " << estimate.get();
     minResources += maybeExecutorInfo.get().min_resources();
   } else if (removedTask) {
+    CHECK_EQ(1, tasks->count(removedTask));
+    tasks->erase(removedTask);
     minResources -= removedTask->min_resources();
-    if (numTasks == 0) {
+    if (tasks->size() == 0) {
       // TODO(charles): wrong for memory
       estimate = Option<Resources>::some(Resources());
     }
   }
 
   tracker->placeUsage(frameworkId, executorId, slaveId, minResources, estimate,
-                      numTasks);
+                      tasks->size());
 }
 
 namespace {

@@ -23,9 +23,11 @@
 
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
+#include <boost/scoped_ptr.hpp>
 
 #include "norequest/usage_tracker.hpp"
 
+#include "common/type_utils.hpp"
 #include "master/allocator.hpp"
 #include "master/master.hpp"
 
@@ -116,6 +118,11 @@ private:
   Configuration conf;
 
   boost::unordered_map<Slave*, boost::unordered_set<FrameworkID> > refusers;
+
+  // We keep track of the set of known tasks here so we can incrementally
+  // update our estimates. Otherwise, we will be confused when, e.g.,
+  // an executor and a task are added/removed simulatenously.
+  boost::unordered_map<ExecutorKey, boost::unordered_set<Task*> > knownTasks;
 };
 
 } // namespace norequest
