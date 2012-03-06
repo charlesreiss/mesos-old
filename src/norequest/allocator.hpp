@@ -45,12 +45,12 @@ public:
   // XXX FIXME pass Configuration for real
   NoRequestAllocator() :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(0),
-    master(0) {}
+    master(0), aggressiveReoffer(false) {}
 
   NoRequestAllocator(AllocatorMasterInterface* _master,
                      UsageTracker* _tracker) :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(_tracker),
-    master(_master) { }
+    master(_master), aggressiveReoffer(false) { }
 
   ~NoRequestAllocator() {
     if (!dontDeleteTracker && tracker) {
@@ -61,6 +61,7 @@ public:
   void initialize(AllocatorMasterInterface* _master, const Configuration& _conf) {
     master = _master;
     conf = _conf;
+    aggressiveReoffer = conf.get<bool>("norequest_aggressive", false);
     if (!tracker) {
       tracker = getUsageTracker(conf);
       dontDeleteTracker = false;
@@ -70,6 +71,8 @@ public:
   void initialize(master::Master* _master, const Configuration& _conf) {
     master = _master;
     conf = _conf;
+    aggressiveReoffer = conf.get<bool>("norequest_aggressive", false);
+    LOG(INFO) <<  "aggressive = " << aggressiveReoffer;
     if (!tracker) {
       tracker = getUsageTracker(conf);
       dontDeleteTracker = false;
@@ -116,6 +119,7 @@ private:
   bool dontDeleteTracker;
   bool dontMakeOffers;
   Configuration conf;
+  bool aggressiveReoffer;
 
   boost::unordered_map<Slave*, boost::unordered_set<FrameworkID> > refusers;
 

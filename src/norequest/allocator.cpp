@@ -289,9 +289,13 @@ void NoRequestAllocator::resourcesRecovered(const FrameworkID& frameworkId,
                                             const SlaveID& slaveId,
                                             const ResourceHints& unusedResources) {
   // FIXME: do we need to inform usagetracker about this?
-  std::vector<Slave*> returnedSlave;
-  returnedSlave.push_back(master->getSlave(slaveId));
-  makeNewOffers(returnedSlave);
+  if (aggressiveReoffer) {
+    makeNewOffers(master->getActiveSlaves());
+  } else {
+    std::vector<Slave*> returnedSlave;
+    returnedSlave.push_back(master->getSlave(slaveId));
+    makeNewOffers(returnedSlave);
+  }
 }
 
 void NoRequestAllocator::offersRevived(Framework* framework) {
@@ -303,7 +307,11 @@ void NoRequestAllocator::offersRevived(Framework* framework) {
       revivedSlaves.push_back(slave);
     }
   }
-  makeNewOffers(revivedSlaves);
+  if (aggressiveReoffer) {
+    makeNewOffers(master->getActiveSlaves());
+  } else {
+    makeNewOffers(revivedSlaves);
+  }
 }
 
 void NoRequestAllocator::timerTick() {
@@ -329,7 +337,11 @@ void NoRequestAllocator::gotUsage(const UsageMessage& update) {
     singleSlave.push_back(slave);
     LOG(INFO) << "Trying to make new offers based on usage update for "
               << update.slave_id();
-    makeNewOffers(singleSlave);
+    if (aggressiveReoffer) {
+      makeNewOffers(master->getActiveSlaves());
+    } else {
+      makeNewOffers(singleSlave);
+    }
   } else {
     LOG(WARNING) << "Got usage from non-slave " << update.slave_id();
   }
