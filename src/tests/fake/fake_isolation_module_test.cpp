@@ -257,7 +257,8 @@ TEST_F(FakeIsolationModuleTest, TaskRunOneSecond)
     WillRepeatedly(Return(Resources::parse("cpus:0.0")));
   EXPECT_CALL(mockTask, takeUsage(_, _, _)).
     WillOnce(Return(TASK_RUNNING));
-  tickAndUpdate("task0");
+  process::Clock::advance(kTick);
+  process::Clock::settle();
   killTask("task0");
   stopSlave();
 }
