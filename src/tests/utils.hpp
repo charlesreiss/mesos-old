@@ -132,8 +132,8 @@ public:
   MOCK_METHOD0(allocatesMin, bool());
 
   MockScheduler() {
-    ON_CALL(*this, allocatesMin())
-      .WillByDefault(testing::Return(false));
+    EXPECT_CALL(*this, allocatesMin())
+      .WillRepeatedly(testing::Return(false));
   }
 };
 
