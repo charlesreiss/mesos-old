@@ -97,7 +97,7 @@ void Scenario::finishSetup()
 void Scenario::runFor(double seconds)
 {
   CHECK(process::Clock::paused());
-  const double kInterval = 1./2.;
+  const double kInterval = 1./8.;
   while (seconds > 0.0) {
     process::Clock::advance(std::min(kInterval, seconds));
     process::Clock::settle();

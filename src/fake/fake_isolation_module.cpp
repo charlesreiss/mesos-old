@@ -66,7 +66,7 @@ void FakeExecutor::killTask(ExecutorDriver* driver,
 void FakeIsolationModule::registerOptions(Configurator* configurator)
 {
   configurator->addOption<double>("fake_interval",
-      "tick interval for fake isolation module", 1.0);
+      "tick interval for fake isolation module", 1./8.);
   configurator->addOption<double>("fake_usage_interval",
       "usage messsage generation tick interval for fake isolation module",
       1.0);
