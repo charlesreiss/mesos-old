@@ -179,6 +179,12 @@ public:
   MOCK_METHOD3(executorRemoved, void(const FrameworkID&, const SlaveID&,
                                      const ExecutorInfo&));
   MOCK_METHOD1(gotUsage, void(const UsageMessage&));
+
+  MockAllocator()
+  {
+    EXPECT_CALL(*this, timerTick()).
+      WillRepeatedly(testing::Return());
+  }
 };
 
 

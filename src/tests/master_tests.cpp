@@ -199,6 +199,8 @@ protected:
       EXPECT_CALL(exec, launchTask(_, _))
         .Times(taskIds.size())
         .WillRepeatedly(SendStatusUpdate(expectState));
+    } else {
+      shutdownCall.value = 1;
     }
     for (int i = 0; i < taskIds.size(); ++i) {
       const std::string& taskId = taskIds[i];
