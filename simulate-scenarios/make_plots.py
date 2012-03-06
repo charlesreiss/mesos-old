@@ -4,6 +4,13 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pylab as pyp
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--base')
+parser.add_argument('--var', default='estimate_mem')
+
+args = parser.parse_args()
 
 def load_file(filename):
   return np.genfromtxt(filename, delimiter=',', names=True)
@@ -53,22 +60,22 @@ def make_boxplot(data, x_var, y_var, **plot_options):
 
   pyp.boxplot(y_values, positions=x_values, **plot_options)
 
-BASE = 'vary_cpu_simple'
-#norequest = load_file(BASE + '/norequest.csv')
-simple_strong = load_file(BASE + '/simple-strong.csv')
-simple_weak = load_file(BASE + '/simple-weak.csv')
+norequest = load_file(args.base + '/norequest.csv')
+simple_strong = load_file(args.base + '/simple-strong.csv')
+#simple_weak = load_file(args.base + '/simple-weak.csv')
 pyp.figure()
-#make_error_bars(norequest, 'estimate_mem', 'batch0_finish_time', color='red',
-#    label='norequest')
-#make_error_bars(simple_strong, 'estimate_mem', 'batch0_finish_time',
-#color='green', label='normal')
-#make_error_bars(simple_weak, 'estimate_mem', 'batch0_finish_time',
-#color='blue', label='normal')
+make_error_bars(norequest, args.var, 'batch0_finish_time', color='red',
+    label='norequest')
+make_error_bars(simple_strong, args.var, 'batch0_finish_time',
+color='green', label='simple, strong isolation')
+#make_error_bars(simple_weak, args.var, 'batch0_finish_time',
+#color='blue', label='simple, weak isolation')
 #make_error_bars(norequest, 'estimate_cpu', 'batch0_finish_time', color='red',
 #    label='norequest')
-make_error_bars(simple_strong, 'estimate_cpu', 'batch0_finish_time',
-color='green', label='normal')
-make_error_bars(simple_weak, 'estimate_cpu', 'batch0_finish_time',
-color='blue', label='normal')
-pyp.savefig(BASE + '-plot.pdf')
+#make_error_bars(simple_strong, 'estimate_cpu', 'batch0_finish_time',
+#color='green', label='normal')
+#make_error_bars(simple_weak, 'estimate_cpu', 'batch0_finish_time',
+#color='blue', label='normal')
+pyp.legend()
+pyp.savefig(args.base + '-plot.pdf')
 
