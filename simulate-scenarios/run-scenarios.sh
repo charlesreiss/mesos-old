@@ -16,4 +16,4 @@ $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
 $SIMULATE --json_file=$SCENARIO.json --allocator=simple \
   > $SCENARIO/simple-strong.csv &
 $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
-  --allocator=simple > tee $SCENARIO/simple-weak.csv &
+  --allocator=simple >$SCENARIO/simple-weak.csv &
