@@ -38,31 +38,33 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
   foreach (const Offer& offer, offers) {
     vector<TaskDescription> toLaunch;
     ResourceHints bucket = ResourceHints::forOffer(offer);
-    foreachpair (const TaskID& taskId, FakeTask* task, tasksPending) {
-      ResourceHints curRequest = task->getResourceRequest();
-      if (curRequest <= bucket) {
-        TaskDescription newTask;
-        newTask.set_name("dummy-name");
-        newTask.mutable_task_id()->MergeFrom(taskId);
-        newTask.mutable_slave_id()->MergeFrom(offer.slave_id());
-        newTask.mutable_resources()->MergeFrom(curRequest.expectedResources);
-        newTask.mutable_min_resources()->MergeFrom(curRequest.minResources);
-        newTask.mutable_executor()->mutable_executor_id()->set_value(
-            taskId.value());
-        newTask.mutable_executor()->set_uri("no-executor");
-        toLaunch.push_back(newTask);
-        bucket -= curRequest;
-        taskTracker->registerTask(frameworkId,
-            newTask.executor().executor_id(), taskId, task);
-        tasksRunning[taskId] = task;
-        LOG(INFO) << "placed " << task << " in " << newTask.DebugString();
-      } else {
-        LOG(INFO) << "rejected " << task << "; only " << bucket << " versus "
-                  << curRequest;
+    if (!haveMinRequest || minRequest <= bucket) {
+      foreachpair (const TaskID& taskId, FakeTask* task, tasksPending) {
+        ResourceHints curRequest = task->getResourceRequest();
+        if (curRequest <= bucket) {
+          TaskDescription newTask;
+          newTask.set_name("dummy-name");
+          newTask.mutable_task_id()->MergeFrom(taskId);
+          newTask.mutable_slave_id()->MergeFrom(offer.slave_id());
+          newTask.mutable_resources()->MergeFrom(curRequest.expectedResources);
+          newTask.mutable_min_resources()->MergeFrom(curRequest.minResources);
+          newTask.mutable_executor()->mutable_executor_id()->set_value(
+              taskId.value());
+          newTask.mutable_executor()->set_uri("no-executor");
+          toLaunch.push_back(newTask);
+          bucket -= curRequest;
+          taskTracker->registerTask(frameworkId,
+              newTask.executor().executor_id(), taskId, task);
+          tasksRunning[taskId] = task;
+          LOG(INFO) << "placed " << task << " in " << newTask.DebugString();
+        } else {
+          LOG(INFO) << "rejected " << task << "; only " << bucket << " versus "
+                    << curRequest;
+        }
       }
-    }
-    foreach (const TaskDescription& task, toLaunch) {
-      tasksPending.erase(task.task_id());
+      foreach (const TaskDescription& task, toLaunch) {
+        tasksPending.erase(task.task_id());
+      }
     }
     driver->launchTasks(offer.id(), toLaunch);
   }
@@ -96,6 +98,27 @@ void FakeScheduler::statusUpdate(SchedulerDriver* driver,
     tasksRunning.erase(status.task_id());
     driver->reviveOffers();
     break;
+  }
+}
+
+void FakeScheduler::updateMinRequest(const ResourceHints& resources)
+{
+  if (haveMinRequest) {
+    minRequest = minResources(minRequest, resources);
+  } else {
+    minRequest = resources;
+    haveMinRequest = true;
+  }
+}
+
+void FakeScheduler::updateMinRequest()
+{
+  haveMinRequest = false;
+  foreachvalue (FakeTask* task, tasksPending) {
+    updateMinRequest(task->getResourceRequest());
+  }
+  foreachvalue (FakeTask* task, tasksRunning) {
+    updateMinRequest(task->getResourceRequest());
   }
 }
 

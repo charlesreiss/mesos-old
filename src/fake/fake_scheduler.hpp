@@ -41,7 +41,8 @@ class FakeScheduler : public Scheduler {
 public:
   FakeScheduler(const Attributes& attributes_,
                 FakeTaskTracker* taskTracker_)
-    : attributes(attributes_), taskTracker(taskTracker_) {}
+    : attributes(attributes_), taskTracker(taskTracker_),
+      haveMinRequest(false) {}
   void registered(SchedulerDriver* driver, const FrameworkID& frameworkId);
   void resourceOffers(SchedulerDriver* driver,
                       const std::vector<Offer>& offers);
@@ -63,10 +64,12 @@ public:
 
   void setTasks(const map<TaskID, FakeTask*>& tasks_) {
     tasksPending = tasks_;
+    updateMinRequest();
   }
 
   void addTask(const TaskID& taskId, FakeTask* task) {
     tasksPending[taskId] = task;
+    updateMinRequest(task->getResourceRequest());
   }
 
   int countPending() const {
@@ -92,12 +95,18 @@ public:
   }
 
 private:
+  void updateMinRequest();
+  void updateMinRequest(const ResourceHints& request);
+
   FakeTaskTracker* taskTracker;
   map<TaskID, FakeTask*> tasksPending;
   map<TaskID, FakeTask*> tasksRunning;
   FrameworkID frameworkId;
   Attributes attributes;
   map<TaskState, int> numTerminal;
+
+  bool haveMinRequest;
+  ResourceHints minRequest;
 };
 
 }  // namespace fake
