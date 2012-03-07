@@ -56,9 +56,7 @@ public:
 
   void killTask(ExecutorDriver* driver, const TaskID& taskId);
 
-  void frameworkMessage(ExecutorDriver* driver, const std::string& data) {
-    LOG(FATAL) << "should not get framework message";
-  }
+  void frameworkMessage(ExecutorDriver* driver, const std::string& data);
 
   void shutdown(ExecutorDriver* driver);
 
@@ -107,6 +105,9 @@ public:
   void killExecutor(const FrameworkID& frameworkId,
                     const ExecutorID& executorId);
 
+  void killedExecutor(const FrameworkID& frameworkId,
+                      const ExecutorID& executorId);
+
   void resourcesChanged(const FrameworkID& frameworkId,
                         const ExecutorID& executorId,
                         const ResourceHints& resources);
@@ -134,6 +135,13 @@ public:
   };
 
   void sendUsage();
+
+  // For testing
+  bool haveExecutor(const FrameworkID& frameworkId,
+                    const ExecutorID& executorId) const
+  {
+    return tasks.count(std::make_pair(frameworkId, executorId)) > 0;
+  }
 
 private:
   friend class FakeExecutor;

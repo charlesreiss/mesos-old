@@ -37,6 +37,7 @@ void FakeExecutor::init(ExecutorDriver* driver,
 void FakeExecutor::shutdown(ExecutorDriver* driver)
 {
   CHECK(initialized);
+  module->killedExecutor(frameworkId, executorId);
   initialized = false;
 }
 
@@ -61,6 +62,17 @@ void FakeExecutor::killTask(ExecutorDriver* driver,
   driver->sendStatusUpdate(status);
 
   module->unregisterTask(frameworkId, executorId, taskId);
+}
+
+void FakeExecutor::frameworkMessage(ExecutorDriver* driver,
+    const std::string& data)
+{
+  if (data == "DIE") {
+    module->killedExecutor(frameworkId, executorId);
+    driver->stop();
+  } else {
+    CHECK(false);
+  }
 }
 
 void FakeIsolationModule::registerOptions(Configurator* configurator)
@@ -146,6 +158,11 @@ void FakeIsolationModule::killExecutor(
   dispatch(slave, &Slave::executorExited, frameworkId, executorId, 0);
 }
 
+void FakeIsolationModule::killedExecutor(
+    const FrameworkID& frameworkId, const ExecutorID& executorId) {
+  dispatch(self(), &IsolationModule::killExecutor, frameworkId, executorId);
+}
+
 void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
     const ExecutorID& executorId, const ResourceHints& _resources)
 {
@@ -190,7 +207,12 @@ void FakeIsolationModule::unregisterTask(
   CHECK_NOTNULL(taskInfo->fakeTask);
   taskInfo->fakeTask = 0;
   CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
-  dispatch(self(), &IsolationModule::killExecutor, frameworkId, executorId);
+  SlaveID ignoredSlaveId;
+  ignoredSlaveId.set_value("XXX");
+  // We do this indirectly so status updates queued with the ExecutorProcess
+  // happen first.
+  dispatch(slave, &Slave::schedulerMessage, ignoredSlaveId, frameworkId,
+      executorId, "DIE");
 }
 
 void FakeIsolationModuleTicker::tick() {

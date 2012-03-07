@@ -11,6 +11,17 @@ FakeTaskTracker::FakeTaskTracker() {
   pthread_rwlock_init(&lock, 0);
 }
 
+bool FakeTaskTracker::haveTaskFor(const FrameworkID& frameworkId,
+                                  const ExecutorID& executorId,
+                                  const TaskID& taskId) const
+{
+  ReadLock l(&lock);
+  TaskMap::const_iterator it =
+    tasks.find(boost::make_tuple(frameworkId, executorId, taskId));
+  return it != tasks.end();
+}
+
+
 FakeTask* FakeTaskTracker::getTaskFor(const FrameworkID& frameworkId,
                                       const ExecutorID& executorId,
                                       const TaskID& taskId) const

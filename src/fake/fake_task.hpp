@@ -55,6 +55,11 @@ class FakeTaskTracker {
 public:
   FakeTaskTracker();
 
+  bool haveTaskFor(const FrameworkID& frameworkId,
+                   const ExecutorID& executorId,
+                   const TaskID& taskId) const;
+
+
   FakeTask* getTaskFor(const FrameworkID& frameworkId,
                        const ExecutorID& executorId,
                        const TaskID& taskId) const;
