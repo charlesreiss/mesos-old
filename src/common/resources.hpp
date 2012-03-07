@@ -542,6 +542,27 @@ std::ostream& operator<<(std::ostream& out, const ResourceHints& o)
   return out << o.expectedResources << " / min: " << o.minResources;
 }
 
+inline
+Resources minResources(const Resources& a, const Resources& b)
+{
+  Resources both = a + b;
+  Resources result;
+  foreach (const Resource& resource, both) {
+    Option<Resource> resA = a.get(resource);
+    Option<Resource> resB = b.get(resource);
+    if (resA.isSome() && resB.isSome()) {
+      result += resB.get() <= resA.get() ? resB.get() : resA.get();
+    }
+  }
+  return result;
+}
+
+inline
+ResourceHints minResources(const ResourceHints& a, const ResourceHints& b)
+{
+  return ResourceHints(minResources(a.expectedResources, b.expectedResources),
+                       minResources(a.minResources, b.minResources));
+}
 
 } // namespace internal {
 } // namespace mesos {

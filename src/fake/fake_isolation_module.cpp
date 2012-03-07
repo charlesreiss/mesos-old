@@ -193,23 +193,6 @@ void FakeIsolationModule::unregisterTask(
   dispatch(self(), &IsolationModule::killExecutor, frameworkId, executorId);
 }
 
-namespace {
-
-Resources minResources(Resources a, Resources b) {
-  Resources both = a + b;
-  Resources result;
-  foreach (const Resource& resource, both) {
-    Option<Resource> resA = a.get(resource);
-    Option<Resource> resB = b.get(resource);
-    if (resA.isSome() && resB.isSome()) {
-      result += resB.get() <= resA.get() ? resB.get() : resA.get();
-    }
-  }
-  return result;
-}
-
-}  // unnamed namespace
-
 void FakeIsolationModuleTicker::tick() {
   if (module->tick()) {
     VLOG(2) << "scheduling new tick";
