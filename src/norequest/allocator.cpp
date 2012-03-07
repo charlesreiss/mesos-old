@@ -316,11 +316,13 @@ void NoRequestAllocator::offersRevived(Framework* framework) {
 
 void NoRequestAllocator::timerTick() {
   tracker->timerTick(process::Clock::now());
+#if 0
   // FIXME: Charles -- this is a workaround for an unknown bug where we miss
   // some time where we're supposed to remove something from refusers.
   foreachvalue (boost::unordered_set<FrameworkID>& refuserSet, refusers) {
     refuserSet.clear();
   }
+#endif
   makeNewOffers(master->getActiveSlaves());
 }
 
@@ -328,10 +330,12 @@ void NoRequestAllocator::gotUsage(const UsageMessage& update) {
   tracker->recordUsage(update);
   Slave* slave = master->getSlave(update.slave_id());
   if (slave) {
+#if 0
     // TODO(charles): replace or remove this hack
     foreach (Framework* framework, master->getActiveFrameworks()) {
       framework->slaveFilter.erase(slave);
     }
+#endif
     refusers.erase(slave);
     vector<Slave*> singleSlave;
     singleSlave.push_back(slave);
