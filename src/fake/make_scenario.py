@@ -13,10 +13,6 @@ parser.add_argument('--cpu_request', default=1.0, type=float,
                     help='CPU requested')
 parser.add_argument('--cpu_max', default=2.0, type=float,
                     help='Maximum CPU used')
-parser.add_argument('--experiment_cpu_request', default=2.0, type=float,
-                    help='')
-parser.add_argument('--experiment_cpu_max', default=2.0, type=float,
-                    help='')
 parser.add_argument('--memory_max', default=40.0, type=float,
                     help='')
 parser.add_argument('--experiment_memory', default=8.0, type=float,
@@ -30,7 +26,11 @@ parser.add_argument('--num_background', default=4, type=int,
 parser.add_argument('--slaves', default=4, type=int, help='number of slaves')
 parser.add_argument('--stretch_time', default=1.0, type=float)
 parser.add_argument('--vary_memory', action='store_true', default=False)
+parser.add_argument('--vary_memory_round', action='store_true', default=False)
 parser.add_argument('--vary_cpu', action='store_true', default=False)
+parser.add_argument('--use_experiment', action='store_true',
+                    default=False)
+parser.add_argument('--max_offset', default=10, type=int)
 
 args = parser.parse_args()
 
@@ -53,8 +53,73 @@ FACEBOOK_MAP_TASK_TIMES = [
     576.176, 800.652, 1530.172, 7129.003, 283749
 ]
 
+def sample_memory():
+  return random.lognormvariate(2.0, math.sqrt(2.0))
+
+def sample_cpu():
+  return args.cpu_max
+
+def round_exact(actual):
+  return actual
+
+def make_round_memory(factor):
+  def result(actual):
+    return (int(actual/factor) + 1.0) * factor
+  return result
+
+def empirical_dist(quantiles):
+  def result():
+    index = random.uniform(0, len(quantiles) - 1)
+    fraction = index - int(index)
+    low = quantiles[int(index)]
+    high = quantiles[int(index) + 1]
+    return low * (1.0 - fraction) + high * fraction
+  return result
+
+
+sample_time = empirical_dist(FACEBOOK_MAP_TASK_TIMES)
+
+def sample_time_dist(mean):
+  return random.expovariate(1.0 / mean)
 
 class BatchJob(object):
+  @staticmethod
+  def sample(
+      memory_sample_func = sample_memory,
+      cpu_sample_func = sample_cpu,
+      memory_round_func = round_exact,
+      cpu_round_func = round_exact,
+      mean_duration_func = sample_time,
+      duration_func = sample_time_dist,
+      target_memory_seconds = 1000.0,
+      stretch_time = 1.0,
+      memory_max = 40.0,
+      **ignored_args
+  ):
+    actual_memory = min(memory_max, memory_sample_func())
+    request_memory = min(memory_max, memory_round_func(actual_memory))
+    actual_cpu = sample_cpu()
+    request_cpu = cpu_round_func(actual_cpu)
+    mean_time = mean_duration_func()
+    def time_dist():
+      return duration_func(mean_time)
+
+    job = BatchJob(
+      request='cpus:' + str(args.cpu_request) + ';mem:' + str(request_memory),
+      const_resources='mem:' + str(actual_memory),
+      max_cpus=actual_cpu,
+    )
+    total_mem_secs = 0.0
+    cpu_times = []
+    while total_mem_secs < target_memory_seconds:
+      cpu_time = time_dist()
+      total_mem_secs += actual_memory * cpu_time
+      cpu_times.append(cpu_time)
+    for cpu_time in sorted(cpu_times, reverse=True):
+      job.add_task(cpu_time = cpu_time * stretch_time)
+    return job
+
+    
   def __init__(self, request, const_resources, 
                max_cpus):
     self.for_json = {
@@ -127,87 +192,50 @@ def constant_dist(x):
   def result():
     return x
   return result
-
-def empirical_dist(quantiles):
-  def result():
-    index = random.uniform(0, len(quantiles) - 1)
-    fraction = index - int(index)
-    low = quantiles[int(index)]
-    high = quantiles[int(index) + 1]
-    return low * (1.0 - fraction) + high * fraction
-  return result
-
-def sample_memory():
-  return random.lognormvariate(4.0, math.sqrt(4.0))
-
-
-TIME_DIST = empirical_dist(FACEBOOK_MAP_TASK_TIMES)
-
-def sample_batch_job(ignore_id, set_memory=None):
-  actual_memory = min(args.memory_max, sample_memory())
-  if set_memory is not None :
-    actual_memory = set_memory
-  request_memory = 0.0
-  if args.memory_low:
-    request_memory = args.memory_max * 0.9
-  else:
-    request_memory = min(args.memory_max,
-        (int(actual_memory/args.memory_accuracy) + 1)*args.memory_accuracy)
-  mean_time = TIME_DIST()
-  def time_dist():
-    return random.expovariate(1.0/mean_time)
-  job = BatchJob(
-      request='cpus:' + str(args.cpu_request) + ';mem:' + str(request_memory),
-      const_resources='mem:' + str(actual_memory),
-      max_cpus=args.cpu_max,
-  )
-  total_mem_secs = 0.0
-  cpu_times = []
-  while total_mem_secs < args.target_memory_seconds:
-    cpu_time = time_dist()
-    total_mem_secs += actual_memory * cpu_time
-    cpu_times.append(cpu_time)
-  for cpu_time in sorted(cpu_times, reverse=True):
-    job.add_task(cpu_time = cpu_time * args.stretch_time)
-  return job
-
 def sample_size():
   return int(random.expovariate(1.0/10.0))
 
-random.seed(42)
-fixed_jobs = map(sample_batch_job, xrange(args.num_background))
-extra_job = sample_batch_job(-1, set_memory=args.experiment_memory)
+def make_jobs(args):
+  fixed_jobs = map(sample_batch_job, xrange(args.num_background))
 
-def print_scenario(estimate_mem, estimate_cpu):
-  extra_job.set_resources(
-      constant = 'mem:%(mem)s' % { 'mem': args.experiment_memory },
-      request = 'mem:%(mem)s;cpus:%(cpus)s' % { 'mem': estimate_mem, 'cpus':
-        estimate_cpu
-      })
-  extra_job.set_max_cpus(args.experiment_cpu_max)
-  jobs = [extra_job] + fixed_jobs
-  for i in xrange(args.repeat):
-    print Scenario(
+random.seed(42)
+
+def make_scenario(offset):
+  random.seed(42)
+  def sample_one(is_experiment=False):
+    myargs = args
+    if is_experiment:
+      myargs.memory_sample_func = lambda ignored: args.experiment_memory
+    else:
+      myargs.memory_sample_func = sample_memory
+    if is_experiment or not myargs.use_experiment:
+      if args.vary_memory:
+        if args.memory_low:
+          myargs.memory_round_func = lambda x: (0.5 + offset / 5.0) * x
+        else:
+          myargs.memory_round_func = lambda x: (1.0 + offset / 5.0) * x
+      elif args.vary_memory_round:
+        FACTOR = 0.25 * (offset + 1)
+        myargs.memory_round_func = make_round_memory(FACTOR)
+      elif args.vary_cpu:
+        myargs.cpu_round_func = lambda x: (0.5 + offset / 5.0) * x
+    return BatchJob.sample(**vars(myargs))
+
+  fixed_jobs = map(lambda ignore: sample_one(), xrange(args.num_background))
+  experiment_jobs = []
+  if args.use_experiment:
+    experiment_jobs = map(lambda ignore: sample_one(True), [0])
+  return Scenario(
             slaves = map(lambda x: Slave(resources='mem:40;cpus:8.0'),
               xrange(args.slaves)),
-            batch_jobs = jobs,
-            label='%s,%s,%s,%s' % (estimate_mem, estimate_cpu, args.cpu_request,
-              args.memory_accuracy),
-            label_cols='estimate_mem,estimate_cpu,other_estimate_cpu,memory_accuracy',
-          ).dump()
+            batch_jobs = fixed_jobs + experiment_jobs,
+            label='%s' % (offset),
+            label_cols='offset',
+  )
+
+for i in xrange(args.max_offset):
+  scenario = make_scenario(i)
+  for j in xrange(args.repeat):
+    print(scenario.dump())
     print ""
 
-if args.vary_memory or args.vary_cpu:
-  for run in xrange(11):
-    estimate_mem = args.experiment_memory
-    if args.vary_memory:
-      if args.memory_low:
-        estimate_mem = (0.9 + run / 5.0) * args.experiment_memory
-      else:
-        estimate_mem = (1.0 + run / 5.0) * args.experiment_memory
-    estimate_cpu = args.experiment_cpu_request
-    if args.vary_cpu:
-      estimate_cpu = ((run + 1) / 5.0) * args.experiment_cpu_max
-    print_scenario(estimate_mem, estimate_cpu)
-
-print_scenario(args.experiment_memory, args.experiment_cpu_max)
