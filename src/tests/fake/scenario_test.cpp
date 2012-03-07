@@ -34,6 +34,9 @@ protected:
     scenario.runFor(time);
     EXPECT_EQ(0, scenario.getScheduler("batch")->countPending());
     EXPECT_EQ(0, scenario.getScheduler("batch")->countRunning());
+    EXPECT_EQ(numTasks, scenario.getScheduler("batch")->count(TASK_FINISHED));
+    EXPECT_EQ(0, scenario.getScheduler("batch")->count(TASK_LOST));
+    EXPECT_EQ(0, scenario.getScheduler("batch")->count(TASK_KILLED));
     scenario.stop();
     process::Clock::resume();
   }

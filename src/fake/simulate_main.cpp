@@ -21,6 +21,14 @@ using namespace mesos;
 using namespace mesos::internal;
 using namespace mesos::internal::fake;
 
+static void headerForBatch(const std::string& name)
+{
+  std::cout << name << "_cpu," << name << "_finish_time,"
+            << name << "_finished,"
+            << name << "_lost," << name << "_failed,"
+            << name << "_kill,";
+}
+
 static void header(const Configuration& conf)
 {
   foreachpair (const std::string& key, const std::string& value,
@@ -31,7 +39,7 @@ static void header(const Configuration& conf)
   int numBatches =
       std::count(batchCountsString.begin(), batchCountsString.end(), ',') + 1;
   for (int i = 0; i < numBatches; ++i) {
-    std::cout << "batch" << i << "_cpu,batch" << i << "_finish,";
+    headerForBatch("batch" + boost::lexical_cast<std::string>(i));
   }
   std::cout << "total_time" << std::endl;
 }
@@ -88,7 +96,7 @@ const void headerFromScenario(const Configuration& conf, Scenario* scenario)
     std::cout << "run_id,";
   }
   foreachkey (const std::string& name, scenario->getSchedulers()) {
-    std::cout << name << "_total_time," << name << "_finish_time" << ",";
+    headerForBatch(name);
   }
   std::cout << "all_total_time,all_finish_time\n";
 }
@@ -139,7 +147,11 @@ static void run(const Configuration& conf, bool needHeader,
   }
 
   for (int i = 0; i < finishTime.size(); ++i) {
-    std::cout << totalCpuTimes[i] << "," << finishTime[i] << ",";
+    std::cout << totalCpuTimes[i] << "," << finishTime[i] << ","
+              << schedulers[i]->count(TASK_FINISHED) << ","
+              << schedulers[i]->count(TASK_LOST) << ","
+              << schedulers[i]->count(TASK_FAILED) << ","
+              << schedulers[i]->count(TASK_KILLED) << ",";
   }
   std::cout << std::accumulate(totalCpuTimes.begin(), totalCpuTimes.end(), 0.0)
             << "," << (end - start) << std::endl;
