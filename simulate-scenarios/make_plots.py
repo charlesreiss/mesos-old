@@ -9,6 +9,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--base')
 parser.add_argument('--var', default='estimate_mem')
+parser.add_argument('--y', default='batch0_finish_time')
 
 args = parser.parse_args()
 
@@ -64,11 +65,11 @@ norequest = load_file(args.base + '/norequest.csv')
 simple_strong = load_file(args.base + '/simple-strong.csv')
 simple_weak = load_file(args.base + '/simple-weak.csv')
 pyp.figure()
-make_error_bars(norequest, args.var, 'batch0_finish_time', color='red',
+make_error_bars(norequest, args.var, args.y, color='red',
     label='norequest')
-make_error_bars(simple_strong, args.var, 'batch0_finish_time',
+make_error_bars(simple_strong, args.var, args.y,
     color='green', label='simple, strong isolation')
-make_error_bars(simple_weak, args.var, 'batch0_finish_time',
+make_error_bars(simple_weak, args.var, args.y,
     color='blue', label='simple, weak isolation')
 #make_error_bars(norequest, 'estimate_cpu', 'batch0_finish_time', color='red',
 #    label='norequest')
