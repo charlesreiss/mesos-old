@@ -24,6 +24,7 @@ using namespace mesos::internal::fake;
 static void headerForBatch(const std::string& name)
 {
   std::cout << name << "_cpu," << name << "_finish_time,"
+            << name << "_start_time," << name << "_duration,"
             << name << "_finished,"
             << name << "_lost," << name << "_failed,"
             << name << "_kill,";
@@ -147,7 +148,10 @@ static void run(const Configuration& conf, bool needHeader,
   }
 
   for (int i = 0; i < finishTime.size(); ++i) {
-    std::cout << totalCpuTimes[i] << "," << finishTime[i] << ","
+    double curFinish = finishTime[i];
+    double curStart = schedulers[i]->getStartTime(start);
+    std::cout << totalCpuTimes[i] << "," << curFinish << ","
+              << curStart << "," << (curFinish - curStart) << ","
               << schedulers[i]->count(TASK_FINISHED) << ","
               << schedulers[i]->count(TASK_LOST) << ","
               << schedulers[i]->count(TASK_FAILED) << ","

@@ -74,9 +74,22 @@ public:
 
 class FakeSchedulerTest : public testing::Test {
 public:
-  void registerScheduler()
+  void SetUp()
+  {
+    process::Clock::pause();
+  }
+
+  void TearDown()
+  {
+    process::Clock::resume();
+  }
+
+  void registerScheduler(double delay = 0.0)
   {
     scheduler.reset(new FakeScheduler(Attributes(), &tracker));
+    if (delay > 0.0) {
+      scheduler->setStartTime(process::Clock::now() + delay);
+    }
     scheduler->registered(&schedulerDriver, DEFAULT_FRAMEWORK_ID);
   }
 
@@ -142,12 +155,24 @@ public:
         mockTask);
   }
 
+  void rejectOffer(const std::string& id,
+                   const ResourceHints& offerResources)
+  {
+    vector<TaskDescription> result;
+    EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
+      WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
+    scheduler->resourceOffers(&schedulerDriver,
+        singleOffer("offer0", "slave0", offerResources));
+    EXPECT_EQ(0, result.size());
+  }
+
   void updateTask(const std::string& id, TaskState state) {
     TaskStatus status;
     status.mutable_task_id()->set_value(id);
     status.set_state(state);
     scheduler->statusUpdate(&schedulerDriver, status);
   }
+
 protected:
   boost::scoped_ptr<FakeScheduler> scheduler;
   MockSchedulerDriver schedulerDriver;
@@ -233,4 +258,30 @@ TEST_F(FakeSchedulerTest, TwoTasksLowestFirst) {
           ResourceHints(Resources::parse("cpus:7.0"), Resources())));
   scheduler->addTask(TASK_ID("task1"), &mockTask1);
   makeAndAcceptOfferDefault("task0", &mockTask0);
+}
+
+TEST_F(FakeSchedulerTest, DelayStart) {
+  registerScheduler(10.0);
+  MockFakeTask mockTask;
+  EXPECT_CALL(mockTask, getResourceRequest()).
+    WillRepeatedly(Return(
+          ResourceHints(Resources::parse("cpus:1.0"), Resources())));
+  scheduler->addTask(TASK_ID("task1"), &mockTask);
+  process::Clock::settle();
+  rejectOffer("offer0", ResourceHints(Resources::parse("cpus:8.0;mem:1024"),
+                                      Resources::parse("cpus:8.0;mem:1024")));
+  process::Clock::advance(9.5);
+  process::Clock::settle();
+  rejectOffer("offer1", ResourceHints(Resources::parse("cpus:8.0;mem:1024"),
+                                      Resources::parse("cpus:8.0;mem:1024")));
+  trigger gotRevive;
+  EXPECT_CALL(schedulerDriver, reviveOffers()).
+    WillOnce(testing::DoAll(Trigger(&gotRevive), Return(OK)));
+  process::Clock::advance(0.5);
+  WAIT_UNTIL(gotRevive);
+  makeAndAcceptOffer("task1",
+                     ResourceHints(Resources::parse("cpus:8.0;mem:1024"),
+                                   Resources::parse("cpus:8.0;mem:1024")),
+                     ResourceHints(Resources::parse("cpus:1.0"), Resources()),
+                     0);
 }

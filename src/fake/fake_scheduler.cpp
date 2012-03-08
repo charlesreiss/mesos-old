@@ -26,19 +26,21 @@ namespace fake {
 
 using std::vector;
 
-void FakeScheduler::registered(SchedulerDriver* driver,
+void FakeScheduler::registered(SchedulerDriver* driver_,
                                const FrameworkID& frameworkId_)
 {
+  driver = driver_;
   frameworkId.MergeFrom(frameworkId_);
 }
 
 void FakeScheduler::resourceOffers(SchedulerDriver* driver,
                                    const std::vector<Offer>& offers)
 {
+  bool beforeStartTime = process::Clock::now() < startTime;
   foreach (const Offer& offer, offers) {
     vector<TaskDescription> toLaunch;
     ResourceHints bucket = ResourceHints::forOffer(offer);
-    if (!haveMinRequest || minRequest <= bucket) {
+    if (!beforeStartTime && (!haveMinRequest || minRequest <= bucket)) {
       foreachpair (const TaskID& taskId, FakeTask* task, tasksPending) {
         ResourceHints curRequest = task->getResourceRequest();
         if (curRequest <= bucket) {
@@ -98,6 +100,22 @@ void FakeScheduler::statusUpdate(SchedulerDriver* driver,
     tasksRunning.erase(status.task_id());
     driver->reviveOffers();
     break;
+  }
+}
+
+void FakeScheduler::setStartTime(double time)
+{
+  startTime = time;
+  process::timers::cancel(startTimer);
+  startTimer = process::timers::create(
+      time - process::Clock::now(),
+      std::tr1::bind(&FakeScheduler::atStartTime, this));
+}
+
+void FakeScheduler::atStartTime()
+{
+  if (driver) {
+    driver->reviveOffers();
   }
 }
 

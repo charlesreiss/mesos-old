@@ -21,6 +21,8 @@
 
 #include <glog/logging.h>
 
+#include <process/timer.hpp>
+
 #include "fake/fake_task.hpp"
 
 #include "common/type_utils.hpp"
@@ -28,6 +30,7 @@
 
 #include <mesos/scheduler.hpp>
 
+#include <algorithm>
 #include <map>
 
 
@@ -42,7 +45,7 @@ public:
   FakeScheduler(const Attributes& attributes_,
                 FakeTaskTracker* taskTracker_)
     : attributes(attributes_), taskTracker(taskTracker_),
-      haveMinRequest(false) {}
+      haveMinRequest(false), startTime(0), driver(0) {}
   void registered(SchedulerDriver* driver, const FrameworkID& frameworkId);
   void resourceOffers(SchedulerDriver* driver,
                       const std::vector<Offer>& offers);
@@ -60,6 +63,13 @@ public:
                  const SlaveID& slaveId) {}
   void error(SchedulerDriver* driver, int code, const std::string& message) {
     LOG(ERROR) << "fake scheduler error: " << code << ": " << message;
+  }
+
+  void setStartTime(double time);
+
+  double getStartTime(double minTime) const
+  {
+    return std::max(0.0, startTime - minTime);
   }
 
   void setTasks(const map<TaskID, FakeTask*>& tasks_) {
@@ -94,9 +104,16 @@ public:
     }
   }
 
+  ~FakeScheduler()
+  {
+    process::timers::cancel(startTimer);
+  }
+
 private:
   void updateMinRequest();
   void updateMinRequest(const ResourceHints& request);
+
+  void atStartTime();
 
   FakeTaskTracker* taskTracker;
   map<TaskID, FakeTask*> tasksPending;
@@ -107,6 +124,10 @@ private:
 
   bool haveMinRequest;
   ResourceHints minRequest;
+
+  process::Timer startTimer;
+  double startTime;
+  SchedulerDriver* driver;
 };
 
 }  // namespace fake

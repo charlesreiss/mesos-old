@@ -160,16 +160,10 @@ using boost::property_tree::ptree;
 void populateScenarioFrom(const ptree& spec,
                           Scenario* scenario)
 {
+  const double now(process::Clock::now());
   scenario->spawnMaster();
   scenario->setLabelColumns(spec.get<std::string>("label_cols"));
   scenario->setLabel(spec.get<std::string>("label", ""));
-  foreachpair (const std::string& unusedSlaveName,
-               const ptree& slaveSpec, spec.get_child("slaves")) {
-    CHECK_EQ(unusedSlaveName, "");
-    const Resources slaveResources(
-        Resources::parse(slaveSpec.get<std::string>("resources", "")));
-    scenario->spawnSlave(slaveResources);
-  }
   const ptree& batchJobs = spec.get_child("batch");
   foreachpair (const std::string& schedName, const ptree& batch, batchJobs) {
     const ResourceHints batchRequest(
@@ -200,7 +194,19 @@ void populateScenarioFrom(const ptree& spec,
         Attributes::parse("total_time",
                           boost::lexical_cast<std::string>(totalTime)));
     schedAttributes.add(Attributes::parse("type", "batch"));
-    scenario->spawnScheduler(schedName, schedAttributes, tasks);
+    FakeScheduler* scheduler =
+        scenario->spawnScheduler(schedName, schedAttributes, tasks);
+    const double startTime(batch.get<double>("start_time", 0.0) + now);
+    scheduler->setStartTime(startTime);
+  }
+
+  // This is done _after_ so startTime stuff can take effect.
+  foreachpair (const std::string& unusedSlaveName,
+               const ptree& slaveSpec, spec.get_child("slaves")) {
+    CHECK_EQ(unusedSlaveName, "");
+    const Resources slaveResources(
+        Resources::parse(slaveSpec.get<std::string>("resources", "")));
+    scenario->spawnSlave(slaveResources);
   }
 }
 
