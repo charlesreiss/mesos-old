@@ -9,7 +9,7 @@ parser.add_argument('--memory_low', default=False, type=bool,
                     help='Low-ball memory requests.')
 parser.add_argument('--memory_accuracy', default=5.0, type=float,
                     help='Round interval for memory requests.')
-parser.add_argument('--cpu_request', default=1.0, type=float,
+parser.add_argument('--cpu_request', default=2.0, type=float,
                     help='CPU requested')
 parser.add_argument('--cpu_max', default=2.0, type=float,
                     help='Maximum CPU used')
@@ -105,7 +105,7 @@ class BatchJob(object):
       return duration_func(mean_time)
 
     job = BatchJob(
-      request='cpus:' + str(args.cpu_request) + ';mem:' + str(request_memory),
+      request='cpus:' + str(request_cpu) + ';mem:' + str(request_memory),
       const_resources='mem:' + str(actual_memory),
       max_cpus=actual_cpu,
     )
