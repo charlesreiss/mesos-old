@@ -32,13 +32,14 @@ namespace usage_log {
 TextFileUsageLogWriter::TextFileUsageLogWriter(const std::string& filename)
 {
   out.open(filename.c_str());
-  out_proto.reset(new google::protobuf::io::OstreamOutputStream(&out));
   printer.SetSingleLineMode(true);
 }
 
 void TextFileUsageLogWriter::write(const UsageLogRecord& record)
 {
-  printer.Print(record, out_proto.get());
+  std::string tempString;
+  printer.PrintToString(record, &tempString);
+  out << tempString << std::endl;
 }
 
 UsageRecorder::UsageRecorder(UsageLogWriter* out_, const UPID& master_,

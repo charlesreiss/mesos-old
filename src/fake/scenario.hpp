@@ -78,6 +78,11 @@ public:
   void setLabelColumns(const std::string& labelColumns_) {
     labelColumns = labelColumns_;
   }
+
+  process::PID<Master> getMaster() const {
+    return masterPid;
+  }
+
   Scenario();
   Scenario(const Configuration& conf_);
   ~Scenario() { stop(); }

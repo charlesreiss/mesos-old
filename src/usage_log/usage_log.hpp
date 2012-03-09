@@ -27,6 +27,7 @@
 
 #include "usage_log/usage_log.pb.h"
 
+#include <google/protobuf/io/printer.h>
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/text_format.h>
 
@@ -48,7 +49,6 @@ public:
 private:
   std::ofstream out;
   google::protobuf::TextFormat::Printer printer;
-  boost::scoped_ptr<google::protobuf::io::ZeroCopyOutputStream> out_proto;
 };
 
 using namespace process;
