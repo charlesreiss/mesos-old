@@ -78,7 +78,7 @@ void FakeExecutor::frameworkMessage(ExecutorDriver* driver,
 void FakeIsolationModule::registerOptions(Configurator* configurator)
 {
   configurator->addOption<double>("fake_interval",
-      "tick interval for fake isolation module", 1./8.);
+      "tick interval for fake isolation module", 1./32.);
   configurator->addOption<double>("fake_usage_interval",
       "usage messsage generation tick interval for fake isolation module",
       1.0);
@@ -108,7 +108,7 @@ void FakeIsolationModule::initialize(const Configuration& conf, bool local,
 {
   LOG(INFO) << "initialize; this = " << (void*)this;
   slave = slave_;
-  interval = conf.get<double>("fake_interval", 1.0);
+  interval = conf.get<double>("fake_interval", 1.0/32.0);
   usageInterval = conf.get<double>("fake_usage_interval", 1.0);
   extraCpu = conf.get<bool>("fake_extra_cpu", false);
   extraMem = conf.get<bool>("fake_extra_mem", false);
