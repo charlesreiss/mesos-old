@@ -46,6 +46,7 @@ public:
   void SetUp()
   {
     conf.set("fake_slack_mem", 0.0);
+    conf.set("fake_interval", kTick);
   }
 
   SlaveID getSlaveId()
