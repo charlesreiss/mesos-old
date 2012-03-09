@@ -61,22 +61,16 @@ def make_boxplot(data, x_var, y_var, **plot_options):
 
   pyp.boxplot(y_values, positions=x_values, **plot_options)
 
-norequest = load_file(args.base + '/norequest.csv')
-simple_strong = load_file(args.base + '/simple-strong.csv')
-simple_weak = load_file(args.base + '/simple-weak.csv')
+def add_plot(item, label, color):
+  data = load_file(args.base + '/' + item + '.csv')
+  make_error_bars(data, args.var, args.y, color=color,
+      label=label)
+
 pyp.figure()
-make_error_bars(norequest, args.var, args.y, color='red',
-    label='norequest')
-make_error_bars(simple_strong, args.var, args.y,
-    color='green', label='simple, strong isolation')
-make_error_bars(simple_weak, args.var, args.y,
-    color='blue', label='simple, weak isolation')
-#make_error_bars(norequest, 'estimate_cpu', 'batch0_finish_time', color='red',
-#    label='norequest')
-#make_error_bars(simple_strong, 'estimate_cpu', 'batch0_finish_time',
-#color='green', label='normal')
-#make_error_bars(simple_weak, 'estimate_cpu', 'batch0_finish_time',
-#color='blue', label='normal')
+add_plot('norequest', 'norequest', 'red')
+add_plot('norequest-aggressive', 'norequest (aggressive reoffer)', 'purple')
+add_plot('simple-strong', 'simple, strong isolation', 'green')
+add_plot('simple-weak', 'simple, weak isolation', 'blue')
 pyp.legend()
-pyp.savefig(args.base + '-plot.pdf')
+pyp.savefig(args.base + args.plot_extra + '-plot.pdf')
 
