@@ -9,6 +9,7 @@
 #include "boost/lexical_cast.hpp"
 #include "boost/random/mersenne_twister.hpp"
 #include "boost/random/exponential_distribution.hpp"
+#include "boost/scoped_ptr.hpp"
 
 #include "process/process.hpp"
 

@@ -31,6 +31,8 @@ parser.add_argument('--vary_cpu', action='store_true', default=False)
 parser.add_argument('--use_experiment', action='store_true',
                     default=False)
 parser.add_argument('--max_offset', default=10, type=int)
+parser.add_argument('--interarrival', default=0.0, type=float)
+parser.add_argument('--start_experiment', default=0.0, type=float)
 
 args = parser.parse_args()
 
@@ -94,6 +96,7 @@ class BatchJob(object):
       target_memory_seconds = 1000.0,
       stretch_time = 1.0,
       memory_max = 40.0,
+      start_time = 0.0,
       **ignored_args
   ):
     actual_memory = min(memory_max, memory_sample_func())
@@ -108,6 +111,7 @@ class BatchJob(object):
       request='cpus:' + str(request_cpu) + ';mem:' + str(request_memory),
       const_resources='mem:' + str(actual_memory),
       max_cpus=actual_cpu,
+      start_time=start_time,
     )
     total_mem_secs = 0.0
     cpu_times = []
@@ -121,12 +125,13 @@ class BatchJob(object):
 
     
   def __init__(self, request, const_resources, 
-               max_cpus):
+               max_cpus, start_time = 0.0):
     self.for_json = {
         'request': request,
         'const_resources': const_resources,
         'max_cpus': max_cpus,
         'tasks': {},
+        'start_time': start_time,
     }
 
   def set_label(self,label):
@@ -202,7 +207,14 @@ random.seed(42)
 
 def make_scenario(offset):
   random.seed(42)
-  def sample_one(is_experiment=False):
+  start_times = []
+  last_time = 0.0
+  for i in xrange(args.num_background):
+    start_times.append(last_time)
+    if args.interarrival > 0.0:
+      last_time += random.expovariate(1.0 / args.interarrival)
+
+  def sample_one(start_time, is_experiment=False):
     myargs = args
     if is_experiment:
       myargs.memory_sample_func = lambda ignored: args.experiment_memory
@@ -221,7 +233,7 @@ def make_scenario(offset):
         myargs.cpu_round_func = lambda x: (0.5 + offset / 5.0) * x
     return BatchJob.sample(**vars(myargs))
 
-  fixed_jobs = map(lambda ignore: sample_one(), xrange(args.num_background))
+  fixed_jobs = map(lambda start_time: sample_one(start_time=start_time), start_times)
   experiment_jobs = []
   if args.use_experiment:
     experiment_jobs = map(lambda ignore: sample_one(True), [0])
