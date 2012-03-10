@@ -53,6 +53,7 @@ public:
                                           const FrameworkID& frameworkId,
                                           const ExecutorID& executorId)
     const = 0;
+  // FIXME(Charles): The semantics for this are wrong!
   virtual Resources chargeForFramework(const FrameworkID& frameworkId)
     const = 0;
   virtual Resources nextUsedForFramework(const FrameworkID& frameworkId)

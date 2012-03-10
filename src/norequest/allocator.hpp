@@ -45,12 +45,12 @@ public:
   // XXX FIXME pass Configuration for real
   NoRequestAllocator() :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(0),
-    master(0), aggressiveReoffer(false) {}
+    master(0), aggressiveReoffer(false), useCharge(false) {}
 
   NoRequestAllocator(AllocatorMasterInterface* _master,
                      UsageTracker* _tracker) :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(_tracker),
-    master(_master), aggressiveReoffer(false) { }
+    master(_master), aggressiveReoffer(false), useCharge(false) { }
 
   ~NoRequestAllocator() {
     if (!dontDeleteTracker && tracker) {
@@ -62,6 +62,8 @@ public:
     master = _master;
     conf = _conf;
     aggressiveReoffer = conf.get<bool>("norequest_aggressive", false);
+    // TODO(Charles): Fix things so this is not the default.
+    useCharge = conf.get<bool>("norequest_charge", false);
     if (!tracker) {
       tracker = getUsageTracker(conf);
       dontDeleteTracker = false;
@@ -72,6 +74,7 @@ public:
     master = _master;
     conf = _conf;
     aggressiveReoffer = conf.get<bool>("norequest_aggressive", false);
+    useCharge = conf.get<bool>("norequest_charge", false);
     LOG(INFO) <<  "aggressive = " << aggressiveReoffer;
     if (!tracker) {
       tracker = getUsageTracker(conf);
@@ -120,6 +123,7 @@ private:
   bool dontMakeOffers;
   Configuration conf;
   bool aggressiveReoffer;
+  bool useCharge;
 
   boost::unordered_map<Slave*, boost::unordered_set<FrameworkID> > refusers;
 

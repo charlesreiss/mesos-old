@@ -143,12 +143,14 @@ NoRequestAllocator::placeUsage(const FrameworkID& frameworkId,
 namespace {
 
 struct ChargedShareComparator {
-  ChargedShareComparator(UsageTracker* _tracker, Resources _totalResources)
-      : tracker(_tracker), totalResources(_totalResources) {}
+  ChargedShareComparator(UsageTracker* _tracker, Resources _totalResources,
+                         bool _useCharge)
+      : tracker(_tracker), totalResources(_totalResources),
+        useCharge(_useCharge) {}
 
   bool operator()(Framework* first, Framework* second) {
     double firstShare = dominantShareOf(first);
-    double secondShare =  dominantShareOf(second);
+    double secondShare = dominantShareOf(second);
     if (firstShare == secondShare) {
       LOG(INFO) << "shares equal; copmaring "
                 << first->id.value() << " and " << second->id.value()
@@ -161,7 +163,10 @@ struct ChargedShareComparator {
 
   double dominantShareOf(Framework* framework) {
     // TODO(charles): is the right metric?
-    Resources charge = tracker->chargeForFramework(framework->id);
+    // TODO(Charles): Test for this!
+    Resources charge = useCharge ?
+      tracker->chargeForFramework(framework->id) :
+      tracker->nextUsedForFramework(framework->id);
     double share = 0.0;
     foreach (const Resource& resource, charge) {
       if (resource.type() == Value::SCALAR) {
@@ -178,14 +183,16 @@ struct ChargedShareComparator {
 
   UsageTracker *tracker;
   Resources totalResources;
+  bool useCharge;
 };
 
 }
+
 vector<Framework*>
 NoRequestAllocator::getOrderedFrameworks() {
   vector<Framework*> frameworks = master->getActiveFrameworks();
   std::sort(frameworks.begin(), frameworks.end(),
-            ChargedShareComparator(tracker, totalResources));
+            ChargedShareComparator(tracker, totalResources, useCharge));
   return frameworks;
 }
 
