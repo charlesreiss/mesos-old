@@ -47,14 +47,17 @@ def utilization_from(record):
     start = max(usage.timestamp - usage.duration, record.min_expect_timestamp)
     effective_duration = end - start
     for resource in usage.resources:
+      framework = framework_id(usage)
       if resource.name == 'cpus':
         cpu = resource.scalar.value * effective_duration / args.scale_cpu
         total_cpu += cpu
-        framework_cpu[framework_id(usage)] += cpu
+        if framework in framework_cpu:
+          framework_cpu[framework] += cpu
       elif resource.name == 'mem':
         memory = resource.scalar.value * effective_duration / args.scale_memory
         total_memory += memory
-        framework_memory[framework_id(usage)] += memory
+        if framework in framework_memory:
+          framework_memory[framework] += memory
   result = [total_cpu, total_memory]
   for i in xrange(args.num_frameworks):
     result.append(framework_cpu[i])

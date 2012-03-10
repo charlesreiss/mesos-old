@@ -10,6 +10,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--base')
 parser.add_argument('--var', default='estimate_mem')
 parser.add_argument('--y', default='batch0_finish_time')
+parser.add_argument('--plot_extra', default='')
 
 args = parser.parse_args()
 
@@ -62,9 +63,12 @@ def make_boxplot(data, x_var, y_var, **plot_options):
   pyp.boxplot(y_values, positions=x_values, **plot_options)
 
 def add_plot(item, label, color):
-  data = load_file(args.base + '/' + item + '.csv')
-  make_error_bars(data, args.var, args.y, color=color,
-      label=label)
+  try:
+    data = load_file(args.base + '/' + item + '.csv')
+    make_error_bars(data, args.var, args.y, color=color,
+        label=label)
+  except IOError, e:
+    pass
 
 pyp.figure()
 add_plot('norequest', 'norequest', 'red')
