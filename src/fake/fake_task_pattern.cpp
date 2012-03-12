@@ -1,5 +1,7 @@
 #include "fake/fake_task_pattern.hpp"
 
+#include <glog/logging.h>
+
 namespace mesos {
 namespace internal {
 namespace fake {
@@ -38,7 +40,8 @@ PatternTask::PatternTask(
     request(_request),
     pattern(_pattern),
     cpuPerUnit(_cpuPerUnit),
-    baseTime(_baseTime)
+    baseTime(_baseTime),
+    violations(0.0)
 {
 }
 
@@ -57,12 +60,14 @@ TaskState PatternTask::takeUsage(seconds from, seconds to,
                                  const Resources& resources)
 {
   if (!(constUsage <= resources)) {
+    violations += pattern->countDuring(from - baseTime, to - baseTime);
     return TASK_LOST;
   } else {
     double duration = to.value - from.value;
     Resources required = getUsage(from, to);
     Resources missing = required - resources;
     double missingCpu = missing.get("cpus", Value::Scalar()).value();
+    LOG(INFO) << "missingCpu = " << missingCpu;
     if (missingCpu > 0) {
       violations += missingCpu / cpuPerUnit * duration;
     }
