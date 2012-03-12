@@ -12,13 +12,19 @@ $MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=1 \
 
 fi
 
-$MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=10 \
-  --target_memory_seconds=20000 \
-  >vary_memory_round_noexp_long.json
+$MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=1 \
+  --cpu_max=1.0 --cpu_request=1.0 \
+  >vary_memory_round_noexp_4_cpu1.json
 
-$MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \
-  --target_memory_seconds=4000 --interarrival=400 \
-  >vary_memory_round_interarrive_long.json
+if false; then
+  $MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=10 \
+    --target_memory_seconds=20000 \
+    >vary_memory_round_noexp_long.json
+fi
+
+  $MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \
+    --target_memory_seconds=2000 --interarrival=400 \
+    >vary_memory_round_interarrive_long2.json
 
 exit
 
