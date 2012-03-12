@@ -38,6 +38,10 @@ struct seconds
   bool operator==(const seconds& other) {
     return value == other.value;
   }
+
+  seconds operator-(const seconds& other) {
+    return seconds(value - other.value);
+  }
 };
 
 
