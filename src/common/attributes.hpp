@@ -25,6 +25,7 @@
 #include <mesos/mesos.hpp>
 
 #include "common/foreach.hpp"
+#include "common/logging.hpp"
 #include "common/option.hpp"
 #include "common/values.hpp"
 
@@ -57,18 +58,19 @@ public:
     return *this;
   }
 
-  bool operator==(const Attributes& that) const
+  bool operator == (const Attributes& that) const
   {
     if (size() != that.size()) {
       return false;
-    } else {
-      foreach (const Attribute& attribute, attributes) {
-        Option<Attribute> maybeAttribute = that.get(attribute);
-        if (maybeAttribute.isNone()) {
-          return false;
-        }
-        const Attribute& thatAttribute = maybeAttribute.get();
-        switch (attribute.type()) {
+    }
+
+    foreach (const Attribute& attribute, attributes) {
+      Option<Attribute> maybeAttribute = that.get(attribute);
+      if (maybeAttribute.isNone()) {
+        return false;
+      }
+      const Attribute& thatAttribute = maybeAttribute.get();
+      switch (attribute.type()) {
         case Value::SCALAR:
           if (!(attribute.scalar() == thatAttribute.scalar())) {
             return false;
@@ -85,11 +87,16 @@ public:
           }
           break;
         case Value::SET:
-          LOG(FATAL) << "sets not supported for attributes";
-        }
+          LOG(FATAL) << "Sets not supported for attributes";
       }
-      return true;
     }
+
+    return true;
+  }
+
+  bool operator != (const Attributes& that) const
+  {
+    return !(*this == that);
   }
 
   size_t size() const

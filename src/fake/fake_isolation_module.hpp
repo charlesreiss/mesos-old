@@ -50,7 +50,10 @@ class FakeExecutor : public Executor {
 public:
   FakeExecutor(FakeIsolationModule* module_);
 
-  void init(ExecutorDriver* driver, const ExecutorArgs& args);
+  void registered(ExecutorDriver* driver, const ExecutorInfo& info,
+                  const FrameworkID& frameworkId,
+                  const FrameworkInfo& frameworkInfo,
+                  const SlaveID& slaveId, const SlaveInfo& slaveInfo);
 
   void launchTask(ExecutorDriver* driver, const TaskDescription& task);
 

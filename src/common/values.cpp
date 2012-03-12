@@ -128,8 +128,8 @@ Try<Value> parse(const std::string& text) {
 
 }
 
-}  // namespace values
-}  // namespace internal
+} // namespace values {
+} // namespace internal {
 
 
 bool operator == (const Value::Scalar& left, const Value::Scalar& right)

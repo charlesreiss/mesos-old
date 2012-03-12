@@ -65,7 +65,7 @@ bin_PROGRAMS =
 pkglibexec_PROGRAMS =
 dist_pkglibexec_SCRIPTS =
 webui_SCRIPTS =
-nobase_dist_webui_SCRIPTS =
+nobase_dist_webui_DATA =
 check_PROGRAMS =
 dist_check_SCRIPTS =
 check_SCRIPTS =
@@ -88,7 +88,6 @@ MESOS_CPPFLAGS += -DMESOS_LIBEXECDIR=\"$(pkglibexecdir)\"
 MESOS_CPPFLAGS += -I$(top_srcdir)/include
 MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(BOOST)
 MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(PROTOBUF)/src
-MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GLOG)/src
 MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GLOG)/src
 MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_srcdir)/$(LIBPROCESS)/include
 
@@ -310,8 +309,8 @@ libmesos_la_SOURCES = $(MESOS_PROTO) # Part of the distribution.
 
 libmesos_la_LDFLAGS = -version-info 0:0 -shared
 
-# Since we just include the convenience library, we need to tell
-# libtool to build this as a C++ library.
+# Since we just include the convenience library (and no sources), we
+# need to tell libtool to build this as a C++ library.
 libmesos_la_LIBTOOLFLAGS = --tag=CXX
 
 # Add the convenience library.
@@ -323,11 +322,11 @@ libmesos_la_DEPENDNECIES = libmesos_no_third_party.la
 # possible.)
 libmesos_la_LIBADD += ../$(PROTOBUF)/src/.libs/libprotobuf.la
 libmesos_la_LIBADD += ../$(GLOG)/.libs/libglog.la
-libmesos_la_LIBADD += ../$(LIBPROCESS)/libprocess.a
+libmesos_la_LIBADD += ../$(LIBPROCESS)/.libs/libprocess.la
 libmesos_la_LIBADD += ../$(LIBEV)/.libs/libev.la
 
 if WITH_INCLUDED_ZOOKEEPER
-  libmesos_la_LIBADD += ../$(ZOOKEEPER)/.libs/libzookeeper_mt.a
+  libmesos_la_LIBADD += ../$(ZOOKEEPER)/.libs/libzookeeper_mt.la
 endif
 
 if WEBUI
@@ -391,7 +390,7 @@ WEBUISCRIPTS = webui/bottle-0.8.3/bottle.py		\
                webui/slave/webui.py			\
                webui/static/stylesheet.css
 
-nobase_dist_webui_SCRIPTS += $(WEBUISCRIPTS)
+nobase_dist_webui_DATA += $(WEBUISCRIPTS)
 
 
 # We also need to include the killtree script.
@@ -401,16 +400,16 @@ dist_pkglibexec_SCRIPTS += scripts/killtree.sh
 # EXTRA_DIST unconditionally.
 
 # Mesos JAR.
-MESOS_JAR = mesos.jar
+MESOS_JAR = mesos-$(PACKAGE_VERSION).jar
 MESOS_JAR_SRCROOT = $(srcdir)/java/src
 MESOS_JAR_SRCDIR = $(srcdir)/java/src/org/apache/mesos
-MESOS_JAR_SRC = \
-		$(MESOS_JAR_SRCDIR)/ExecutorDriver.java \
-		$(MESOS_JAR_SRCDIR)/Executor.java \
-		$(MESOS_JAR_SRCDIR)/Log.java \
-		$(MESOS_JAR_SRCDIR)/MesosExecutorDriver.java \
-		$(MESOS_JAR_SRCDIR)/MesosSchedulerDriver.java \
-		$(MESOS_JAR_SRCDIR)/SchedulerDriver.java \
+MESOS_JAR_SRC = $(MESOS_JAR_SRCDIR)/ExecutorDriver.java		\
+		$(MESOS_JAR_SRCDIR)/Executor.java		\
+		$(MESOS_JAR_SRCDIR)/Log.java			\
+		$(MESOS_JAR_SRCDIR)/MesosExecutorDriver.java	\
+		$(MESOS_JAR_SRCDIR)/MesosNativeLibrary.java	\
+		$(MESOS_JAR_SRCDIR)/MesosSchedulerDriver.java	\
+		$(MESOS_JAR_SRCDIR)/SchedulerDriver.java	\
 		$(MESOS_JAR_SRCDIR)/Scheduler.java
 
 EXTRA_DIST += $(MESOS_JAR_SRC)
@@ -422,14 +421,15 @@ JAVA_EXAMPLES_SRC = $(srcdir)/examples/java/TestExceptionFramework.java	\
 	$(srcdir)/examples/java/TestFramework.java			\
 	$(srcdir)/examples/java/TestMultipleExecutorsFramework.java
 EXTRA_DIST += $(JAVA_EXAMPLES_SRC)
+CLEANFILES += $(EXAMPLES_JAR)
 
 if HAS_JAVA
 # Protocol buffers JAR.
-PROTOBUF_JAR = ../protobuf.jar
+PROTOBUF_JAR = ../protobuf-$(PROTOBUF_VERSION).jar
 
 # TODO(charles): Move into third_party/Makefile.am.
 $(PROTOBUF_JAR): # TODO(charles): Specify dependencies for the jar.
-	@echo "Building protobuf.jar ..."
+	@echo "Building protobuf-$(PROTOBUF_VERSION).jar ..."
 	@$(MKDIR_P) ../$(PROTOBUF)/java/src/main/java
 	@$(PROTOC) --java_out=../$(PROTOBUF)/java/src/main/java \
           -I../$(PROTOBUF)/src \
@@ -443,7 +443,7 @@ $(PROTOBUF_JAR): # TODO(charles): Specify dependencies for the jar.
 CLEANFILES += $(PROTOBUF_JAR)
 
 $(MESOS_JAR): $(MESOS_JAR_SRC) $(JAVA_PROTOS) $(PROTOBUF_JAR)
-	@echo "Building mesos.jar ..."
+	@echo "Building mesos-$(PACKAGE_VERSION).jar ..."
 	@rm -f java/classes/org/apache/mesos/*
 	@$(MKDIR_P) java/classes/org/apache/mesos
 	@$(JAVA_HOME)/bin/javac \
@@ -691,7 +691,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 		      tests/fake/fake_task_pattern_test.cpp 		\
 		      tests/usage_listener_test.cpp			\
 		      tests/usage_log_test.cpp				\
-		      tests/fake/scenario_test.cpp
+		      tests/fake/scenario_test.cpp			\
+		      tests/attributes_test.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
@@ -733,6 +734,9 @@ if HAS_PYTHON
   check_SCRIPTS += $(EXAMPLESCRIPTSPYTHON)
   mesos_tests_DEPENDENCIES += $(EXAMPLESCRIPTSPYTHON)
 endif
+
+EXTRA_DIST += examples/python/test_framework.py \
+	      examples/python/test_executor.py
 
 
 EXTERNALSCRIPTS =						\

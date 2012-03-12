@@ -82,9 +82,9 @@ protected:
   }
 
   void setupExecutors() {
-    EXPECT_CALL(exec, init(_, _))
+    EXPECT_CALL(exec, registered(_, _, _, _, _, _))
       .Times(AtMost(1))
-      .WillOnce(DoAll(SaveArg<0>(&execDriver), SaveArg<1>(&execArgs)));
+      .WillOnce(SaveArg<0>(&execDriver));
 
     EXPECT_CALL(exec, shutdown(_))
       .Times(AtMost(1))
@@ -272,7 +272,6 @@ protected:
   PID<Master> master;
   MockExecutor exec;
   ExecutorDriver* execDriver;
-  ExecutorArgs execArgs;
   scoped_ptr<TestingIsolationModule> isolationModule;
   scoped_ptr<Slave> s;
   PID<Slave> slave;
@@ -459,7 +458,7 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
   TaskDescription exec1Task;
   trigger exec1LaunchTaskCall, exec1ShutdownCall;
 
-  EXPECT_CALL(exec1, init(_, _))
+  EXPECT_CALL(exec1, registered(_, _, _, _, _, _))
     .Times(1);
 
   EXPECT_CALL(exec1, launchTask(_, _))
@@ -474,7 +473,7 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
   TaskDescription exec2Task;
   trigger exec2LaunchTaskCall, exec2ShutdownCall;
 
-  EXPECT_CALL(exec2, init(_, _))
+  EXPECT_CALL(exec2, registered(_, _, _, _, _, _))
     .Times(1);
 
   EXPECT_CALL(exec2, launchTask(_, _))

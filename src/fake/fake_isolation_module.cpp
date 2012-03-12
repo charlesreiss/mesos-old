@@ -25,13 +25,16 @@ using std::vector;
 FakeExecutor::FakeExecutor(FakeIsolationModule* module_)
     : initialized(false), module(module_) {}
 
-void FakeExecutor::init(ExecutorDriver* driver,
-                        const ExecutorArgs& args)
+void FakeExecutor::registered(
+    ExecutorDriver* driver, const ExecutorInfo& info,
+    const FrameworkID& _frameworkId,
+    const FrameworkInfo& frameworkInfo,
+    const SlaveID& slaveId, const SlaveInfo& slaveInfo)
 {
   CHECK(!initialized);
   initialized = true;
-  frameworkId.MergeFrom(args.framework_id());
-  executorId.MergeFrom(args.executor_id());
+  frameworkId.MergeFrom(_frameworkId);
+  executorId.MergeFrom(info.executor_id());
 }
 
 void FakeExecutor::shutdown(ExecutorDriver* driver)
