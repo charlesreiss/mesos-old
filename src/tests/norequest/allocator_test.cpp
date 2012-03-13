@@ -227,9 +227,9 @@ protected:
   }
 
   void runUnequalFrameworksOneSlave() {
-    EXPECT_CALL(tracker, chargeForFramework(EqId("framework0"))).
+    EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework0"))).
       WillRepeatedly(Return(Resources::parse("cpus:5")));
-    EXPECT_CALL(tracker, chargeForFramework(EqId("framework1"))).
+    EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework1"))).
       WillRepeatedly(Return(Resources::parse("cpus:1")));
     makeAndAddFramework("framework0");
     makeAndAddFramework("framework1");
@@ -439,9 +439,9 @@ TEST_F(NoRequestAllocatorTest, DISABLED_ReOfferAfterRevive) {
 }
 
 TEST_F(NoRequestAllocatorTest, GaurenteedOffer) {
-  EXPECT_CALL(tracker, chargeForFramework(EqId("framework0"))).
+  EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework0"))).
     WillRepeatedly(Return(Resources()));
-  EXPECT_CALL(tracker, chargeForFramework(EqId("framework1"))).
+  EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework1"))).
     WillRepeatedly(Return(Resources()));
   makeAndAddFramework("framework0");
   makeAndAddFramework("framework1");
@@ -451,7 +451,7 @@ TEST_F(NoRequestAllocatorTest, GaurenteedOffer) {
   allocator->slaveAdded(&slaves[0]);
   setSlaveFree("slave0", Resources::parse("cpus:0.5;mem:500"),
                Resources::parse("cpus:6.0;mem:4500"));
-  EXPECT_CALL(tracker, chargeForFramework(EqId("framework0"))).
+  EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework0"))).
     WillRepeatedly(Return(Resources::parse("cpus:9.5;mem:4500")));
   expectOffer(&frameworks[1], &slaves[0], Resources::parse("cpus:0.5;mem:500"),
                Resources::parse("cpus:6.0;mem:4500"));
@@ -572,9 +572,9 @@ TEST_F(NoRequestAllocatorTest, ReOfferAfterUsage) {
   update.mutable_resources()->MergeFrom(Resources::parse("cpus:12;mem:384"));
   update.set_timestamp(process::Clock::now());
   update.set_duration(1.0);
-  EXPECT_CALL(tracker, chargeForFramework(EqId("framework0"))).
+  EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework0"))).
     WillRepeatedly(Return(Resources::parse("")));
-  EXPECT_CALL(tracker, chargeForFramework(EqId("framework1"))).
+  EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework1"))).
     WillRepeatedly(Return(Resources::parse("cpus:5.0;mem:128")));
   setSlaveFree("slave0",
                Resources::parse("cpus:27;mem:896"),
