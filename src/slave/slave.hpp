@@ -58,7 +58,7 @@ public:
         IsolationModule *isolationModule);
 
   Slave(const std::string& name,
-        const Resources& reosurces,
+        const Resources& resources,
         const Configuration& conf,
         bool local,
         IsolationModule* isolationModule);

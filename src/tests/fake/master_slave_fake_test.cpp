@@ -61,6 +61,8 @@ class MasterSlaveFakeTest : public testing::Test {
 public:
   void startMasterAndSlave()
   {
+    Configuration conf;
+    conf.set("fake_interval", kTick);
     process::Clock::pause();
     trigger allocatorTicked;
     ASSERT_TRUE(GTEST_IS_THREADSAFE);
@@ -71,8 +73,8 @@ public:
     masterPid = process::spawn(master.get());
 
     module.reset(new FakeIsolationModule(tasks));
-    slave.reset(new Slave(Resources::parse("cpu:8.0;mem:4096"), true,
-                          module.get()));
+    slave.reset(new Slave("slave", Resources::parse("cpu:8.0;mem:4096"), conf,
+                          true, module.get()));
     slavePid = process::spawn(slave.get());
 
     trigger gotSlave;
@@ -143,6 +145,7 @@ public:
     EXPECT_CALL(allocator, timerTick()).
       WillOnce(Trigger(&gotTick));
     process::Clock::advance(kTick);
+    process::Clock::settle();
     WAIT_UNTIL(gotTick);
   }
 
@@ -216,19 +219,24 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
               ResourceHints::parse("cpu:4;mem:2048", "cpu:8;mem:4096"))).
     WillOnce(Trigger(&offerComplete));
   waitForStatus(&gotStatus);
+  LOG(INFO) << "about to makeOffer";
   makeOfferOnTick(ResourceHints::parse("cpu:8;mem:4096", "cpu:8;mem:4096"));
   WAIT_UNTIL(offerComplete);
   WAIT_UNTIL(gotStatus);
+  LOG(INFO) << "gotStatus";
   tick();  // task should schedule by now.
   WAIT_UNTIL(tookUsage);
+  LOG(INFO) << "tookUsage";
   Task* masterTask = masterSlave->getTask(masterFramework->id, TASK_ID("task0"));
   ASSERT_TRUE(masterTask);
   EXPECT_EQ(Resources::parse("cpu:4;mem:2048"), masterTask->resources());
   trigger tookFinished;
   EXPECT_CALL(task, takeUsage(_, _, _)).
     WillOnce(DoAll(Trigger(&tookFinished), Return(TASK_FINISHED)));
+  LOG(INFO) << "about to tick";
   tick();
   WAIT_UNTIL(tookFinished);
+  LOG(INFO) << "tookFinished";
   stopScheduler();
   stopMasterAndSlave();
 }
