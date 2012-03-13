@@ -32,7 +32,7 @@ static void headerForBatch(const std::string& name)
             << name << "_start_time," << name << "_duration,"
             << name << "_finished,"
             << name << "_lost," << name << "_failed,"
-            << name << "_kill,";
+            << name << "_kill," << name << "_score";
 }
 
 const void headerFromScenario(const Configuration& conf, Scenario* scenario)
@@ -101,7 +101,8 @@ static void run(const Configuration& conf, bool needHeader,
               << schedulers[i]->count(TASK_FINISHED) << ","
               << schedulers[i]->count(TASK_LOST) << ","
               << schedulers[i]->count(TASK_FAILED) << ","
-              << schedulers[i]->count(TASK_KILLED) << ",";
+              << schedulers[i]->count(TASK_KILLED) << ","
+              << schedulers[i]->getScore() << ",";
   }
   std::cout << std::accumulate(totalCpuTimes.begin(), totalCpuTimes.end(), 0.0)
             << "," << (end - start) << std::endl;
