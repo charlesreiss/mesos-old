@@ -89,16 +89,29 @@ void FakeScheduler::statusUpdate(SchedulerDriver* driver,
     break;
   case TASK_FINISHED:
     {
-      tasksRunning.erase(status.task_id());
+      map<TaskID, FakeTask*>::iterator it =
+        tasksRunning.find(status.task_id());
+      CHECK(it != tasksRunning.end());
+      CHECK(it->second);
+      finishedScore += it->second->getScore();
+      tasksRunning.erase(it);
       ExecutorID executorId;
       executorId.set_value(status.task_id().value());
       taskTracker->unregisterTask(frameworkId, executorId, status.task_id());
     }
     break;
   case TASK_FAILED: case TASK_KILLED: case TASK_LOST:
-    tasksPending[status.task_id()] = tasksRunning[status.task_id()];
-    tasksRunning.erase(status.task_id());
-    driver->reviveOffers();
+    {
+      map<TaskID, FakeTask*>::iterator it =
+        tasksRunning.find(status.task_id());
+      if (it != tasksRunning.end()) {
+        tasksPending[it->first] = it->second;
+        tasksRunning.erase(it);
+        driver->reviveOffers();
+      } else {
+        LOG(WARNING) << "excess termination for task ID " << status.task_id();
+      }
+    }
     break;
   }
 }
@@ -138,6 +151,20 @@ void FakeScheduler::updateMinRequest()
   foreachvalue (FakeTask* task, tasksRunning) {
     updateMinRequest(task->getResourceRequest());
   }
+}
+
+double FakeScheduler::getScore() const
+{
+  double score = finishedScore;
+  foreachvalue (FakeTask* task, tasksPending) {
+    CHECK(task);
+    score += task->getScore();
+  }
+  foreachvalue (FakeTask* task, tasksRunning) {
+    CHECK(task);
+    score += task->getScore();
+  }
+  return score;
 }
 
 }  // namespace fake

@@ -179,7 +179,8 @@ protected:
   FakeTaskTracker tracker;
 };
 
-TEST_F(FakeSchedulerTest, NoTasks) {
+TEST_F(FakeSchedulerTest, NoTasks)
+{
   registerScheduler();
 
   vector<TaskDescription> result;
@@ -192,13 +193,15 @@ TEST_F(FakeSchedulerTest, NoTasks) {
   EXPECT_EQ(result.size(), 0);
 }
 
-TEST_F(FakeSchedulerTest, OneTask) {
+TEST_F(FakeSchedulerTest, OneTask)
+{
   registerScheduler();
   MockFakeTask mockTask;
   makeAndAcceptOfferDefault("task0", &mockTask);
 }
 
-TEST_F(FakeSchedulerTest, CannotFitTask) {
+TEST_F(FakeSchedulerTest, CannotFitTask)
+{
   registerScheduler();
   MockFakeTask mockTask;
   EXPECT_CALL(mockTask, getResourceRequest()).
@@ -215,7 +218,8 @@ TEST_F(FakeSchedulerTest, CannotFitTask) {
   ASSERT_EQ(result.size(), 0);
 }
 
-TEST_F(FakeSchedulerTest, FinishTask) {
+TEST_F(FakeSchedulerTest, FinishTask)
+{
   registerScheduler();
   MockFakeTask mockTask;
   makeAndAcceptOfferDefault("task0", &mockTask);
@@ -224,7 +228,8 @@ TEST_F(FakeSchedulerTest, FinishTask) {
   EXPECT_EQ(1, scheduler->count(TASK_FINISHED));
 }
 
-TEST_F(FakeSchedulerTest, RespawnTask) {
+TEST_F(FakeSchedulerTest, RespawnTask)
+{
   registerScheduler();
   MockFakeTask mockTask;
   makeAndAcceptOfferDefault("task0", &mockTask);
@@ -236,7 +241,8 @@ TEST_F(FakeSchedulerTest, RespawnTask) {
   EXPECT_EQ(1, scheduler->count(TASK_LOST));
 }
 
-TEST_F(FakeSchedulerTest, TwoTasksDontFit) {
+TEST_F(FakeSchedulerTest, TwoTasksDontFit)
+{
   registerScheduler();
   MockFakeTask mockTask0, mockTask1;
   EXPECT_CALL(mockTask0, getResourceRequest()).
@@ -250,7 +256,8 @@ TEST_F(FakeSchedulerTest, TwoTasksDontFit) {
         ResourceHints(Resources::parse("cpus:9.0"), Resources()), 0);
 }
 
-TEST_F(FakeSchedulerTest, TwoTasksLowestFirst) {
+TEST_F(FakeSchedulerTest, TwoTasksLowestFirst)
+{
   registerScheduler();
   MockFakeTask mockTask0, mockTask1;
   EXPECT_CALL(mockTask1, getResourceRequest()).
@@ -260,7 +267,8 @@ TEST_F(FakeSchedulerTest, TwoTasksLowestFirst) {
   makeAndAcceptOfferDefault("task0", &mockTask0);
 }
 
-TEST_F(FakeSchedulerTest, DelayStart) {
+TEST_F(FakeSchedulerTest, DelayStart)
+{
   registerScheduler(10.0);
   MockFakeTask mockTask;
   EXPECT_CALL(mockTask, getResourceRequest()).
@@ -284,4 +292,35 @@ TEST_F(FakeSchedulerTest, DelayStart) {
                                    Resources::parse("cpus:8.0;mem:1024")),
                      ResourceHints(Resources::parse("cpus:1.0"), Resources()),
                      0);
+}
+
+TEST_F(FakeSchedulerTest, ScoreTask)
+{
+  registerScheduler();
+  MockFakeTask mockTask;
+  EXPECT_CALL(mockTask, getResourceRequest()).
+    WillOnce(testing::Return(ResourceHints()));
+  scheduler->addTask(TASK_ID("task0"), &mockTask);
+  makeAndAcceptOfferDefault("task0", &mockTask);
+  EXPECT_CALL(mockTask, getScore()).
+    WillOnce(Return(100.0));
+  EXPECT_DOUBLE_EQ(100.0, scheduler->getScore());
+  EXPECT_CALL(mockTask, getScore()).
+    WillOnce(Return(200.0));
+  updateTask("task0", TASK_FINISHED);
+  EXPECT_DOUBLE_EQ(200.0, scheduler->getScore());
+  MockFakeTask mockTask2;
+  EXPECT_CALL(mockTask2, getResourceRequest()).
+    WillOnce(testing::Return(ResourceHints()));
+  scheduler->addTask(TASK_ID("task1"), &mockTask2);
+  makeAndAcceptOfferDefault("task1", &mockTask2);
+  EXPECT_CALL(mockTask2, getScore()).
+    WillOnce(Return(300.0));
+  EXPECT_DOUBLE_EQ(500.0, scheduler->getScore());
+  EXPECT_CALL(mockTask2, getScore()).
+    WillOnce(Return(-500.0));
+  EXPECT_CALL(schedulerDriver, reviveOffers()).
+    WillOnce(Return(OK));
+  updateTask("task1", TASK_LOST);
+  EXPECT_DOUBLE_EQ(-300.0, scheduler->getScore());
 }

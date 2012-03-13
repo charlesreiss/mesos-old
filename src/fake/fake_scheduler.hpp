@@ -45,7 +45,8 @@ public:
   FakeScheduler(const Attributes& attributes_,
                 FakeTaskTracker* taskTracker_)
     : attributes(attributes_), taskTracker(taskTracker_),
-      haveMinRequest(false), startTime(0), driver(0) {}
+      haveMinRequest(false), startTime(0), driver(0),
+      finishedScore(0) {}
   void registered(SchedulerDriver* driver, const FrameworkID& frameworkId);
   void resourceOffers(SchedulerDriver* driver,
                       const std::vector<Offer>& offers);
@@ -78,6 +79,7 @@ public:
   }
 
   void addTask(const TaskID& taskId, FakeTask* task) {
+    CHECK(task);
     tasksPending[taskId] = task;
     updateMinRequest(task->getResourceRequest());
   }
@@ -109,6 +111,8 @@ public:
     process::timers::cancel(startTimer);
   }
 
+  double getScore() const;
+
 private:
   void updateMinRequest();
   void updateMinRequest(const ResourceHints& request);
@@ -128,6 +132,7 @@ private:
   process::Timer startTimer;
   double startTime;
   SchedulerDriver* driver;
+  double finishedScore;
 };
 
 }  // namespace fake

@@ -40,8 +40,9 @@ PatternTask::PatternTask(
     request(_request),
     pattern(_pattern),
     cpuPerUnit(_cpuPerUnit),
-    baseTime(_baseTime),
-    violations(0.0)
+    violations(0.0),
+    score(0.0),
+    baseTime(_baseTime)
 {
 }
 
@@ -64,12 +65,16 @@ TaskState PatternTask::takeUsage(seconds from, seconds to,
     return TASK_LOST;
   } else {
     double duration = to.value - from.value;
-    Resources required = getUsage(from, to);
-    Resources missing = required - resources;
-    double missingCpu = missing.get("cpus", Value::Scalar()).value();
+    double count = pattern->countDuring(from - baseTime, to - baseTime);
+    double cpus =
+      (resources - constUsage).get("cpus", Value::Scalar()).value();
+    double missingCpu = count * cpuPerUnit / duration - cpus;
     LOG(INFO) << "missingCpu = " << missingCpu;
+    score += count;
     if (missingCpu > 0) {
-      violations += missingCpu / cpuPerUnit * duration;
+      double curViolations = missingCpu / cpuPerUnit * duration;
+      score -= curViolations;
+      violations += curViolations;
     }
     return TASK_RUNNING;
   }

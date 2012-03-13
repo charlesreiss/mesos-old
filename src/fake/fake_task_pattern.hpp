@@ -60,6 +60,7 @@ public:
   ResourceHints getResourceRequest() const { return request; }
   void printToStream(std::ostream& out) const;
   double getViolations() const { return violations; }
+  double getScore() const { return score; }
 
 private:
   Resources constUsage;
@@ -67,6 +68,7 @@ private:
   boost::scoped_ptr<const GenericPattern> pattern;
   double cpuPerUnit;
   double violations;
+  double score;
   seconds baseTime;
 };
 

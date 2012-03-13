@@ -125,6 +125,7 @@ TEST_F(PatternTaskTest, ViolationsSimple)
   start(2.0);
   expectConsume(TASK_RUNNING, 1.0, 2.0, Resources::parse("cpus:40.0"), 25.0);
   EXPECT_DOUBLE_EQ(5.0, task->getViolations());
+  EXPECT_DOUBLE_EQ(20.0, task->getScore());
 }
 
 TEST_F(PatternTaskTest, ViolationsSimpleTwoSeconds)
@@ -132,6 +133,7 @@ TEST_F(PatternTaskTest, ViolationsSimpleTwoSeconds)
   start(2.0);
   expectConsume(TASK_RUNNING, 1.0, 3.0, Resources::parse("cpus:40.0"), 50.0);
   EXPECT_DOUBLE_EQ(10.0, task->getViolations());
+  EXPECT_DOUBLE_EQ(40.0, task->getScore());
 }
 
 TEST_F(PatternTaskTest, ViolationsTwice)
@@ -141,6 +143,7 @@ TEST_F(PatternTaskTest, ViolationsTwice)
   expectConsume(TASK_RUNNING, 2.0, 3.0, Resources::parse("cpus:20.0"), 10.0);
   expectConsume(TASK_RUNNING, 3.0, 5.0, Resources::parse("cpus:20.0"), 40.0);
   EXPECT_DOUBLE_EQ(5.0 + 20.0, task->getViolations());
+  EXPECT_DOUBLE_EQ(50.0, task->getScore());
 }
 
 TEST_F(PatternTaskTest, MissConstantUsage)
@@ -149,4 +152,5 @@ TEST_F(PatternTaskTest, MissConstantUsage)
   expectConsume(TASK_LOST, 1.0, 2.0, Resources::parse("mem:-10;cpus:1000.0"),
       25.0);
   EXPECT_DOUBLE_EQ(25.0, task->getViolations());
+  EXPECT_DOUBLE_EQ(0.0, task->getScore());
 }

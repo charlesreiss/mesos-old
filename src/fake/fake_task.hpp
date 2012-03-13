@@ -44,6 +44,7 @@ struct FakeTask {
                                      const Resources& resources) = 0;
   virtual ResourceHints getResourceRequest() const = 0;
   virtual void printToStream(std::ostream&) const = 0;
+  virtual double getScore() const { return 0.0; }
 };
 
 inline std::ostream& operator<<(std::ostream& out, const FakeTask& fakeTask) {
@@ -58,7 +59,6 @@ public:
   bool haveTaskFor(const FrameworkID& frameworkId,
                    const ExecutorID& executorId,
                    const TaskID& taskId) const;
-
 
   FakeTask* getTaskFor(const FrameworkID& frameworkId,
                        const ExecutorID& executorId,

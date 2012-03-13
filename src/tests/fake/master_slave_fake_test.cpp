@@ -224,9 +224,11 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
   Task* masterTask = masterSlave->getTask(masterFramework->id, TASK_ID("task0"));
   ASSERT_TRUE(masterTask);
   EXPECT_EQ(Resources::parse("cpu:4;mem:2048"), masterTask->resources());
+  trigger tookFinished;
   EXPECT_CALL(task, takeUsage(_, _, _)).
-    WillOnce(Return(TASK_FINISHED));
+    WillOnce(DoAll(Trigger(&tookFinished), Return(TASK_FINISHED)));
   tick();
+  WAIT_UNTIL(tookFinished);
   stopScheduler();
   stopMasterAndSlave();
 }
