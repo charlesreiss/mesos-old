@@ -34,6 +34,17 @@ parser.add_argument('--max_offset', default=10, type=int)
 parser.add_argument('--interarrival', default=0.0, type=float)
 parser.add_argument('--start_experiment', default=0.0, type=float)
 
+parser.add_argument('--serve_pattern', 
+    default='0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,' +
+            '19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1',
+    type=str)
+parser.add_argument('--serve_time_unit', default=1.0, type=float)
+parser.add_argument('--num_serves', default=0, type=int)
+parser.add_argument('--serve_tasks', default=10, type=int)
+parser.add_argument('--serve_memory', default=4.0, type=float)
+parser.add_argument('--serve_request', default='cpus:2.0;mem:4')
+parser.add_argument('--serve_cpu_unit', default=0.1, type=float)
+
 args = parser.parse_args()
 
 
@@ -84,7 +95,23 @@ sample_time = empirical_dist(FACEBOOK_MAP_TASK_TIMES)
 def sample_time_dist(mean):
   return random.expovariate(1.0 / mean)
 
-class BatchJob(object):
+class GenericJob(object):
+  def __init__(self, request, const_resources, start_time = 0.0):
+    self.for_json = {
+        'request': request,
+        'const_resources': const_resources,
+        'tasks': {},
+        'start_time': start_time,
+    }
+
+  def add_task(self, **kw):
+    next_task_id = 't' + str(len(self.for_json['tasks']))
+    self.for_json['tasks'][next_task_id] = kw
+
+  def json_object(self):
+    return self.for_json
+
+class BatchJob(GenericJob):
   @staticmethod
   def sample(
       memory_sample_func = sample_memory,
@@ -126,16 +153,9 @@ class BatchJob(object):
     
   def __init__(self, request, const_resources, 
                max_cpus, start_time = 0.0):
-    self.for_json = {
-        'request': request,
-        'const_resources': const_resources,
-        'max_cpus': max_cpus,
-        'tasks': {},
-        'start_time': start_time,
-    }
+    GenericJob.__init__(self, request, const_resources, start_time)
+    self.for_json['max_cpus'] = max_cpus 
 
-  def set_label(self,label):
-    self.for_json['label'] = label
 
   def add_tasks_dist(self, size_dist, task_length_dist):
     all_tasks = {}
@@ -147,10 +167,6 @@ class BatchJob(object):
       all_tasks['t' + str(i)] = task
     self.for_json['tasks'] = all_tasks
 
-  def add_task(self, cpu_time):
-    next_task_id = 't' + str(len(self.for_json['tasks']))
-    self.for_json['tasks'][next_task_id] = { 'cpu_time': cpu_time }
-
   def set_resources(self, constant, request):
     self.for_json['const_resources'] = constant
     self.for_json['request'] = request
@@ -158,9 +174,14 @@ class BatchJob(object):
   def set_max_cpus(self, max_cpus):
     self.for_json['max_cpus'] = max_cpus
   
-  def json_object(self):
-    return self.for_json
+class ServeJob(GenericJob):
+  def __init__(self, cpu_per_unit=1.0, **kwargs):
+    GenericJob.__init__(self, **kwargs)
+    self.for_json['cpu_per_unit'] = cpu_per_unit
 
+  def set_pattern(self, pattern_list, duration=1.0):
+    self.for_json['counts'] = pattern_list
+    self.for_json['time_per_count'] = duration
 
 class Slave(object):
   def __init__(self, resources):
@@ -172,9 +193,10 @@ class Slave(object):
     return self.for_json
 
 class Scenario(object):
-  def __init__(self, slaves, batch_jobs, label='', label_cols=''):
+  def __init__(self, slaves, batch_jobs, serve_jobs, label='', label_cols=''):
     self.slaves = slaves
     self.batch_jobs = batch_jobs
+    self.serve_jobs = serve_jobs
     self.label = label
     self.label_cols = label_cols
 
@@ -182,9 +204,13 @@ class Scenario(object):
     batch_object = {}
     for i in xrange(len(self.batch_jobs)):
       batch_object['batch' + str(i)] = self.batch_jobs[i].json_object()
+    serve_object = {}
+    for i in xrange(len(self.serve_jobs)):
+      serve_object['serve' + str(i)] = self.serve_jobs[i].json_object()
     return {
         'slaves': map(lambda s: s.json_object(), self.slaves),
         'batch': batch_object,
+        'serve': serve_object,
         'label': self.label,
         'label_cols': self.label_cols,
     }
@@ -237,10 +263,21 @@ def make_scenario(offset):
   experiment_jobs = []
   if args.use_experiment:
     experiment_jobs = map(lambda ignore: sample_one(True), [0])
+
+  serve_jobs = []
+  for i in xrange(args.num_serves):
+    serve_jobs.append(ServeJob(request=args.serve_request,
+        const_resources='mem:' + str(args.serve_memory),
+        start_time=0.0,
+        cpu_per_unit=args.serve_cpu_unit))
+    serve_jobs[-1].set_pattern(args.serve_pattern.split(','),
+        args.serve_time_unit)
+
   return Scenario(
             slaves = map(lambda x: Slave(resources='mem:40;cpus:8.0'),
               xrange(args.slaves)),
             batch_jobs = fixed_jobs + experiment_jobs,
+            serve_jobs = serve_jobs,
             label='%s' % (offset),
             label_cols='offset',
   )
