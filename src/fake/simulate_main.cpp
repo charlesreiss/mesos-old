@@ -74,6 +74,10 @@ static void run(const Configuration& conf, bool needHeader,
     for (int i = 0; i < schedulers.size(); ++i) {
       if (!done[i]) {
         FakeScheduler* scheduler = schedulers[i];
+        if (scheduler->getAttributes().get("type", Value::Text()).value()
+            == "serve") {
+          done[i] = true;
+        }
         done[i] = (scheduler->countPending() + scheduler->countRunning()) == 0;
         if (done[i]) {
           finishTime[i] = process::Clock::now() - start;
