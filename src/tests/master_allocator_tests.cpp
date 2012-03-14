@@ -388,8 +388,10 @@ TEST_F(MasterAllocatorTest, UnregisterSlave) {
   EXPECT_CALL(allocator, executorRemoved(_, _,
                                          EqProto(DEFAULT_EXECUTOR_INFO)));
   framework->expect<StatusUpdateMessage>();
-  framework->expect<LostSlaveMessage>();
+  trigger lostSlave;
+  framework->expectAndWait<LostSlaveMessage>(process::UPID(), &lostSlave);
   unregisterSlave();
+  WAIT_UNTIL(lostSlave);
 }
 
 TEST_F(MasterAllocatorTest, ExitedExecutor) {
