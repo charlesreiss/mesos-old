@@ -87,7 +87,7 @@ static void run(const Configuration& conf, bool needHeader,
         }
       }
     }
-    if (process::Clock::now() <= start + runTime) {
+    if (process::Clock::now() <= start + runFor) {
       allDone = false;
     }
   } while (!allDone);
