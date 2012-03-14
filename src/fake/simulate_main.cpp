@@ -56,6 +56,7 @@ static void run(const Configuration& conf, bool needHeader,
   }
   double start = process::Clock::now();
   const double interval = conf.get<double>("fake_interval", 0.5);
+  const double runFor = conf.get<double>("run_for", 0.0);
   bool allDone;
   const std::map<std::string, FakeScheduler*>& schedulersMap =
     scenario->getSchedulers();
@@ -85,6 +86,9 @@ static void run(const Configuration& conf, bool needHeader,
           allDone = false;
         }
       }
+    }
+    if (process::Clock::now() <= start + runTime) {
+      allDone = false;
     }
   } while (!allDone);
 
@@ -178,6 +182,8 @@ int main(int argc, char **argv)
   configurator.addOption<int>("repeat", "number of reptitions", 1);
   configurator.addOption<std::string>("usage_log_base",
       "base name for log files", "");
+  configurator.addOption<double>("run_for",
+      "seconds to run simulation for at minimum", 0.0);
 
   if (argc == 2 && std::string("--help") == argv[1]) {
     std::cerr << "Usage: " << argv[0] << std::endl
