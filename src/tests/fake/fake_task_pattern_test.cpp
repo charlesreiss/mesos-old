@@ -78,7 +78,7 @@ public:
     const ResourceHints request(
         Resources::parse("mem:500;cpus:50.0"),
         Resources::parse("mem:250;cpus:75.0"));
-    pattern = new MockPattern;
+    pattern.reset(new MockPattern);
     task.reset(new PatternTask(
           kConstUsage, request, pattern, cpuPerUnit, seconds(kBaseTime)));
     EXPECT_EQ(request, task->getResourceRequest());
@@ -103,7 +103,7 @@ public:
           takeResources + kConstUsage));
   }
 
-  MockPattern* pattern;  // owned by PatternTask
+  boost::shared_ptr<MockPattern> pattern;
   boost::scoped_ptr<PatternTask> task;
 };
 

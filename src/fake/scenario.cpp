@@ -1,8 +1,11 @@
 #include "fake/scenario.hpp"
 
+#include <boost/shared_ptr.hpp>
+
 #include "fake/fake_isolation_module.hpp"
 #include "master/allocator_factory.hpp"
 #include "fake/fake_task_simple.hpp"
+#include "fake/fake_task_pattern.hpp"
 #include "boost/property_tree/json_parser.hpp"
 
 namespace mesos {
@@ -157,47 +160,95 @@ void Scenario::stop()
 
 using boost::property_tree::ptree;
 
-void populateScenarioFrom(const ptree& spec,
-                          Scenario* scenario)
+namespace {
+
+void setupScheduler(Scenario* scenario,
+                    const std::string& schedName, const ptree& spec,
+                    const std::map<TaskID, FakeTask*>& tasks,
+                    const Attributes& extraAttributes,
+                    const std::string& type)
 {
+  const double now(process::Clock::now());
+  Attributes schedAttributes(
+      Attributes::parse(spec.get<std::string>("attributes", "")));
+  foreach (const Attribute& attr, extraAttributes) {
+    schedAttributes.add(attr);
+  }
+  schedAttributes.add(Attributes::parse("type", type));
+  FakeScheduler* scheduler =
+      scenario->spawnScheduler(schedName, schedAttributes, tasks);
+  const double startTime(spec.get<double>("start_time", 0.0) + now);
+  scheduler->setStartTime(startTime);
+}
+
+}  // namespace
+
+void populateScenarioFrom(const ptree& spec, Scenario* scenario)
+{
+  CHECK(process::Clock::paused());
   const double now(process::Clock::now());
   scenario->spawnMaster();
   scenario->setLabelColumns(spec.get<std::string>("label_cols"));
   scenario->setLabel(spec.get<std::string>("label", ""));
-  const ptree& batchJobs = spec.get_child("batch");
-  foreachpair (const std::string& schedName, const ptree& batch, batchJobs) {
-    const ResourceHints batchRequest(
-        ResourceHints::parse(
-          batch.get<std::string>("request", ""),
-          batch.get<std::string>("request_min", "")));
-    const Resources constResources(
-        Resources::parse(batch.get<std::string>("const_resources", "")));
-    const double maxCpus(batch.get<double>("max_cpus", -1.0));
-    CHECK_GT(maxCpus, 0.0);
-    std::map<TaskID, FakeTask*> tasks;
-    double totalTime = 0.0;
-    foreachpair (const std::string& key,
-                 const ptree& task, batch.get_child("tasks")) {
-      TaskID taskId;
-      taskId.set_value(key);
-      const double taskTime = task.get<double>("cpu_time", -1.0);
-      CHECK_GE(taskTime, 0.0);
-      totalTime += taskTime;
-      tasks[taskId] = new BatchTask(constResources, batchRequest,
-                                    taskTime, maxCpus);
-      VLOG(2) << "parsed " << *tasks[taskId];
+  boost::optional<const ptree&> batchJobs = spec.get_child_optional("batch");
+  if (batchJobs) {
+    foreachpair (const std::string& schedName, const ptree& batch,
+                 batchJobs.get()) {
+      const ResourceHints batchRequest(
+          ResourceHints::parse(
+            batch.get<std::string>("request", ""),
+            batch.get<std::string>("request_min", "")));
+      const Resources constResources(
+          Resources::parse(batch.get<std::string>("const_resources", "")));
+      const double maxCpus(batch.get<double>("max_cpus", -1.0));
+      CHECK_GT(maxCpus, 0.0);
+      std::map<TaskID, FakeTask*> tasks;
+      double totalTime = 0.0;
+      foreachpair (const std::string& key,
+                   const ptree& task, batch.get_child("tasks")) {
+        TaskID taskId;
+        taskId.set_value(key);
+        const double taskTime = task.get<double>("cpu_time", -1.0);
+        CHECK_GE(taskTime, 0.0);
+        totalTime += taskTime;
+        tasks[taskId] = new BatchTask(constResources, batchRequest,
+                                      taskTime, maxCpus);
+        VLOG(2) << "parsed " << *tasks[taskId];
+      }
+      Attributes attrs;
+      attrs.add(Attributes::parse("total_time",
+          boost::lexical_cast<std::string>(totalTime)));
+      setupScheduler(scenario, schedName, batch, tasks, attrs, "batch");
     }
-    Attributes schedAttributes(
-        Attributes::parse(batch.get<std::string>("attributes", "")));
-    // FIXME hack
-    schedAttributes.add(
-        Attributes::parse("total_time",
-                          boost::lexical_cast<std::string>(totalTime)));
-    schedAttributes.add(Attributes::parse("type", "batch"));
-    FakeScheduler* scheduler =
-        scenario->spawnScheduler(schedName, schedAttributes, tasks);
-    const double startTime(batch.get<double>("start_time", 0.0) + now);
-    scheduler->setStartTime(startTime);
+  }
+
+  boost::optional<const ptree&> serveJobs = spec.get_child_optional("serve");
+  if (serveJobs) {
+    foreachpair (const std::string& schedName, const ptree& serve,
+                 serveJobs.get()) {
+      const ResourceHints request(ResourceHints::parse(
+            serve.get<std::string>("request", ""),
+            serve.get<std::string>("request_min", "")));
+      const Resources constResources(
+          Resources::parse(serve.get<std::string>("const_resources", "")));
+      const double cpuPerUnit(serve.get<double>("cpu_per_unit", 1.0));
+      std::vector<double> counts;
+      foreachvalue (const ptree& value, serve.get_child("counts")) {
+        counts.push_back(value.get_value<double>());
+      }
+      const double duration(serve.get<double>("time_per_count"));
+      CHECK_GT(duration, 0.0);
+      boost::shared_ptr<Pattern> pattern(new Pattern(counts, seconds(duration)));
+      std::map<TaskID, FakeTask*> tasks;
+      foreachpair (const std::string& key,
+                   const ptree& task, serve.get_child("tasks")) {
+        TaskID taskId;
+        taskId.set_value(key);
+        tasks[taskId] = new PatternTask(constResources, request,
+                                        pattern, cpuPerUnit, seconds(duration));
+      }
+      setupScheduler(scenario, schedName, serve, tasks, Attributes(), "serve");
+    }
   }
 
   // This is done _after_ so startTime stuff can take effect.

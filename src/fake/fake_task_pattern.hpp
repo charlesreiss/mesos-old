@@ -16,10 +16,10 @@
  * limitations under the License.
  */
 
-#ifndef __FAKE_TASK_SIMPLE_HPP__
-#define __FAKE_TASK_SIMPLE_HPP__
+#ifndef __FAKE_TASK_PATTERN_HPP__
+#define __FAKE_TASK_PATTERN_HPP__
 
-#include <boost/scoped_ptr.hpp>
+#include <boost/shared_ptr.hpp>
 
 #include "fake/fake_task.hpp"
 
@@ -52,8 +52,8 @@ class PatternTask : public FakeTask {
 public:
   // TODO -- Figure out queuing model re: variance
   PatternTask(const Resources& _constUsage, const ResourceHints& _request,
-              const GenericPattern* _pattern, double _cpuPerUnit,
-              seconds _baseTime);
+              boost::shared_ptr<GenericPattern const> _pattern,
+              double _cpuPerUnit, seconds _baseTime);
 
   Resources getUsage(seconds from, seconds to) const;
   TaskState takeUsage(seconds from, seconds to, const Resources& resources);
@@ -65,7 +65,7 @@ public:
 private:
   Resources constUsage;
   ResourceHints request;
-  boost::scoped_ptr<const GenericPattern> pattern;
+  boost::shared_ptr<const GenericPattern> pattern;
   double cpuPerUnit;
   double violations;
   double score;
@@ -76,4 +76,4 @@ private:
 }  // namespace internal
 }  // namespace mesos
 
-#endif // __FAKE_TASK_SIMPLE_HPP__
+#endif // __FAKE_TASK_PATTERN_HPP__

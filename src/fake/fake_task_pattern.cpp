@@ -35,7 +35,8 @@ double Pattern::countDuring(seconds start, seconds end) const
 
 PatternTask::PatternTask(
     const Resources& _constUsage, const ResourceHints& _request,
-    const GenericPattern* _pattern, double _cpuPerUnit, seconds _baseTime)
+    boost::shared_ptr<GenericPattern const> _pattern, double _cpuPerUnit,
+    seconds _baseTime)
   : constUsage(_constUsage),
     request(_request),
     pattern(_pattern),
