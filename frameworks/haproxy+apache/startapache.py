@@ -1,5 +1,8 @@
 #!/usr/bin/env python
+
+import sys
 import mesos
+import mesos_pb2
 import sys
 import time
 import os
@@ -7,8 +10,7 @@ import atexit
 
 from subprocess import *
 
-APACHECTL = "/usr/apache2/2.2/bin/apachectl" #EC2
-#APACHECTL = "sudo /etc/init.d/apache2" #R Cluster
+APACHECTL = os.getenv('APACHECTL')
 
 def cleanup():
   try:
@@ -20,18 +22,20 @@ def cleanup():
 
 class MyExecutor(mesos.Executor):
   def __init__(self):
-    mesos.Executor.__init__(self)
     self.tid = -1
 
   def launchTask(self, driver, task):
-    self.tid = task.taskId
+    self.tid = task.task_id
+    driver.sendStatusUpdate(
+        mesos_pb2.TaskStatus(task_id = self.tid, state=mesos_pb2.TASK_RUNNING)
+        )
     Popen(APACHECTL + " start", shell=True)
 
   def killTask(self, driver, tid):
-    if (tid != self.tid):
+    if (tid.value != self.tid.value):
       print "Expecting different task id ... killing anyway!"
     cleanup()
-    update = mesos.TaskStatus(tid, mesos.TASK_FINISHED, "")
+    update = mesos_pb2.TaskStatus(task_id = tid, state=mesos_pb2.TASK_FINISHED)
     driver.sendStatusUpdate(update)
 
   def shutdown(driver, self):

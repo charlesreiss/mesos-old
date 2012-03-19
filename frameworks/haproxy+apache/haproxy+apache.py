@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import mesos
+import mesos_pb2
 import os
 import sys
 import time
@@ -8,19 +9,33 @@ import httplib
 import Queue
 import threading
 
-from optparse import OptionParser
+from argparse import ArgumentParser
 from subprocess import *
 from socket import gethostname
 
-MIN_SERVERS = 1
-START_THRESHOLD = 25
-KILL_THRESHOLD = 5
-HAPROXY_EXE = "/root/haproxy-1.3.20/haproxy" #EC2
-#HAPROXY_EXE = "/scratch/haproxy-1.3.25/haproxy" #Rcluster
-
 class ApacheWebFWScheduler(mesos.Scheduler):
-  def __init__(self):
-    mesos.Scheduler.__init__(self)
+  def __init__(self, min_servers, start_threshold, kill_threshold, 
+               haproxy_exe, memory_required, cpu_required, monitor_server,
+               server_port, apachectl_exe):
+    self.min_servers = min_servers
+    self.start_threshold = start_threshold
+    self.kill_threshold = kill_threshold
+    self.haproxy_exe = haproxy_exe
+    self.apachectl_exe = apachectl_exe
+    self.server_port = server_port
+    self.cpu_required = cpu_required
+    self.memory_required = memory_required
+    self.resources = [
+        mesos_pb2.Resource(
+          name='cpus',
+          type=mesos_pb2.Value.SCALAR,
+          scalar=mesos_pb2.Value.Scalar(value=self.cpu_required)),
+        mesos_pb2.Resource(
+          name='mem',
+          type=mesos_pb2.Value.SCALAR,
+          scalar=mesos_pb2.Value.Scalar(value=self.memory_required))
+      ]
+
     self.lock = threading.RLock()
     self.id = 0
     self.haproxy = -1
@@ -37,7 +52,15 @@ class ApacheWebFWScheduler(mesos.Scheduler):
 
   def getExecutorInfo(self, driver):
     execPath = os.path.join(os.getcwd(), "startapache.sh")
-    return mesos.ExecutorInfo(execPath, "")
+    environment = mesos_pb2.Environment()
+    apachectl_var = environment.variables.add()
+    apachectl_var.name = 'APACHECTL'
+    apachectl_var.value = self.apachectl_exe
+    return mesos_pb2.ExecutorInfo(
+        executor_id=mesos_pb2.ExecutorID(value='default'),
+        uri=execPath,
+        environment=environment)
+
 
   def reconfigure(self):
     print "reconfiguring haproxy"
@@ -48,88 +71,108 @@ class ApacheWebFWScheduler(mesos.Scheduler):
           config.write(line)
       for id, host in self.servers.iteritems():
         config.write("       ")
-        config.write("server %d %s:80 check\n" % (id, host))
+        config.write("server %d %s:%d check\n" % (int(id), host, self.server_port))
 
     cmd = []
     if self.haproxy != -1:
-      cmd = [HAPROXY_EXE,
+      cmd = [self.haproxy_exe,
              "-f",
              name,
              "-sf",
              str(self.haproxy.pid)]
     else:
-      cmd = [HAPROXY_EXE,
+      cmd = [self.haproxy_exe,
              "-f",
              name]
 
+    print "about to run ", cmd
     self.haproxy = Popen(cmd, shell = False)
     self.reconfigs += 1
 
-  def resourceOffer(self, driver, oid, slave_offers):
-    print "Got resource offer %s with %s slots." % (oid, len(slave_offers))
+  def resourceOffers(self, driver, offers):
+    def getResource(offer, name):
+      for resource in offer.resources:
+        if resource.name == name:
+          return resource.scalar.value
+      return 0.0
+
+    print "Got %d resource offers" % len(offers)
     self.lock.acquire()
-    tasks = []
-    for offer in slave_offers:
-      if offer.host in self.servers.values():
-        print "Rejecting slot on host " + offer.host + " because we've launched a server on that machine already."
+    for offer in offers:
+      tasks = []
+      if offer.hostname in self.servers.values():
+        print "Rejecting slot on host " + offer.hostname + " because we've launched a server on that machine already."
         #print "self.servers currently looks like: " + str(self.servers)
       elif not self.overloaded and len(self.servers) > 0:
         print "Rejecting slot because we've launched enough tasks."
-      elif int(offer.params['mem']) < 1024:
-        print "Rejecting offer because it doesn't contain enough memory (it has " + offer.params['mem'] + " and we need 1024mb."
-      elif int(offer.params['cpus']) < 1:
+      elif getResource(offer, 'mem') < args.memory_required:
+        print ("Rejecting offer because it doesn't contain enough memory" +
+          "(it has " + offer.params['mem'] + " and we need " +
+          args.memory_required + ").")
+      elif getResource(offer, 'cpus') < args.cpu_required:
         print "Rejecting offer because it doesn't contain enough CPUs."
       else:
-        print "Offer is for " + offer.params['cpus'] + " CPUS and " + offer.params["mem"] + " MB on host " + offer.host
-        params = {"cpus": "1", "mem": "1024"}
-        td = mesos.TaskDescription(self.id, offer.slaveId, "server %s" % self.id, params, "")
-        print "Accepting task, id=" + str(self.id) + ", params: " + params['cpus'] + " CPUS, and " + params['mem'] + " MB, on node " + offer.host
+        td = mesos_pb2.TaskDescription()
+        td.name = 'webserver'
+        td.task_id.value = str(self.id)
+        td.slave_id.MergeFrom(offer.slave_id)
+        cpus = td.resources.add()
+        cpus.name = 'cpus'
+        cpus.type = mesos_pb2.Value.SCALAR
+        cpus.scalar.value = self.cpu_required
+
+        mem = td.resources.add()
+        mem.name = 'mem'
+        mem.type = mesos_pb2.Value.SCALAR
+        mem.scalar.value = self.memory_required
+
         tasks.append(td)
-        self.servers[self.id] = offer.host
+        self.servers[str(self.id)] = offer.hostname
         self.id += 1
         self.overloaded = False
-    driver.replyToOffer(oid, tasks, {"timeout":"1"})
-    #driver.replyToOffer(oid, tasks, {})
+      driver.launchTasks(offer.id, tasks)
     print "done with resourceOffer()"
     self.lock.release()
 
   def statusUpdate(self, driver, status):
-    print "received status update from taskID " + str(status.taskId) + ", with state: " + str(status.state)
+    print "received status update from taskID " + str(status.task_id) + ", with state: " + str(status.state)
     reconfigured = False
     self.lock.acquire()
-    if status.taskId in self.servers.keys():
-      if status.state == mesos.TASK_STARTING:
-        print "Task " + str(status.taskId) + " reported that it is STARTING."
-        del self.servers[status.taskId]
+    if status.task_id.value in self.servers.keys():
+      if status.state == mesos_pb2.TASK_STARTING:
+        print "Task " + str(status.task_id) + " reported that it is STARTING."
+        del self.servers[status.task_id.value]
         self.reconfigure()
         reconfigured = True
-      if status.state == mesos.TASK_RUNNING:
-        print "Task " + str(status.taskId) + " reported that it is RUNNING, reconfiguring haproxy to include it in webfarm now."
+      elif status.state == mesos_pb2.TASK_RUNNING:
+        print "Task " + str(status.task_id) + " reported that it is RUNNING, reconfiguring haproxy to include it in webfarm now."
         self.reconfigure()
         reconfigured = True
-      if status.state == mesos.TASK_FINISHED:
-        del self.servers[status.taskId]
-        print "Task " + str(status.taskId) + " reported FINISHED (state " + status.state + ")."
+      elif status.state == mesos_pb2.TASK_FINISHED:
+        del self.servers[status.task_id.value]
+        print "Task " + str(status.task_id) + " reported FINISHED."
         self.reconfigure()
         reconfigured = True
-      if status.state == mesos.TASK_FAILED:
-        print "Task " + str(status.taskId) + " reported that it FAILED!"
-        del self.servers[status.taskId]
+      elif status.state == mesos_pb2.TASK_FAILED:
+        print "Task " + str(status.task_id) + " reported that it FAILED!"
+        del self.servers[status.task_id]
         self.reconfigure()
         reconfigured = True
-      if status.state == mesos.TASK_KILLED:
-        print "Task " + str(status.taskId) + " reported that it was KILLED!"
-        del self.servers[status.taskId]
+      elif status.state == mesos_pb2.TASK_KILLED:
+        print "Task " + str(status.task_id) + " reported that it was KILLED!"
+        del self.servers[status.task_id.value]
         self.reconfigure()
         reconfigured = True
-      if status.state == mesos.TASK_LOST:
-        print "Task " + str(status.taskId) + " reported was LOST!"
-        del self.servers[status.taskId]
+      elif status.state == mesos_pb2.TASK_LOST:
+        print "Task " + str(status.task_id) + " reported was LOST!"
+        del self.servers[status.task_id.value]
         self.reconfigure()
         reconfigured = True
+      else:
+        print "Task " + str(status.task_id) + " in unknown state " + str(status.state) + "!"
     self.lock.release()
     if reconfigured:
-      None#driver.reviveOffers()
+      driver.reviveOffers()
     print "done in statusupdate"
 
   def scaleUp(self):
@@ -149,68 +192,87 @@ class ApacheWebFWScheduler(mesos.Scheduler):
     self.lock.release()
     if kill:
       self.driver.killTask(id)
+  
+  def monitor(self):
+    print "in MONITOR()"
+    while True:
+      time.sleep(1)
+      print "done sleeping"
+      try:
+        conn = httplib.HTTPConnection(self.monitor_server)
+        print "done creating connection"
+        conn.request("GET", "/stats;csv")
+        print "done with request()"
+        res = conn.getresponse()
+        print "testing response status"
+        if (res.status != 200):
+          print "response != 200"
+          continue
+        else:
+          print "got some stats"
+          data = res.read()
+          lines = data.split('\n')[2:-2]
 
+          data = data.split('\n')
+          data = data[1].split(',')
 
-def monitor(sched):
-  print "in MONITOR()"
-  while True:
-    time.sleep(1)
-    print "done sleeping"
-    try:
-      conn = httplib.HTTPConnection("r3.millennium.berkeley.edu:9001")
-      print "done creating connection"
-      conn.request("GET", "/stats;csv")
-      print "done with request()"
-      res = conn.getresponse()
-      print "testing response status"
-      if (res.status != 200):
-        print "response != 200"
+          if int(data[33]) >= self.start_threshold:
+            self.scaleUp()
+          elif int(data[4]) <= self.kill_threshold:
+            minload, minid = (sys.maxint, 0)
+            for l in lines:
+              cols = l.split(',')
+              id = int(cols[1])
+              load = int(cols[4])
+              if load < minload:
+                minload = load
+                minid = id
+
+            if len(lines) > self.min_servers and minload == 0:
+              self.scaleDown(minid)
+
+          conn.close()
+      except Exception, e:
+        print "exception in monitor()"
         continue
-      else:
-        print "got some stats"
-        data = res.read()
-        lines = data.split('\n')[2:-2]
+    print "done in MONITOR()"
 
-        data = data.split('\n')
-        data = data[1].split(',')
 
-        if int(data[33]) >= START_THRESHOLD:
-          sched.scaleUp()
-        elif int(data[4]) <= KILL_THRESHOLD:
-          minload, minid = (sys.maxint, 0)
-          for l in lines:
-            cols = l.split(',')
-            id = int(cols[1])
-            load = int(cols[4])
-            if load < minload:
-              minload = load
-              minid = id
-
-          if len(lines) > MIN_SERVERS and minload == 0:
-            sched.scaleDown(minid)
-
-        conn.close()
-    except Exception, e:
-      print "exception in monitor()"
-      continue
-  print "done in MONITOR()"
 
 if __name__ == "__main__":
-  parser = OptionParser(usage = "Usage: %prog mesos_master")
+  parser = ArgumentParser(usage = "Usage: %prog mesos_master")
+  parser.add_argument('--monitor_server', type=str)
+  parser.add_argument('--master', type=str)
+  parser.add_argument('--name', type=str, default='haproxy+apache')
+  parser.add_argument('--start_threshold', type=float, default=25.0)
+  parser.add_argument('--kill_threshold', type=float, default=5.0)
+  parser.add_argument('--haproxy_exe', type=str,
+                      default='/root/haproxy-1.3.20/haproxy')
+  parser.add_argument('--min_servers', type=int, default=1)
+  parser.add_argument('--apachectl_exe', type=str)
+  parser.add_argument('--memory_required', type=float, default=1024.0)
+  parser.add_argument('--cpu_required', type=float, default=1.0)
+  parser.add_argument('--server_port', type=int, default=8888)
 
-  (options,args) = parser.parse_args()
-  if len(args) < 1:
-    print >> sys.stderr, "At least one parameter required."
-    print >> sys.stderr, "Use --help to show usage."
-    exit(2)
+  args = parser.parse_args()
 
   print "sched = ApacheWebFWScheduler()"
-  sched = ApacheWebFWScheduler()
+  sched = ApacheWebFWScheduler(
+      min_servers = args.min_servers,
+      start_threshold = args.start_threshold,
+      kill_threshold = args.kill_threshold,
+      haproxy_exe = args.haproxy_exe,
+      apachectl_exe = args.apachectl_exe,
+      cpu_required = args.cpu_required,
+      memory_required = args.memory_required,
+      monitor_server = args.monitor_server,
+      server_port = args.server_port)
 
-  print "Connecting to mesos master %s" % args[0]
-  driver = mesos.MesosSchedulerDriver(sched, sys.argv[1])
+  print "Connecting to mesos master %s" % args.master
+  driver = mesos.MesosSchedulerDriver(sched, args.name,
+      sched.getExecutorInfo(None), args.master)
 
-  threading.Thread(target = monitor, args=[sched]).start()
+  threading.Thread(target = sched.monitor, args=[]).start()
 
   driver.run()
 
