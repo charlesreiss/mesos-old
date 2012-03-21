@@ -13,13 +13,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('input', type=str, nargs='+', metavar='LABEL:FILE')
 parser.add_argument('--scale_memory', type=float, default=40.0)
 parser.add_argument('--scale_cpu', type=float, default=8.0)
-parser.add_argument('--num_frameworks', type=int, default=3)
+parser.add_argument('--num_frameworks', type=int, default=4)
 parser.add_argument('--out_base', type=str, default='out')
 parser.add_argument('--use_memory', action='store_true', default=False)
 parser.add_argument('--use_cpu', action='store_true', default=False)
 
-
-args = parser.parse_args()
+args = None
 
 def base_record():
   return usage_log_pb2.UsageLogRecord()
@@ -51,12 +50,14 @@ def utilization_from(record):
       if resource.name == 'cpus':
         cpu = resource.scalar.value * effective_duration / args.scale_cpu
         total_cpu += cpu
-        if framework in framework_cpu:
+        if framework < len(framework_cpu):
           framework_cpu[framework] += cpu
+        else:
+          print "WARNING: ", args.num_frameworks, " does not fit ", framework
       elif resource.name == 'mem':
         memory = resource.scalar.value * effective_duration / args.scale_memory
         total_memory += memory
-        if framework in framework_memory:
+        if framework < len(framework_memory):
           framework_memory[framework] += memory
   result = [total_cpu, total_memory]
   for i in xrange(args.num_frameworks):
@@ -79,32 +80,35 @@ def read_file(name):
     datatypes += [('cpu_' + str(i), float), ('memory_' + str(i), float)]
   return np.array(data, dtype=datatypes)
 
-pyp.figure(1000)
-for i in xrange(args.num_frameworks):
-  pyp.figure(i)
-
-for label_name in args.input:
-  (label, name) = label_name.split(':')
-  data = read_file(name)
+if __name__ == '__main__':
+  args = parser.parse_args()
   pyp.figure(1000)
-  if args.use_cpu:
-    pyp.plot(data['cpu'], label=label + ' cpu')
-  if args.use_memory:
-    pyp.plot(data['memory'], label=label + ' memory')
   for i in xrange(args.num_frameworks):
     pyp.figure(i)
-    if args.use_cpu:
-      pyp.plot(data['cpu_' + str(i)], label=label + ' cpu for ' + str(i))
-    if args.use_memory:
-      pyp.plot(data['memory_' + str(i)], label=label + ' memory for ' + str(i))
 
-pyp.figure(1000)
-pyp.ylim(0, 1.)
-pyp.legend()
-pyp.savefig(args.out_base + '.pdf')
-for i in xrange(args.num_frameworks):
-  pyp.figure(i)
-  pyp.ylim(0, 1.)
+  for label_name in args.input:
+    (label, name) = label_name.split(':')
+    data = read_file(name)
+    np.save(args.out_base + '-data.npy', data)
+    pyp.figure(1000)
+    if args.use_cpu:
+      pyp.plot(data['cpu'], label=label + ' cpu')
+    if args.use_memory:
+      pyp.plot(data['memory'], label=label + ' memory')
+    for i in xrange(args.num_frameworks):
+      pyp.figure(i)
+      if args.use_cpu:
+        pyp.plot(data['cpu_' + str(i)], label=label + ' cpu for ' + str(i))
+      if args.use_memory:
+        pyp.plot(data['memory_' + str(i)], label=label + ' memory for ' + str(i))
+
+  pyp.figure(1000)
+  pyp.ylim(0, max(data['cpu']))
   pyp.legend()
-  pyp.savefig(args.out_base + '-' + str(i) + '.pdf')
+  pyp.savefig(args.out_base + '.pdf')
+  for i in xrange(args.num_frameworks):
+    pyp.figure(i)
+    pyp.ylim(0, max(data['cpu']))
+    pyp.legend()
+    pyp.savefig(args.out_base + '-' + str(i) + '.pdf')
 
