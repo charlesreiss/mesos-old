@@ -103,6 +103,7 @@ private:
   std::vector<FakeIsolationModule*> isolationModules;
   std::string label;
   std::string labelColumns;
+  double interval;
 };
 
 void populateScenarioFrom(const boost::property_tree::ptree& spec,

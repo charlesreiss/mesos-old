@@ -19,11 +19,12 @@ void Scenario::registerOptions(Configurator* configurator)
   FakeIsolationModule::registerOptions(configurator);
 }
 
-Scenario::Scenario() : master(0), conf()
+Scenario::Scenario() : master(0), conf(), interval(1./8.)
 {
 }
 
-Scenario::Scenario(const Configuration& conf_) : master(0), conf(conf_)
+Scenario::Scenario(const Configuration& conf_)
+    : master(0), conf(conf_), interval(conf_.get<double>("fake_interval", 1./8.))
 {
 }
 
@@ -77,7 +78,7 @@ FakeScheduler* Scenario::spawnScheduler(
       name,
       info,
       "mesos://" + std::string(masterPid));
-  driver->start();
+  CHECK_EQ(OK, driver->start());
   schedulers[name] = scheduler;
   schedulerDrivers[name] = driver;
 
@@ -100,11 +101,10 @@ void Scenario::finishSetup()
 void Scenario::runFor(double seconds)
 {
   CHECK(process::Clock::paused());
-  const double kInterval = 1./8.;
   while (seconds > 0.0) {
-    process::Clock::advance(std::min(kInterval, seconds));
+    process::Clock::advance(std::min(interval, seconds));
     process::Clock::settle();
-    seconds -= kInterval;
+    seconds -= interval;
   }
 }
 
@@ -175,6 +175,7 @@ void setupScheduler(Scenario* scenario,
     schedAttributes.add(attr);
   }
   schedAttributes.add(Attributes::parse("type", type));
+  schedAttributes.add(Attributes::parse("name", schedName));
   FakeScheduler* scheduler =
       scenario->spawnScheduler(schedName, schedAttributes, tasks);
   const double startTime(spec.get<double>("start_time", 0.0) + now);
