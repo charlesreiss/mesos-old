@@ -175,9 +175,11 @@ class BatchJob(GenericJob):
     self.for_json['max_cpus'] = max_cpus
   
 class ServeJob(GenericJob):
-  def __init__(self, cpu_per_unit=1.0, **kwargs):
+  def __init__(self, serve_tasks, cpu_per_unit=1.0, **kwargs):
     GenericJob.__init__(self, **kwargs)
     self.for_json['cpu_per_unit'] = cpu_per_unit
+    for i in xrange(serve_tasks):
+      self.add_task()
 
   def set_pattern(self, pattern_list, duration=1.0):
     self.for_json['counts'] = pattern_list
@@ -242,6 +244,7 @@ def make_scenario(offset):
 
   def sample_one(start_time, is_experiment=False):
     myargs = args
+    myargs.start_time = start_time
     if is_experiment:
       myargs.memory_sample_func = lambda ignored: args.experiment_memory
     else:
@@ -268,7 +271,7 @@ def make_scenario(offset):
   for i in xrange(args.num_serves):
     serve_jobs.append(ServeJob(request=args.serve_request,
         const_resources='mem:' + str(args.serve_memory),
-        start_time=0.0,
+        start_time=0.0, serve_tasks=args.serve_tasks,
         cpu_per_unit=args.serve_cpu_unit))
     serve_jobs[-1].set_pattern(args.serve_pattern.split(','),
         args.serve_time_unit)
