@@ -76,5 +76,5 @@ add_plot('norequest-aggressive', 'norequest (aggressive reoffer)', 'purple')
 add_plot('simple-strong', 'simple, strong isolation', 'green')
 add_plot('simple-weak', 'simple, weak isolation', 'blue')
 pyp.legend()
-pyp.savefig(args.base + args.plot_extra + '-plot.pdf')
+pyp.savefig('plots/' + args.base + args.plot_extra + '-plot.pdf')
 
