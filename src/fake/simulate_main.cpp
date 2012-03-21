@@ -32,7 +32,7 @@ static void headerForBatch(const std::string& name)
             << name << "_start_time," << name << "_duration,"
             << name << "_finished,"
             << name << "_lost," << name << "_failed,"
-            << name << "_kill," << name << "_score";
+            << name << "_kill," << name << "_score,";
 }
 
 const void headerFromScenario(const Configuration& conf, Scenario* scenario)
@@ -53,6 +53,7 @@ static void run(const Configuration& conf, bool needHeader,
 {
   if (needHeader) {
     headerFromScenario(conf, scenario);
+    std::cout << std::flush;
   }
   double start = process::Clock::now();
   const double interval = conf.get<double>("fake_interval", 0.5);
@@ -78,11 +79,15 @@ static void run(const Configuration& conf, bool needHeader,
         if (scheduler->getAttributes().get("type", Value::Text()).value()
             == "serve") {
           done[i] = true;
+        } else {
+          done[i] = (scheduler->countPending() + scheduler->countRunning()) == 0;
         }
-        done[i] = (scheduler->countPending() + scheduler->countRunning()) == 0;
         if (done[i]) {
           finishTime[i] = process::Clock::now() - start;
         } else {
+          LOG(INFO) << "scheduler " << i << " (" <<
+            scheduler->getAttributes().get("name", Value::Text()).value()
+            << ") not done at " << (process::Clock::now() - start);
           allDone = false;
         }
       }
@@ -93,7 +98,6 @@ static void run(const Configuration& conf, bool needHeader,
   } while (!allDone);
 
   double end = process::Clock::now();
-  scenario->stop();
 
   if (scenario->getLabel() != "") {
     std::cout << scenario->getLabel() << ',';
@@ -113,7 +117,11 @@ static void run(const Configuration& conf, bool needHeader,
               << schedulers[i]->getScore() << ",";
   }
   std::cout << std::accumulate(totalCpuTimes.begin(), totalCpuTimes.end(), 0.0)
-            << "," << (end - start) << std::endl;
+            << "," << (end - start) << std::endl << std::flush;
+
+  LOG(INFO) << "about to call stop() after " << (end - start) << " s simulated";
+  scenario->stop();
+  LOG(INFO) << "returned from stop()";
 }
 
 static std::string readRecord(std::istream* in)
@@ -141,6 +149,7 @@ static void runFromFile(const Configuration& conf, const std::string& file)
     boost::scoped_ptr<UsageRecorder> recorder;
     std::string record = readRecord(&in);
     if (0 == record.size()) {
+      LOG(INFO) << "done reading the file";
       return;
     }
     std::istringstream recordIn(record);
@@ -208,6 +217,8 @@ int main(int argc, char **argv)
   } else {
     LOG(FATAL) << "Must specify --json_file";
   }
+
+  LOG(ERROR) << "About to exit normally";
 
   return EXIT_SUCCESS;
 }
