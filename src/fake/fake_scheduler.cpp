@@ -29,6 +29,10 @@ using std::vector;
 void FakeScheduler::registered(SchedulerDriver* driver_,
                                const FrameworkID& frameworkId_)
 {
+  CHECK(!driver) << "excess registration for " << frameworkId_
+                 << "; new driver = " << (void*) driver_
+                 << "; old driver = " << (void*) driver
+                 << "; old id = " << frameworkId;
   driver = driver_;
   frameworkId.MergeFrom(frameworkId_);
 }

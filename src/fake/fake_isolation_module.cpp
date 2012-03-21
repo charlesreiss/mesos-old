@@ -172,6 +172,10 @@ void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
   VLOG(1) << "resourcesChanged: " << frameworkId << ", " << executorId
           << " to " << _resources;
   ResourceHints resources = _resources;
+  if (0 == tasks.count(make_pair(frameworkId, executorId))) {
+    VLOG(1) << "resourcesChanged: ignoring non-running task";
+    return;
+  }
   mesos::Resource slackMemResource;
   slackMemResource.set_name("mem");
   slackMemResource.set_type(Value::SCALAR);
@@ -203,19 +207,21 @@ void FakeIsolationModule::unregisterTask(
     const TaskID& taskId)
 {
   CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
-  LOG(INFO) << "FakeIsolationModule::unregisterTask(" << frameworkId << ","
-            << executorId << ", ...)";
-  RunningTaskInfo* taskInfo = &tasks[make_pair(frameworkId, executorId)];
-  CHECK_EQ(taskInfo->taskId, taskId);
-  CHECK_NOTNULL(taskInfo->fakeTask);
-  taskInfo->fakeTask = 0;
+  if (tasks.count(make_pair(frameworkId, executorId)) > 0) {
+    LOG(INFO) << "FakeIsolationModule::unregisterTask(" << frameworkId << ","
+              << executorId << ", ...)";
+    RunningTaskInfo* taskInfo = &tasks[make_pair(frameworkId, executorId)];
+    CHECK_EQ(taskInfo->taskId, taskId);
+    CHECK_NOTNULL(taskInfo->fakeTask);
+    taskInfo->fakeTask = 0;
+    SlaveID ignoredSlaveId;
+    ignoredSlaveId.set_value("XXX");
+    // We do this indirectly so status updates queued with the ExecutorProcess
+    // happen first.
+    dispatch(slave, &Slave::schedulerMessage, ignoredSlaveId, frameworkId,
+        executorId, "DIE");
+  }
   CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
-  SlaveID ignoredSlaveId;
-  ignoredSlaveId.set_value("XXX");
-  // We do this indirectly so status updates queued with the ExecutorProcess
-  // happen first.
-  dispatch(slave, &Slave::schedulerMessage, ignoredSlaveId, frameworkId,
-      executorId, "DIE");
 }
 
 void FakeIsolationModuleTicker::tick() {
@@ -431,6 +437,10 @@ FakeIsolationModule::~FakeIsolationModule()
   LOG(INFO) << "wait";
   process::wait(ticker.get());
   LOG(INFO) << "shut down ticker";
+  foreachpair (const TaskMap::key_type& key, const RunningTaskInfo& value,
+      tasks) {
+    LOG(INFO) << "remaining task: " << key.first << "," << key.second;
+  }
   pthread_mutex_destroy(&tasksLock);
   foreachvalue(const DriverMap::mapped_type& pair, drivers) {
     MesosExecutorDriver* driver = pair.first;
