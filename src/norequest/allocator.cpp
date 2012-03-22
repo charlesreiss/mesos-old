@@ -36,6 +36,7 @@ using std::vector;
 void
 NoRequestAllocator::frameworkAdded(Framework* framework) {
   LOG(INFO) << "add framework";
+  allRefusers.clear();
   makeNewOffers(master->getActiveSlaves());
 }
 
@@ -55,6 +56,7 @@ NoRequestAllocator::slaveRemoved(Slave* slave) {
   totalResources -= slave->info.resources();
   tracker->setCapacity(slave->id, Resources());
   refusers.erase(slave);
+  allRefusers.erase(slave);
 }
 
 void
@@ -69,6 +71,7 @@ NoRequestAllocator::taskRemoved(Task* task) {
              0, task, Option<ExecutorInfo>::none());
   Slave* slave = master->getSlave(task->slave_id());
   refusers.erase(slave);
+  allRefusers.erase(slave);
   std::vector<Slave*> slave_alone;
   slave_alone.push_back(slave);
   makeNewOffers(slave_alone);
@@ -91,6 +94,7 @@ NoRequestAllocator::executorRemoved(const FrameworkID& frameworkId,
   knownTasks.erase(ExecutorKey(frameworkId, info.executor_id(), slaveId));
   Slave* slave = master->getSlave(slaveId);
   refusers.erase(slave);
+  allRefusers.erase(slave);
   std::vector<Slave*> slave_alone;
   slave_alone.push_back(slave);
   // TODO(Charles): Unit test for this happening
@@ -152,9 +156,9 @@ struct ChargedShareComparator {
     double firstShare = dominantShareOf(first);
     double secondShare = dominantShareOf(second);
     if (firstShare == secondShare) {
-      LOG(INFO) << "shares equal; copmaring "
-                << first->id.value() << " and " << second->id.value()
-                << " --> " << (first->id.value() < second->id.value());
+      VLOG(3) << "shares equal; comparing "
+              << first->id.value() << " and " << second->id.value()
+              << " --> " << (first->id.value() < second->id.value());
       return first->id.value() < second->id.value();
     } else {
       return firstShare < secondShare;
@@ -167,6 +171,7 @@ struct ChargedShareComparator {
     Resources charge = useCharge ?
       tracker->chargeForFramework(framework->id) :
       tracker->nextUsedForFramework(framework->id);
+    charge += framework->offeredResources;
     double share = 0.0;
     foreach (const Resource& resource, charge) {
       if (resource.type() == Value::SCALAR) {
@@ -177,7 +182,7 @@ struct ChargedShareComparator {
         }
       }
     }
-    LOG(INFO) << "computed share of " << framework->id << " = " << share;
+    VLOG(3) << "computed share of " << framework->id << " = " << share;
     return share;
   }
 
@@ -214,6 +219,11 @@ void fixResources(Resources* res) {
   }
   if (res->get(kNoMem).isNone()) {
     *res += kNoMem;
+  }
+  foreach (Resource& resource, *res) {
+    if (resource.scalar().value() < 0.0) {
+      resource.mutable_scalar()->set_value(0.0);
+    }
   }
 }
 
@@ -253,6 +263,23 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
     }
   }
 
+  // Clear refusers on any slave that has been refused by everyone.
+  // TODO(charles): consider case where offer is filtered??
+  foreachkey (Slave* slave, freeResources) {
+    if (refusers.count(slave) &&
+        refusers[slave].size() == orderedFrameworks.size()) {
+      if (allRefusers.count(slave) == 0) {
+        VLOG(1) << "Clearing refusers for slave " << slave->id
+                << " because EVERYONE has refused resources from it";
+        refusers.erase(slave);
+        allRefusers.insert(slave);
+      } else {
+        VLOG(1) << "EVERYONE has refused offers from " << slave->id
+                << " but we've already had it completely refused twice.";
+      }
+    }
+  }
+
   foreach (Framework* framework, orderedFrameworks) {
     hashmap<Slave*, ResourceHints> offerable;
     // TODO(charles): offer both separately;
@@ -264,17 +291,22 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
       if (!(refusers.count(slave) && refusers[slave].count(framework->id)) &&
           !framework->filters(slave, offerRes)) {
         offerable[slave] = offerRes;
-        LOG(INFO) << "offering " << framework->id << " "
+        VLOG(1) << "offering " << framework->id << " "
                   << offerRes << " on slave " << slave->id;
       } else {
-        LOG(INFO) << framework->id << " not accepting offer on " << slave->id;
-        LOG(INFO) << "refuser? " << (refusers.count(slave) ? "yes" : "no");
-        LOG(INFO) << "filtered "
-                  << framework->filters(slave, offerRes.expectedResources);
+        VLOG(2) << framework->id << " not accepting offer on " << slave->id
+                << " -- refuser? "
+                << ((refusers.count(slave) &&
+                     refusers[slave].count(framework->id)) ? "yes" : "no")
+                << " -- filtered " << framework->filters(slave, offerRes)
+                << " -- offerRes " << offerRes;
       }
     }
 
-    LOG(INFO) << "have " << offerable.size() << " offers for " << framework->id;
+    if (offerable.size() > 0) {
+      LOG(INFO) << "have " << offerable.size() << " offers for "
+                << framework->id;
+    }
 
     if (offerable.size() > 0) {
       foreachkey(Slave* slave, offerable) {
@@ -288,14 +320,26 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
 void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
                                          const SlaveID& slaveId,
                                          const ResourceHints& unusedResources) {
+  // FIXME(Charles): There may be a race between setting refusers here
+  // and what happened while the offer was pending; should we set refusers
+  // earlier to compensate?
   refusers[master->getSlave(slaveId)].insert(frameworkId);
-  resourcesRecovered(frameworkId, slaveId, unusedResources);
+  if (aggressiveReoffer) {
+    makeNewOffers(master->getActiveSlaves());
+  } else {
+    std::vector<Slave*> returnedSlave;
+    returnedSlave.push_back(master->getSlave(slaveId));
+    makeNewOffers(returnedSlave);
+  }
 }
 
 void NoRequestAllocator::resourcesRecovered(const FrameworkID& frameworkId,
                                             const SlaveID& slaveId,
                                             const ResourceHints& unusedResources) {
   // FIXME: do we need to inform usagetracker about this?
+  Slave* slave = master->getSlave(slaveId);
+  refusers[slave].erase(frameworkId);
+  allRefusers.erase(slave);
   if (aggressiveReoffer) {
     makeNewOffers(master->getActiveSlaves());
   } else {
@@ -314,6 +358,7 @@ void NoRequestAllocator::offersRevived(Framework* framework) {
       revivedSlaves.push_back(slave);
     }
   }
+  allRefusers.clear();
   if (aggressiveReoffer) {
     makeNewOffers(master->getActiveSlaves());
   } else {
@@ -330,6 +375,7 @@ void NoRequestAllocator::timerTick() {
       refuserSet.clear();
     }
   }
+  allRefusers.clear();
   makeNewOffers(master->getActiveSlaves());
 }
 
@@ -344,6 +390,7 @@ void NoRequestAllocator::gotUsage(const UsageMessage& update) {
       }
     }
     refusers.erase(slave);
+    allRefusers.erase(slave);
     vector<Slave*> singleSlave;
     singleSlave.push_back(slave);
     LOG(INFO) << "Trying to make new offers based on usage update for "

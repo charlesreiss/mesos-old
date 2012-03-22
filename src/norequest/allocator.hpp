@@ -125,7 +125,16 @@ private:
   bool aggressiveReoffer;
   bool useCharge;
 
+  // A framework enters refusers when we learn that it left part of an offer we
+  // gave it unused. We will not reoffer resources to this framework until:
+  // - a framework releases allocated resources on that slave;
+  // - we get a usage update for that slave;
+  // - the framework makes a reviveOffers() call; or
+  // - all frameworks are refusers (see allRefusers)
   boost::unordered_map<Slave*, boost::unordered_set<FrameworkID> > refusers;
+  // This is a `second-chance' list for when all frameworks refuse a slave. We
+  // will reject
+  boost::unordered_set<Slave*> allRefusers;
 
   // We keep track of the set of known tasks here so we can incrementally
   // update our estimates. Otherwise, we will be confused when, e.g.,

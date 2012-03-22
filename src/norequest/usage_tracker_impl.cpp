@@ -56,6 +56,23 @@ operator<<(std::ostream& out, const ResourceEstimates& estimates) {
 
 namespace {
 
+Resources normalizeZeros(const Resources& resources)
+{
+  const double kTooSmall(1./1024./1024./1024.);
+  Resources result;
+  foreach (const Resource& resource, resources) {
+    if (resource.type() != Value::SCALAR ||
+        fabs(resource.scalar().value()) > kTooSmall) {
+      result += resource;
+    } else {
+      Resource newResource = resource;
+      newResource.mutable_scalar()->set_value(0.0);
+      result += newResource;
+    }
+  }
+  return result;
+}
+
 Resources multiplyResources(const Resources& resources, double by) {
   Resources result;
   foreach (const Resource& resource, resources) {
@@ -109,15 +126,16 @@ Resources subtractWithNegatives(const Resources& a, const Resources& b)
   Resources aWithZeros = a;
   addZerosFrom(b, &aWithZeros);
   aWithZeros -= b;
-  return aWithZeros;
+  return normalizeZeros(aWithZeros);
 }
 
 } // anonymous namespace
 
 void
 ResourceEstimates::updateEstimates(double now, double duration,
-    const Resources& usage)
+    const Resources& _usage)
 {
+  Resources usage = normalizeZeros(_usage);
   if (now - duration > setTaskTime && curTasks > 0) {
     LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
     Resources tasksUsage = usage;
@@ -160,7 +178,7 @@ ResourceEstimates::setUsage(double now, double duration,
     const Resources& usage, bool clearUnknown, bool keepCharge)
 {
   Resources usageDiff = subtractWithNegatives(usage, usedResources);
-  usedResources = usage;
+  usedResources = normalizeZeros(usage);
   usageDuration = duration;
   Resources nextDiff = updateNextWithGuess(now, usedResources, clearUnknown);
   Resources chargedDiff = updateCharged(clearUnknown);
