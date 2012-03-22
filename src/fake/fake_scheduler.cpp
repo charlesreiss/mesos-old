@@ -42,6 +42,7 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
 {
   bool beforeStartTime = process::Clock::now() < startTime;
   foreach (const Offer& offer, offers) {
+    CHECK_EQ(offer.framework_id(), frameworkId);
     vector<TaskDescription> toLaunch;
     ResourceHints bucket = ResourceHints::forOffer(offer);
     if (!beforeStartTime && (!haveMinRequest || minRequest <= bucket)) {

@@ -12,6 +12,7 @@
 #include <process/process.hpp>
 #include <process/timer.hpp>
 
+#include "common/lock.hpp"
 #include "mesos/executor.hpp"
 #include "slave/slave.hpp"
 
@@ -128,6 +129,7 @@ void FakeIsolationModule::launchExecutor(
     const FrameworkID& frameworkId, const FrameworkInfo& frameworkInfo,
     const ExecutorInfo& executorInfo, const std::string& directory,
     const ResourceHints& resources) {
+  Lock l(&tasksLock);
   LOG(INFO) << "launchExecutor; this = " << (void*)this;
   FakeExecutor* executor = new FakeExecutor(this);
   MesosExecutorDriver* driver = new MesosExecutorDriver(executor);
@@ -146,6 +148,7 @@ void FakeIsolationModule::launchExecutor(
 void FakeIsolationModule::killExecutor(
     const FrameworkID& frameworkId, const ExecutorID& executorId) {
   LOG(INFO) << "asked to kill executor";
+  Lock l(&tasksLock);
   DriverMap::iterator it = drivers.find(make_pair(frameworkId, executorId));
   if (it != drivers.end()) {
     LOG(INFO) << "about to stop driver";
@@ -157,18 +160,21 @@ void FakeIsolationModule::killExecutor(
     delete executor;
   }
   tasks.erase(make_pair(frameworkId, executorId));
+  CHECK_EQ(0, tasks.count(make_pair(frameworkId, executorId)));
 
   dispatch(slave, &Slave::executorExited, frameworkId, executorId, 0);
 }
 
 void FakeIsolationModule::killedExecutor(
     const FrameworkID& frameworkId, const ExecutorID& executorId) {
+  LOG(INFO) << "killedExecutor()";
   dispatch(self(), &IsolationModule::killExecutor, frameworkId, executorId);
 }
 
 void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
     const ExecutorID& executorId, const ResourceHints& _resources)
 {
+  Lock l(&tasksLock);
   VLOG(1) << "resourcesChanged: " << frameworkId << ", " << executorId
           << " to " << _resources;
   ResourceHints resources = _resources;
@@ -189,8 +195,8 @@ void FakeIsolationModule::registerTask(
     const FrameworkID& frameworkId, const ExecutorID& executorId,
     const TaskID& taskId)
 {
+  Lock l(&tasksLock);
   FakeTask* task = fakeTasks.getTaskFor(frameworkId, executorId, taskId);
-  CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
   LOG(INFO) << "FakeIsolationModule::registerTask(" << frameworkId << ","
             << executorId << ", ...); this = " << (void*) this;
   RunningTaskInfo* taskInfo = &tasks[make_pair(frameworkId, executorId)];
@@ -199,14 +205,13 @@ void FakeIsolationModule::registerTask(
   taskInfo->fakeTask = task;
   CHECK_GT(tasks.size(), 0);
   LOG(INFO) << "Now got " << tasks.size();
-  CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
 }
 
 void FakeIsolationModule::unregisterTask(
     const FrameworkID& frameworkId, const ExecutorID& executorId,
     const TaskID& taskId)
 {
-  CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
+  Lock l(&tasksLock);
   if (tasks.count(make_pair(frameworkId, executorId)) > 0) {
     LOG(INFO) << "FakeIsolationModule::unregisterTask(" << frameworkId << ","
               << executorId << ", ...)";
@@ -221,7 +226,6 @@ void FakeIsolationModule::unregisterTask(
     dispatch(slave, &Slave::schedulerMessage, ignoredSlaveId, frameworkId,
         executorId, "DIE");
   }
-  CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
 }
 
 void FakeIsolationModuleTicker::tick() {
@@ -333,78 +337,80 @@ void distributeFree(const std::string& name,
 } // unnamed namespace
 
 bool FakeIsolationModule::tick() {
-  VLOG(2) << "FakeIsolationModule::tick; this = " << (void*)this;
-  CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
-  VLOG(2) << "tasks.size = " << tasks.size();
+  typedef std::pair<FrameworkID, ExecutorID> FrameworkExecutorID;
+  typedef boost::tuple<FrameworkID, ExecutorID, TaskID> TaskTuple;
 
   seconds oldTime(lastTime);
   seconds newTime(process::Clock::now());
-
-  // Version 1: Ignore min_* requests. For each task, assume that the task
-  // gets min(its usage, its allocation).
-  //
-  // If the extraCpu flag is set, distribute left-over CPU in proportion to the
-  // size of each task's CPU assignment.
-
-  typedef std::pair<FrameworkID, ExecutorID> FrameworkExecutorID;
-  typedef boost::tuple<FrameworkID, ExecutorID, TaskID> TaskTuple;
-  // 1) Gather all resource requests; assign usage within resource setting.
-  std::vector<DesiredUsage> usages;
-  Resources totalUsed;
-  foreachpair (const FrameworkExecutorID& frameworkAndExec,
-               RunningTaskInfo& task, tasks) {
-    if (task.fakeTask) {
-      usages.push_back(DesiredUsage());
-      DesiredUsage* usage = &usages.back();
-      usage->id = frameworkAndExec;
-      usage->task = &task;
-      usage->setDesired(task.fakeTask->getUsage(oldTime, newTime));
-      Resources toAssign = minResources(usage->desiredUsage,
-          assignMin ? task.assignedResources.minResources :
-                      task.assignedResources.expectedResources);
-      usage->assign(toAssign);
-      usage->cpuWeight =
-          task.assignedResources.expectedResources.get(
-              "cpus", Value::Scalar()).value();
-      totalUsed += toAssign;
-
-      VLOG(1) << "Created usage " << *usage;
-    }
-  }
-
-  // 2a) If using free CPU is enabled, distribute it.
-  if (extraCpu) {
-    distributeFree("cpus", &DesiredUsage::cpuWeight, &DesiredUsage::excessCpu,
-        totalUsed, totalResources, &usages);
-  }
-
-  if (extraMem) {
-    distributeFree("mem", &DesiredUsage::memWeight, &DesiredUsage::excessMem,
-        totalUsed, totalResources, &usages);
-  }
-
-  // 3) Use assigned usages to actually consume simulated resources.
   vector<TaskTuple> toUnregister;
-  foreach (const DesiredUsage& usage, usages) {
-    VLOG(1) << "decided on usage for " << usage;
-    FakeTask* fakeTask = usage.task->fakeTask;
-    TaskState state =
-        fakeTask->takeUsage(oldTime, newTime, usage.assignedUsage);
-      recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage,
-          state != TASK_RUNNING);
-    VLOG(1) << "state == "
-            << TaskState_descriptor()->FindValueByNumber(state)->name();
-    if (state != TASK_RUNNING) {
-      MesosExecutorDriver* driver = drivers[usage.id].first;
-      TaskStatus status;
-      status.mutable_task_id()->MergeFrom(usage.task->taskId);
-      status.set_state(state);
-      driver->sendStatusUpdate(status);
-      toUnregister.push_back(boost::make_tuple(
-            usage.id.first, usage.id.second, usage.task->taskId));
+
+  {
+    Lock l(&tasksLock);
+    VLOG(2) << "FakeIsolationModule::tick; this = " << (void*)this;
+    VLOG(2) << "tasks.size = " << tasks.size();
+
+    // Version 1: Ignore min_* requests. For each task, assume that the task
+    // gets min(its usage, its allocation).
+    //
+    // If the extraCpu flag is set, distribute left-over CPU in proportion to the
+    // size of each task's CPU assignment.
+    //
+    // 1) Gather all resource requests; assign usage within resource setting.
+    std::vector<DesiredUsage> usages;
+    Resources totalUsed;
+    foreachpair (const FrameworkExecutorID& frameworkAndExec,
+                 RunningTaskInfo& task, tasks) {
+      if (task.fakeTask) {
+        usages.push_back(DesiredUsage());
+        DesiredUsage* usage = &usages.back();
+        usage->id = frameworkAndExec;
+        usage->task = &task;
+        usage->setDesired(task.fakeTask->getUsage(oldTime, newTime));
+        Resources toAssign = minResources(usage->desiredUsage,
+            assignMin ? task.assignedResources.minResources :
+                        task.assignedResources.expectedResources);
+        usage->assign(toAssign);
+        usage->cpuWeight =
+            task.assignedResources.expectedResources.get(
+                "cpus", Value::Scalar()).value();
+        totalUsed += toAssign;
+
+        VLOG(1) << "Created usage " << *usage;
+      }
+    }
+
+    // 2a) If using free CPU is enabled, distribute it.
+    if (extraCpu) {
+      distributeFree("cpus", &DesiredUsage::cpuWeight, &DesiredUsage::excessCpu,
+          totalUsed, totalResources, &usages);
+    }
+
+    if (extraMem) {
+      distributeFree("mem", &DesiredUsage::memWeight, &DesiredUsage::excessMem,
+          totalUsed, totalResources, &usages);
+    }
+
+    // 3) Use assigned usages to actually consume simulated resources.
+    foreach (const DesiredUsage& usage, usages) {
+      VLOG(1) << "decided on usage for " << usage;
+      FakeTask* fakeTask = usage.task->fakeTask;
+      TaskState state =
+          fakeTask->takeUsage(oldTime, newTime, usage.assignedUsage);
+        recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage,
+            state != TASK_RUNNING);
+      VLOG(1) << "state == "
+              << TaskState_descriptor()->FindValueByNumber(state)->name();
+      if (state != TASK_RUNNING) {
+        MesosExecutorDriver* driver = drivers[usage.id].first;
+        TaskStatus status;
+        status.mutable_task_id()->MergeFrom(usage.task->taskId);
+        status.set_state(state);
+        driver->sendStatusUpdate(status);
+        toUnregister.push_back(boost::make_tuple(
+              usage.id.first, usage.id.second, usage.task->taskId));
+      }
     }
   }
-  CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
 
   // Unregister tasks which returned a terminal status.
   foreach (const TaskTuple& tuple, toUnregister) {
@@ -427,9 +433,10 @@ bool FakeIsolationModule::tick() {
 FakeIsolationModule::~FakeIsolationModule()
 {
   LOG(INFO) << "~FakeIsolationModule";
-  CHECK_EQ(0, pthread_mutex_lock(&tasksLock));
-  shuttingDown = true;
-  CHECK_EQ(0, pthread_mutex_unlock(&tasksLock));
+  {
+    Lock l(&tasksLock);
+    shuttingDown = true;
+  }
   LOG(INFO) << "teriminate";
   process::terminate(ticker.get());
   LOG(INFO) << "cancel";

@@ -16,6 +16,7 @@
  * limitations under the License.
  */
 
+#include "common/logging.hpp"
 #include "lock.hpp"
 
 namespace mesos {
@@ -31,7 +32,7 @@ Lock::Lock(pthread_mutex_t* _mutex)
 void Lock::lock()
 {
   if (!locked) {
-    pthread_mutex_lock(mutex);
+    CHECK_EQ(0, pthread_mutex_lock(mutex));
     locked = true;
   }
 }
@@ -40,7 +41,7 @@ void Lock::lock()
 void Lock::unlock()
 {
   if (locked) {
-    pthread_mutex_unlock(mutex);
+    CHECK_EQ(0, pthread_mutex_unlock(mutex));
     locked = false;
   }
 }

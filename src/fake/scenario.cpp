@@ -73,11 +73,14 @@ FakeScheduler* Scenario::spawnScheduler(
   ExecutorInfo info;
   info.mutable_executor_id()->set_value("SHOULD-NOT-BE-RUN");
   info.set_uri("does-not-exist");
+  FrameworkID id;
+  id.set_value(name);
   MesosSchedulerDriver* driver = new MesosSchedulerDriver(
       scheduler,
       name,
       info,
-      "mesos://" + std::string(masterPid));
+      "mesos://" + std::string(masterPid),
+      id);
   CHECK_EQ(OK, driver->start());
   schedulers[name] = scheduler;
   schedulerDrivers[name] = driver;
