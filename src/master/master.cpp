@@ -517,6 +517,13 @@ void Master::registerFramework(const FrameworkInfo& frameworkInfo)
     return;
   }
 
+  foreachvalue (Framework* oldFramework, frameworks) {
+    if (from == oldFramework->pid) {
+      LOG(WARNING) << "Ignoring register framework message since reply must be in flight for previous?";
+      return;
+    }
+  }
+
   Framework* framework =
     new Framework(frameworkInfo, newFrameworkId(), from, Clock::now());
 
@@ -705,7 +712,8 @@ void Master::launchTasks(const FrameworkID& frameworkId,
                          const vector<TaskDescription>& tasks,
                          const Filters& filters)
 {
-  LOG(INFO) << "Received reply for offer " << offerId;
+  LOG(INFO) << "Received reply for offer " << offerId
+            << " from " << frameworkId;
 
   Framework* framework = getFramework(frameworkId);
   if (framework != NULL) {
@@ -716,7 +724,7 @@ void Master::launchTasks(const FrameworkID& frameworkId,
     // Master::processOfferReply.
     Offer* offer = getOffer(offerId);
     if (offer != NULL) {
-      CHECK(offer->framework_id() == frameworkId);
+      CHECK_EQ(offer->framework_id(), frameworkId);
       Slave* slave = getSlave(offer->slave_id());
       CHECK(slave != NULL) << "An offer should not outlive a slave!";
       processTasks(offer, framework, slave, tasks, filters);
@@ -1203,6 +1211,9 @@ void Master::makeOffers(Framework* framework,
     }
 
     offers[offer->id()] = offer;
+
+    LOG(INFO) << "Created offer " << offer->id()
+              << " for " << framework->id << " on " << slave->id;
 
     framework->addOffer(offer);
     slave->addOffer(offer);

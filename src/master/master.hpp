@@ -464,6 +464,7 @@ struct Framework
     CHECK(!offers.contains(offer));
     offers.insert(offer);
     resources += offer->resources();
+    offeredResources += offer->resources();
   }
 
   void removeOffer(Offer* offer)
@@ -471,6 +472,7 @@ struct Framework
     CHECK(offers.find(offer) != offers.end());
     offers.erase(offer);
     resources -= offer->resources();
+    offeredResources -= offer->resources();
   }
 
   bool hasExecutor(const SlaveID& slaveId,
@@ -514,8 +516,8 @@ struct Framework
     // TODO: Implement other filters
     hashmap<Slave*, FilterInfo>::iterator iter = slaveFilter.find(slave);
     if (iter != slaveFilter.end()) {
-      DLOG(INFO) << "Checking filter " << resources << " versus "
-                 << iter->second.upToResources;
+      DLOG(INFO) << "Checking " << resources << " versus filter "
+                 << iter->second.upToResources << " for " << id;
       return
         resources.expectedResources
             <= iter->second.upToResources.expectedResources &&
@@ -553,6 +555,7 @@ struct Framework
   hashset<Offer*> offers; // Active offers for framework.
 
   Resources resources; // Total resources (tasks + offers + executors).
+  Resources offeredResources;
 
   hashmap<SlaveID, hashmap<ExecutorID, ExecutorInfo> > executors;
 
