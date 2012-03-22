@@ -126,14 +126,20 @@ protected:
     allocator.reset(new NoRequestAllocator(&master, &tracker));
     ON_CALL(master, getActiveFrameworks()).
       WillByDefault(Invoke(this, &NoRequestAllocatorTest::getFrameworkList));
+    EXPECT_CALL(master, getActiveFrameworks()).
+      Times(AnyNumber());
     ON_CALL(master, getActiveSlaves()).
       WillByDefault(Invoke(this, &NoRequestAllocatorTest::getSlaveList));
+    EXPECT_CALL(master, getActiveSlaves()).
+      Times(AnyNumber());
     ON_CALL(tracker, nextUsedForExecutor(_, _, _)).
       WillByDefault(Return(Resources()));
+    EXPECT_CALL(tracker, nextUsedForExecutor(_, _, _)).
+      Times(AnyNumber());
     ON_CALL(tracker, gaurenteedForExecutor(_, _, _)).
       WillByDefault(Return(Resources()));
-    EXPECT_CALL(master, getActiveFrameworks()).Times(AnyNumber());
-    EXPECT_CALL(master, getActiveSlaves()).Times(AnyNumber());
+    EXPECT_CALL(tracker, gaurenteedForExecutor(_, _, _)).
+      Times(AnyNumber());
     // Use dummy resource 'default', so it's easy to see when the default 0
     // value is used.
     testing::DefaultValue<Resources>::Set(Resources::parse("default:0"));
@@ -248,6 +254,45 @@ protected:
     allocator->startMakingOffers();
   }
 
+  void runAllRefuserTwoFrameworks() {
+    initTwoFrameworksOneSlave();
+    EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework0"))).
+      WillRepeatedly(Return(Resources::parse("")));
+    EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework1"))).
+      WillRepeatedly(Return(Resources::parse("")));
+    expectOffer(&frameworks[0], &slaves[0], Resources::parse("cpus:32;mem:1024"),
+                  Resources::parse("cpus:32;mem:1024"));
+    EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now())))
+        .Times(1);
+    allocator->timerTick();
+
+    LOG(INFO) << "refusing 0 (1st time)";
+
+    expectOffer(&frameworks[1], &slaves[0], Resources::parse("cpus:32;mem:1024"),
+                  Resources::parse("cpus:32;mem:1024"));
+    returnOffer(&frameworks[0], &slaves[0], Resources::parse("cpus:32;mem:1024"),
+                  Resources::parse("cpus:32;mem:1024"));
+
+    LOG(INFO) << "refusing 1 (1st time)";
+
+    expectOffer(&frameworks[0], &slaves[0], Resources::parse("cpus:32;mem:1024"),
+                  Resources::parse("cpus:32;mem:1024"));
+    returnOffer(&frameworks[1], &slaves[0], Resources::parse("cpus:32;mem:1024"),
+                  Resources::parse("cpus:32;mem:1024"));
+
+    LOG(INFO) << "refusing 0 (2nd time)";
+
+    expectOffer(&frameworks[1], &slaves[0], Resources::parse("cpus:32;mem:1024"),
+                  Resources::parse("cpus:32;mem:1024"));
+    returnOffer(&frameworks[0], &slaves[0], Resources::parse("cpus:32;mem:1024"),
+                  Resources::parse("cpus:32;mem:1024"));
+
+    LOG(INFO) << "refusing 1 (2nd time)";
+    EXPECT_CALL(master, makeOffers(_, _)).Times(0);
+    returnOffer(&frameworks[1], &slaves[0], Resources::parse("cpus:32;mem:1024"),
+                  Resources::parse("cpus:32;mem:1024"));
+  }
+
   void expectPlaceUsage(const std::string& frameworkId,
                         const std::string& slaveId,
                         Option<Resources> prediction,
@@ -336,6 +381,19 @@ TEST_F(NoRequestAllocatorTest, ReOfferAfterRefuser) {
               Resources::parse("cpus:32;mem:1024"));
   returnOffer(&frameworks[1], &slaves[0], Resources::parse("cpus:32;mem:1024"),
               Resources::parse("cpus:32;mem:1024"));
+}
+
+TEST_F(NoRequestAllocatorTest, NoReOfferLoop) {
+  runAllRefuserTwoFrameworks();
+}
+
+TEST_F(NoRequestAllocatorTest, ClearAllRefusersOnTick) {
+  runAllRefuserTwoFrameworks();
+  expectOffer(&frameworks[0], &slaves[0],
+              Resources::parse("cpus:32;mem:1024"),
+              Resources::parse("cpus:32;mem:1024"));
+  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now()))).Times(1);
+  allocator->timerTick();
 }
 
 TEST_F(NoRequestAllocatorTest, ReserveWhilePending) {
