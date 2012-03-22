@@ -102,7 +102,7 @@ TEST_F(FakeScenarioTest, PopulateScenarioOneBatchTask)
   scenario.runFor(10.1);
   EXPECT_EQ(0, scenario.getScheduler("b0")->countPending());
   EXPECT_EQ(0, scenario.getScheduler("b0")->countRunning());
-  EXPECT_EQ(Attributes::parse("total_time:10.0;type:batch"),
+  EXPECT_EQ(Attributes::parse("total_time:10.0;type:batch;name:b0"),
             scenario.getScheduler("b0")->getAttributes());
   scenario.stop();
   process::Clock::resume();
