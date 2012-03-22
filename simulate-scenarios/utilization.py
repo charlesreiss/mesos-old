@@ -6,8 +6,7 @@ import numpy as np
 import pylab as pyp
 import argparse
 
-from usage_log import usage_log_pb2
-from google.protobuf import text_format 
+import parse_usage 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('input', type=str, nargs='+', metavar='LABEL:FILE')
@@ -19,18 +18,6 @@ parser.add_argument('--use_memory', action='store_true', default=False)
 parser.add_argument('--use_cpu', action='store_true', default=False)
 
 args = None
-
-def base_record():
-  return usage_log_pb2.UsageLogRecord()
-
-def read_record(stream):
-  line = stream.readline()
-  if line == '':
-    return None
-  else:
-    record = base_record()
-    text_format.Merge(line, record)
-    return record
 
 def framework_id(usage):
   return int(usage.framework_id.value.split('-')[-1])
@@ -68,10 +55,7 @@ def utilization_from(record):
 def read_file(name):
   stream = open(name, 'r')
   data = []
-  while True:
-    record = read_record(stream)
-    if record is None:
-      break
+  for record in usage_from_stream(stream):
     values = tuple(utilization_from(record))
     data.append(values)
   stream.close()

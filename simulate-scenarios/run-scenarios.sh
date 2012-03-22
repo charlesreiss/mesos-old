@@ -2,31 +2,39 @@
 
 set -e
 
+renice -n +20 $$
+
+ulimit -c unlimited
+
 VALGRIND='../build-linux/libtool --mode=execute valgrind --tool=cachegrind'
-SIMULATE='../build-linux/src/mesos-simulate --fake_interval=0.015625'
-SCENARIO=$1
+SIMULATE='../build-linux/src/mesos-simulate --fake_interval=0.25'
 
-export GLOG_minloglevel=1
-#export GLOG_v=2
+#export GLOG_minloglevel=1
+export GLOG_v=2
+export GLOG_logtostderr=1
 
-if test -d $1; then
-  mv $1 old/$1.old.$(date +%s)
-fi
-mkdir $1
-mkdir $1/logs
+for SCENARIO in $@; do
 
-$SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
-  --allocator=norequest --usage_log_base=$SCENARIO/logs/norequest. \
-  >$SCENARIO/norequest.csv &
-if false; then
+    if test -d $SCENARIO; then
+      mv $SCENARIO old/$SCENARIO.old.$(date +%s)
+    fi
+    mkdir $SCENARIO
+    mkdir $SCENARIO/logs
+
     $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
-      --allocator=norequest --norequest_aggressive \
-      >$SCENARIO/norequest-aggressive.csv &
-fi
-$SIMULATE --json_file=$SCENARIO.json --allocator=simple \
-  --usage_log_base=$SCENARIO/logs/simple-strong. \
-  > $SCENARIO/simple-strong.csv &
-if false; then
-    $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
-      --allocator=simple >$SCENARIO/simple-weak.csv &
-fi
+      --allocator=norequest --usage_log_base=$SCENARIO/logs/norequest. \
+      >$SCENARIO/norequest.csv 2>$SCENARIO.logfile &
+    if false; then
+        $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
+          --allocator=norequest --norequest_aggressive \
+          >$SCENARIO/norequest-aggressive.csv &
+    fi
+    if false; then
+        $SIMULATE --json_file=$SCENARIO.json --allocator=simple \
+          --usage_log_base=$SCENARIO/logs/simple-strong. \
+          > $SCENARIO/simple-strong.csv &
+        $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
+          --allocator=simple >$SCENARIO/simple-weak.csv &
+    fi
+
+done

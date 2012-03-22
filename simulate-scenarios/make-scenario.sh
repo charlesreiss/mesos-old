@@ -1,32 +1,27 @@
-MAKE_SCENARIO='python ../src/fake/make_scenario.py --repeat=20'
-
-if false; then
-    $MAKE_SCENARIO --vary_memory_round --num_background=2 --slaves=1 \
-  >vary_memory_round_noexp_2.json
-
-$MAKE_SCENARIO --vary_memory_round --num_background=3 --slaves=1 \
-  >vary_memory_round_noexp_3.json
+MAKE_SCENARIO='python ../src/fake/make_scenario.py --repeat=1'
 
 $MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=1 \
-  >vary_memory_round_noexp_4.json
+  --cpu_max=1.0 --cpu_request=1.0 --serve_tasks=1 --num_serves=1 \
+  >vm_4_4_serve.json
 
-fi
+$MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=2 \
+  --cpu_max=1.0 --cpu_request=1.0 --serve_tasks=1 --num_serves=1 \
+  >vm_4_4_serve_2m.json
 
-$MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=1 \
+$MAKE_SCENARIO --vary_memory_round --num_background=16 --slaves=4 \
+  --cpu_max=1.0 --cpu_request=1.0 --serve_tasks=4 --num_serves=1 \
+  >vm_4_16_serve.json
+
+$MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \
+  --target_memory_seconds=2000 --interarrival=400 \
   --cpu_max=1.0 --cpu_request=1.0 \
-  >vary_memory_round_noexp_4_cpu1.json
+  --serve_tasks=10 --num_serves=1 \
+  >vm_10_interarrive_serve.json
 
-if false; then
-  $MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=10 \
-    --target_memory_seconds=20000 \
-    >vary_memory_round_noexp_long.json
-fi
-
-  $MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \
-    --target_memory_seconds=2000 --interarrival=400 \
-    >vary_memory_round_interarrive_long2.json
-
-exit
+$MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \
+  --target_memory_seconds=2000 --interarrival=400 \
+  --cpu_max=1.0 --cpu_request=1.0 \
+  >vm_10_interarrive.json
 
 
 REPEAT=50

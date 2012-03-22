@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--base')
 parser.add_argument('--var', default='estimate_mem')
 parser.add_argument('--y', default='batch0_finish_time')
-parser.add_argument('--plot_extra', default='')
+parser.add_argument('--plot_extra', default='times')
 
 args = parser.parse_args()
 
@@ -76,5 +76,5 @@ add_plot('norequest-aggressive', 'norequest (aggressive reoffer)', 'purple')
 add_plot('simple-strong', 'simple, strong isolation', 'green')
 add_plot('simple-weak', 'simple, weak isolation', 'blue')
 pyp.legend()
-pyp.savefig('plots/' + args.base + args.plot_extra + '-plot.pdf')
+pyp.savefig('plots/' + args.base + '/' + args.plot_extra + '-plot.pdf')
 
