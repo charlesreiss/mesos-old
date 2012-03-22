@@ -139,12 +139,14 @@ public:
         &FrameworkErrorMessage::message);
   }
 
-  virtual ~SchedulerProcess() {}
+  virtual ~SchedulerProcess() {
+    LOG(INFO) << "~SchedulerProcess (" << (void*) this << " " << frameworkId << ")";
+  }
 
 protected:
   void newMasterDetected(const UPID& pid)
   {
-    VLOG(1) << "New master at " << pid;
+    VLOG(1) << "New master at " << pid << " for " << (void*) this;
 
     master = pid;
     link(master);
@@ -171,7 +173,11 @@ protected:
       return;
     }
 
-    VLOG(1) << "Framework registered with " << frameworkId;
+    CHECK(!connected) << "frameworkID = " << frameworkId
+                      << " this = " << (void*) this;
+
+    VLOG(1) << "Framework registered with " << frameworkId
+            << " for " << (void*) this;
 
     this->frameworkId = frameworkId;
     connected = true;
@@ -197,11 +203,13 @@ protected:
 
     if (frameworkId == "") {
       // Touched for the very first time.
+      LOG(INFO) << "Sending RegisterFrameworkMessage for " << (void*) this;
       RegisterFrameworkMessage message;
       message.mutable_framework()->MergeFrom(framework);
       send(master, message);
     } else {
       // Not the first time, or failing over.
+      LOG(INFO) << "Sending ReregisterFrameworkMessage";
       ReregisterFrameworkMessage message;
       message.mutable_framework()->MergeFrom(framework);
       message.mutable_framework_id()->MergeFrom(frameworkId);
@@ -228,6 +236,9 @@ protected:
     // Save the pid associated with each slave (one per offer) so
     // later we can send framework messages directly.
     for (int i = 0; i < offers.size(); i++) {
+      if (frameworkId.value() != "") {
+        CHECK_EQ(offers[i].framework_id(), frameworkId);
+      }
       UPID pid(pids[i]);
       // Check if parse failed (e.g., due to DNS).
       if (pid != UPID()) {

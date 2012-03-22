@@ -366,6 +366,7 @@ struct Slave
 
   void addUsageMessage(const UsageMessage& usage)
   {
+    // TODO(Charles Reiss): Handle terminated-task case.
     clearObservedUsageFor(usage.framework_id(), usage.executor_id());
     resourcesObservedUsed += usage.resources();
     usageMessages[usage.framework_id()][usage.executor_id()] = usage;
