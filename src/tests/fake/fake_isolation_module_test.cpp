@@ -215,8 +215,12 @@ public:
       process::terminate(mockMasterPid);
       process::wait(slavePid);
       process::wait(mockMasterPid);
-      process::wait(module.get());
+      if (module.get()) {
+        process::terminate(module.get());
+        process::wait(module.get());
+      }
     }
+    module.reset(0);
     process::Clock::resume();
   }
 
@@ -452,5 +456,6 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
   EXPECT_DOUBLE_EQ(kTick * 2.0, secondUsage.duration());
   EXPECT_EQ(Resources::parse("cpus:0.125;mem:0.375"), secondUsage.resources());
   EXPECT_FALSE(secondUsage.still_running());
+  stopSlave();
 }
 
