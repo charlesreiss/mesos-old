@@ -396,6 +396,15 @@ TEST_F(NoRequestAllocatorTest, ClearAllRefusersOnTick) {
   allocator->timerTick();
 }
 
+TEST_F(NoRequestAllocatorTest, RefuserCountOnDeadFramework) {
+  runAllRefuserTwoFrameworks();
+  allocator->frameworkRemoved(&frameworks[1]);
+  expectOffer(&frameworks[0], &slaves[0],
+              Resources::parse("cpus:32;mem:1024"),
+              Resources::parse("cpus:32;mem:1024"));
+  allocator->offersRevived(&frameworks[0]);
+}
+
 TEST_F(NoRequestAllocatorTest, ReserveWhilePending) {
   runUnequalFrameworksOneSlave();
   setSlaveOffered(&slaves[0],

@@ -83,7 +83,7 @@ public:
   }
 
   void frameworkAdded(Framework* framework);
-  void frameworkRemoved(Framework* framework) {}
+  void frameworkRemoved(Framework* framework);
   void slaveAdded(Slave* slave);
   void slaveRemoved(Slave* slave);
   void taskAdded(Task* task);

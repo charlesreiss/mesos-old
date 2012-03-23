@@ -91,6 +91,11 @@ FakeScheduler* Scenario::spawnScheduler(
   return scheduler;
 }
 
+void Scenario::stopScheduler(const std::string& name)
+{
+  schedulerDrivers[name]->stop();
+}
+
 void Scenario::finishSetup()
 {
   // Everything must be registered with the Master.

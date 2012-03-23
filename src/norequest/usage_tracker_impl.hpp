@@ -109,16 +109,16 @@ public:
   void timerTick(double curTime);
 
   Resources chargeForFramework(const FrameworkID& frameworkId) const {
-    return usageByFramework()[frameworkId].chargedResources;
+    return estimateForFramework(frameworkId).chargedResources;
   }
   Resources nextUsedForFramework(const FrameworkID& frameworkId) const {
-    return usageByFramework()[frameworkId].nextUsedResources;
+    return estimateForFramework(frameworkId).nextUsedResources;
   }
   Resources usedForFramework(const FrameworkID& frameworkId) const {
-    return usageByFramework()[frameworkId].usedResources;
+    return estimateForFramework(frameworkId).usedResources;
   }
   Resources gaurenteedForFramework(const FrameworkID& frameworkId) const {
-    return usageByFramework()[frameworkId].minResources;
+    return estimateForFramework(frameworkId).minResources;
   }
   Resources freeForSlave(const SlaveID& slaveId) const;
   Resources gaurenteedFreeForSlave(const SlaveID& slaveId) const;
@@ -130,7 +130,16 @@ public:
                                   const ExecutorID& executorId) const;
 
 private:
-  hashmap<FrameworkID, ResourceEstimates> usageByFramework() const;
+  const hashmap<FrameworkID, ResourceEstimates>& usageByFramework() const;
+  const ResourceEstimates& estimateForFramework(const FrameworkID& framework) const {
+    hashmap<FrameworkID, ResourceEstimates>::const_iterator it =
+        usageByFramework().find(framework);
+    if (it == usageByFramework().end()) {
+      return ResourceEstimates();
+    } else {
+      return it->second;
+    }
+  }
   hashmap<FrameworkID, ResourceEstimates> frameworkEstimates;
   hashmap<SlaveID, ResourceEstimates> slaveEstimates;
   hashmap<SlaveID, Resources> slaveCapacities;
@@ -147,4 +156,3 @@ private:
 } // namespace mesos {
 
 #endif
-

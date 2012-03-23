@@ -41,6 +41,14 @@ NoRequestAllocator::frameworkAdded(Framework* framework) {
 }
 
 void
+NoRequestAllocator::frameworkRemoved(Framework* framework) {
+  LOG(INFO) << "remove framework " << framework->id;
+  foreachvalue (boost::unordered_set<FrameworkID>& refuserSet, refusers) {
+    refuserSet.erase(framework->id);
+  }
+}
+
+void
 NoRequestAllocator::slaveAdded(Slave* slave) {
   CHECK_EQ(0, refusers.count(slave));
   LOG(INFO) << "add slave";
@@ -380,6 +388,9 @@ void NoRequestAllocator::timerTick() {
 }
 
 void NoRequestAllocator::gotUsage(const UsageMessage& update) {
+  // TODO(Charles): Check whether we actually got more free resources on the
+  // slave to short-circuit the reoffer; or defer reoffers until we likely have
+  // a full set of usage updates.
   tracker->recordUsage(update);
   Slave* slave = master->getSlave(update.slave_id());
   if (slave) {

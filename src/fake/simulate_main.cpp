@@ -35,7 +35,7 @@ static void headerForBatch(const std::string& name)
             << name << "_kill," << name << "_score,";
 }
 
-const void headerFromScenario(const Configuration& conf, Scenario* scenario)
+void headerFromScenario(const Configuration& conf, Scenario* scenario)
 {
   if (scenario->getLabelColumns() != "") {
     std::cout << scenario->getLabelColumns() << ',';
@@ -84,6 +84,8 @@ static void run(const Configuration& conf, bool needHeader,
         }
         if (done[i]) {
           finishTime[i] = process::Clock::now() - start;
+          scenario->stopScheduler(scheduler->getAttributes().get("name",
+                Value::Text()).value());
         } else {
           LOG(INFO) << "scheduler " << i << " (" <<
             scheduler->getAttributes().get("name", Value::Text()).value()

@@ -56,7 +56,7 @@ public:
   FakeScheduler* spawnScheduler(const std::string& name,
                                 const Attributes& attributes,
                                 const std::map<TaskID, FakeTask*>& tasks);
-
+  void stopScheduler(const std::string& name);
   FakeScheduler* getScheduler(const std::string& name) {
     return schedulers[name];
   }
