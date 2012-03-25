@@ -749,6 +749,8 @@ Status MesosSchedulerDriver::start()
 
   UPID pid = spawn(process);
 
+  LOG(INFO) << "spawned " << pid;
+
   // Check and see if we need to launch a local cluster.
   if (url == "local") {
     const PID<master::Master>& master = local::launch(*conf);

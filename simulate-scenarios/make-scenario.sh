@@ -1,4 +1,8 @@
-MAKE_SCENARIO='python ../src/fake/make_scenario.py --repeat=1'
+MAKE_SCENARIO='python ../src/fake/make_scenario.py --repeat=5'
+
+$MAKE_SCENARIO --vary_memory_round --num_background=1 --slaves=1 \
+  --cpu_max=1.0 --cpu_request=1.0 --serve_tasks=1 --num_serves=1 \
+  >vm_serve.json
 
 $MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=1 \
   --cpu_max=1.0 --cpu_request=1.0 --serve_tasks=1 --num_serves=1 \
@@ -9,7 +13,7 @@ $MAKE_SCENARIO --vary_memory_round --num_background=4 --slaves=2 \
   >vm_4_4_serve_2m.json
 
 $MAKE_SCENARIO --vary_memory_round --num_background=16 --slaves=4 \
-  --cpu_max=1.0 --cpu_request=1.0 --serve_tasks=4 --num_serves=1 \
+  --cpu_max=1.0 --cpu_request=1.0 --serve_tasks=3 --num_serves=1 \
   >vm_4_16_serve.json
 
 $MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \

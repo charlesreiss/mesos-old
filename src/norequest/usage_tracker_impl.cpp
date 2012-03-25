@@ -150,26 +150,18 @@ ResourceEstimates::updateEstimates(double now, double duration,
     if (lastUsedForZero.isSome()) {
       lastUsedForZeroDiff -= lastUsedForZero.get();
     }
-    LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-    LOG(INFO) << "lastUsedForZeroDiff = " << lastUsedForZeroDiff;
     lastUsedForZero = usage;
-    LOG(INFO) << "lastUsedForZero = " << usage;
     if (lastUsedPerTask.isSome()) {
       Resources lastUsedPerTaskDiff =
         multiplyResources(lastUsedForZeroDiff, 1.0 / lastUsedPerTaskTasks);
       Resources newUsedPerTask = lastUsedPerTask.get();
-      LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
       newUsedPerTask -= lastUsedPerTaskDiff;
-      LOG(INFO) << "newUsedPerTask = " << newUsedPerTask;
-      LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
       lastUsedPerTask = newUsedPerTask;
-      LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
-      LOG(INFO) << " (delta: " << lastUsedPerTaskDiff << ")";
     }
   } else {
-    LOG(INFO) << "not updating per-task estimate; tasks = " << curTasks
-              << "; now - duration = " << (now - duration)
-              << "; setTaskTime = " << setTaskTime;
+    DLOG(INFO) << "not updating per-task estimate; tasks = " << curTasks
+               << "; now - duration = " << (now - duration)
+               << "; setTaskTime = " << setTaskTime;
   }
 }
 
@@ -182,8 +174,6 @@ ResourceEstimates::setUsage(double now, double duration,
   usageDuration = duration;
   Resources nextDiff = updateNextWithGuess(now, usedResources, clearUnknown);
   Resources chargedDiff = updateCharged(clearUnknown);
-  LOG(INFO) << "deltas usage " << usageDiff << "; next: " << nextDiff
-            << "; charged: " << chargedDiff;
   foreach (ResourceEstimates* aggregate, linked) {
     aggregate->usedResources += usageDiff;
     aggregate->nextUsedResources += nextDiff;
@@ -400,7 +390,7 @@ UsageTrackerImpl::timerTick(double curTime) {
   }
 }
 
-hashmap<FrameworkID, ResourceEstimates>
+const hashmap<FrameworkID, ResourceEstimates>&
 UsageTrackerImpl::usageByFramework() const {
   return frameworkEstimates;
 }

@@ -69,6 +69,7 @@ static void run(const Configuration& conf, bool needHeader,
         scheduler->getAttributes().get("total_time", Value::Scalar()).value());
   }
   std::vector<bool> done(schedulers.size(), false);
+  std::vector<bool> persistent(schedulers.size(), false);
   std::vector<double> finishTime(schedulers.size());
   do {
     scenario->runFor(interval);
@@ -79,13 +80,16 @@ static void run(const Configuration& conf, bool needHeader,
         if (scheduler->getAttributes().get("type", Value::Text()).value()
             == "serve") {
           done[i] = true;
+          persistent[i] = true;
         } else {
           done[i] = (scheduler->countPending() + scheduler->countRunning()) == 0;
         }
         if (done[i]) {
           finishTime[i] = process::Clock::now() - start;
-          scenario->stopScheduler(scheduler->getAttributes().get("name",
-                Value::Text()).value());
+          if (!persistent[i]) {
+            scenario->stopScheduler(scheduler->getAttributes().get("name",
+                  Value::Text()).value());
+          }
         } else {
           LOG(INFO) << "scheduler " << i << " (" <<
             scheduler->getAttributes().get("name", Value::Text()).value()

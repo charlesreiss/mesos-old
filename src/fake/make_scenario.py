@@ -13,7 +13,7 @@ parser.add_argument('--cpu_request', default=2.0, type=float,
                     help='CPU requested')
 parser.add_argument('--cpu_max', default=2.0, type=float,
                     help='Maximum CPU used')
-parser.add_argument('--memory_max', default=40.0, type=float,
+parser.add_argument('--memory_max', default=39.0, type=float,
                     help='')
 parser.add_argument('--experiment_memory', default=8.0, type=float,
                     help='')
