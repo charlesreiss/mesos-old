@@ -57,6 +57,8 @@ SETUPTOOLS = \
 PROTOC = ../$(PROTOBUF)/src/protoc
 PROTOCFLAGS = -I$(top_srcdir)/include/mesos -I$(srcdir)
 
+JAVAC = $(JAVA_HOME)/bin/javac -target 6 -source 6
+
 # Initialize variables here so we can use += operator everywhere else.
 lib_LTLIBRARIES =
 noinst_LTLIBRARIES =
@@ -434,7 +436,7 @@ $(PROTOBUF_JAR): # TODO(charles): Specify dependencies for the jar.
 	@$(PROTOC) --java_out=../$(PROTOBUF)/java/src/main/java \
           -I../$(PROTOBUF)/src \
           ../$(PROTOBUF)/src/google/protobuf/descriptor.proto
-	@$(JAVA_HOME)/bin/javac -target 6 \
+	@$(JAVAC) \
           -d ../$(PROTOBUF)/java/src/main/java \
           ../$(PROTOBUF)/java/src/main/java/com/google/protobuf/*.java \
           ../$(PROTOBUF)/java/src/main/java/com/google/protobuf/*.java
@@ -446,7 +448,7 @@ $(MESOS_JAR): $(MESOS_JAR_SRC) $(JAVA_PROTOS) $(PROTOBUF_JAR)
 	@echo "Building mesos-$(PACKAGE_VERSION).jar ..."
 	@rm -f java/classes/org/apache/mesos/*
 	@$(MKDIR_P) java/classes/org/apache/mesos
-	@$(JAVA_HOME)/bin/javac -target 6 \
+	@$(JAVAC) \
           -cp $(PROTOBUF_JAR) -sourcepath java/generated \
           -d java/classes $(MESOS_JAR_SRC) $(JAVA_PROTOS)
 	@$(JAVA_HOME)/bin/jar cf $@ -C java/classes org
@@ -530,7 +532,7 @@ java/jni/org_apache_mesos_Log.h: $(MESOS_JAR)
 $(EXAMPLES_JAR): $(JAVA_EXAMPLES_SRC)
 	@echo "Building examples.jar ..."
 	@$(MKDIR_P) examples/java
-	@$(JAVA_HOME)/bin/javac -target 6 -cp					\
+	@$(JAVAC) -cp					\ \
           $(PROTOBUF_JAR):$(MESOS_JAR):$(srcdir)/examples/java		\
           -sourcepath $(srcdir)/examples/java -d examples/java	        \
           $(srcdir)/examples/java/*.java
