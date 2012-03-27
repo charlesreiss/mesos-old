@@ -137,7 +137,6 @@ ResourceEstimates::updateEstimates(double now, double duration,
 {
   Resources usage = normalizeZeros(_usage);
   if (now - duration > setTaskTime && curTasks > 0) {
-    LOG(INFO) << "lastUsedPerTask = " << lastUsedPerTask;
     Resources tasksUsage = usage;
     if (lastUsedForZero.isSome()) {
       tasksUsage -= lastUsedForZero.get();

@@ -6,12 +6,13 @@ renice -n +20 $$
 
 ulimit -c unlimited
 
-VALGRIND='../build-linux/libtool --mode=execute valgrind --tool=cachegrind'
+VALGRIND='../build-linux/libtool --mode=execute valgrind --tool=callgrind --cache-sim=yes'
+#VALGRIND=''
 SIMULATE='../build-linux/src/mesos-simulate --fake_interval=0.25'
 
-#export GLOG_minloglevel=1
-export GLOG_v=2
-export GLOG_logtostderr=1
+export GLOG_minloglevel=1
+#export GLOG_v=2
+#export GLOG_logtostderr=1
 
 for SCENARIO in $@; do
 
@@ -26,14 +27,16 @@ for SCENARIO in $@; do
       >$SCENARIO/norequest.csv 2>$SCENARIO.logfile &
     if false; then
         $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
-          --allocator=norequest --norequest_aggressive \
+          --allocator=norequest --usage_log_base=$SCENARIO/logs/rorequest-aggressive. \
+          --norequest_aggressive \
           >$SCENARIO/norequest-aggressive.csv &
     fi
-    if false; then
+    if test x$GLOG_logtostderr != x1; then
         $SIMULATE --json_file=$SCENARIO.json --allocator=simple \
           --usage_log_base=$SCENARIO/logs/simple-strong. \
           > $SCENARIO/simple-strong.csv &
         $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
+          --usage_log_base=$SCENARIO/logs/simple-weak. \
           --allocator=simple >$SCENARIO/simple-weak.csv &
     fi
 

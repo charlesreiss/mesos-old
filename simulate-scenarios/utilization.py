@@ -9,12 +9,17 @@ import argparse
 import parse_usage 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('input', type=str, metavar='LABEL:FILE', nargs='+')
-parser.add_argument('--scale_memory', type=float, default=40.0)
-parser.add_argument('--scale_cpu', type=float, default=8.0)
-parser.add_argument('--out_base', type=str, default='out')
-parser.add_argument('--use_memory', action='store_true', default=False)
-parser.add_argument('--use_cpu', action='store_true', default=False)
+
+def build_args_ext(parser):
+  parser.add_argument('--scale_memory', type=float, default=40.0)
+  parser.add_argument('--scale_cpu', type=float, default=8.0)
+
+def build_args(parser):
+  build_args_ext(parser)
+  parser.add_argument('input', type=str, metavar='LABEL:FILE', nargs='+')
+  parser.add_argument('--out_base', type=str, default='out')
+  parser.add_argument('--use_memory', action='store_true', default=False)
+  parser.add_argument('--use_cpu', action='store_true', default=False)
 
 args = None
 
@@ -74,6 +79,7 @@ def read_file(name):
   return (list(names), np.array(data, dtype=datatypes))
 
 if __name__ == '__main__':
+  build_args(parser)
   args = parser.parse_args()
   pyp.figure(1000)
   framework_names = None
