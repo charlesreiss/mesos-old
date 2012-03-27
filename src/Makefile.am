@@ -434,7 +434,7 @@ $(PROTOBUF_JAR): # TODO(charles): Specify dependencies for the jar.
 	@$(PROTOC) --java_out=../$(PROTOBUF)/java/src/main/java \
           -I../$(PROTOBUF)/src \
           ../$(PROTOBUF)/src/google/protobuf/descriptor.proto
-	@$(JAVA_HOME)/bin/javac \
+	@$(JAVA_HOME)/bin/javac -target 6 \
           -d ../$(PROTOBUF)/java/src/main/java \
           ../$(PROTOBUF)/java/src/main/java/com/google/protobuf/*.java \
           ../$(PROTOBUF)/java/src/main/java/com/google/protobuf/*.java
@@ -446,7 +446,7 @@ $(MESOS_JAR): $(MESOS_JAR_SRC) $(JAVA_PROTOS) $(PROTOBUF_JAR)
 	@echo "Building mesos-$(PACKAGE_VERSION).jar ..."
 	@rm -f java/classes/org/apache/mesos/*
 	@$(MKDIR_P) java/classes/org/apache/mesos
-	@$(JAVA_HOME)/bin/javac \
+	@$(JAVA_HOME)/bin/javac -target 6 \
           -cp $(PROTOBUF_JAR) -sourcepath java/generated \
           -d java/classes $(MESOS_JAR_SRC) $(JAVA_PROTOS)
 	@$(JAVA_HOME)/bin/jar cf $@ -C java/classes org
@@ -530,7 +530,7 @@ java/jni/org_apache_mesos_Log.h: $(MESOS_JAR)
 $(EXAMPLES_JAR): $(JAVA_EXAMPLES_SRC)
 	@echo "Building examples.jar ..."
 	@$(MKDIR_P) examples/java
-	@$(JAVA_HOME)/bin/javac -cp					\
+	@$(JAVA_HOME)/bin/javac -target 6 -cp					\
           $(PROTOBUF_JAR):$(MESOS_JAR):$(srcdir)/examples/java		\
           -sourcepath $(srcdir)/examples/java -d examples/java	        \
           $(srcdir)/examples/java/*.java
@@ -699,6 +699,7 @@ mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
 mesos_tests_CPPFLAGS += -DBUILD_DIR=\"$(abs_top_builddir)\"
 mesos_tests_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GTEST)/include
 mesos_tests_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GMOCK)/include
+mesos_tests_CXXFLAGS = $(MESOS_CXXFLAGS) -ggdb -O1
 
 mesos_tests_LDADD = ../third_party/libgmock.la libmesos.la
 
