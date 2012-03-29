@@ -3,6 +3,8 @@ import random
 import math
 import argparse
 
+from make_scenario_util import *
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--memory_low', default=False, type=bool,
@@ -45,6 +47,10 @@ parser.add_argument('--serve_memory', default=4.0, type=float)
 parser.add_argument('--serve_request', default='cpus:2.0;mem:4')
 parser.add_argument('--serve_cpu_unit', default=0.1, type=float)
 
+parser.add_argument('--vary_interval', default=False, action='store_true')
+parser.add_argument('--vary_interval_factor', default=0.2, type=float)
+parser.add_argument('--slave_resources', default='cpus:8.0;mem:40')
+
 args = parser.parse_args()
 
 
@@ -72,21 +78,9 @@ def sample_memory():
 def sample_cpu():
   return args.cpu_max
 
-def round_exact(actual):
-  return actual
-
 def make_round_memory(factor):
   def result(actual):
     return (int(actual/factor) + 1.0) * factor
-  return result
-
-def empirical_dist(quantiles):
-  def result():
-    index = random.uniform(0, len(quantiles) - 1)
-    fraction = index - int(index)
-    low = quantiles[int(index)]
-    high = quantiles[int(index) + 1]
-    return low * (1.0 - fraction) + high * fraction
   return result
 
 
@@ -95,136 +89,6 @@ sample_time = empirical_dist(FACEBOOK_MAP_TASK_TIMES)
 def sample_time_dist(mean):
   return random.expovariate(1.0 / mean)
 
-class GenericJob(object):
-  def __init__(self, request, const_resources, start_time = 0.0):
-    self.for_json = {
-        'request': request,
-        'const_resources': const_resources,
-        'tasks': {},
-        'start_time': start_time,
-    }
-
-  def add_task(self, **kw):
-    next_task_id = 't' + str(len(self.for_json['tasks']))
-    self.for_json['tasks'][next_task_id] = kw
-
-  def json_object(self):
-    return self.for_json
-
-class BatchJob(GenericJob):
-  @staticmethod
-  def sample(
-      memory_sample_func = sample_memory,
-      cpu_sample_func = sample_cpu,
-      memory_round_func = round_exact,
-      cpu_round_func = round_exact,
-      mean_duration_func = sample_time,
-      duration_func = sample_time_dist,
-      target_memory_seconds = 1000.0,
-      stretch_time = 1.0,
-      memory_max = 40.0,
-      start_time = 0.0,
-      **ignored_args
-  ):
-    actual_memory = min(memory_max, memory_sample_func())
-    request_memory = min(memory_max, memory_round_func(actual_memory))
-    actual_cpu = sample_cpu()
-    request_cpu = cpu_round_func(actual_cpu)
-    mean_time = mean_duration_func()
-    def time_dist():
-      return duration_func(mean_time)
-
-    job = BatchJob(
-      request='cpus:' + str(request_cpu) + ';mem:' + str(request_memory),
-      const_resources='mem:' + str(actual_memory),
-      max_cpus=actual_cpu,
-      start_time=start_time,
-    )
-    total_mem_secs = 0.0
-    cpu_times = []
-    while total_mem_secs < target_memory_seconds:
-      cpu_time = time_dist()
-      total_mem_secs += actual_memory * cpu_time
-      cpu_times.append(cpu_time)
-    for cpu_time in sorted(cpu_times, reverse=True):
-      job.add_task(cpu_time = cpu_time * stretch_time)
-    return job
-
-    
-  def __init__(self, request, const_resources, 
-               max_cpus, start_time = 0.0):
-    GenericJob.__init__(self, request, const_resources, start_time)
-    self.for_json['max_cpus'] = max_cpus 
-
-
-  def add_tasks_dist(self, size_dist, task_length_dist):
-    all_tasks = {}
-    num_tasks = size_dist()
-    for i in xrange(num_tasks):
-      task = {
-          'cpu_time': task_length_dist()
-      }
-      all_tasks['t' + str(i)] = task
-    self.for_json['tasks'] = all_tasks
-
-  def set_resources(self, constant, request):
-    self.for_json['const_resources'] = constant
-    self.for_json['request'] = request
-
-  def set_max_cpus(self, max_cpus):
-    self.for_json['max_cpus'] = max_cpus
-  
-class ServeJob(GenericJob):
-  def __init__(self, serve_tasks, cpu_per_unit=1.0, **kwargs):
-    GenericJob.__init__(self, **kwargs)
-    self.for_json['cpu_per_unit'] = cpu_per_unit
-    for i in xrange(serve_tasks):
-      self.add_task()
-
-  def set_pattern(self, pattern_list, duration=1.0):
-    self.for_json['counts'] = pattern_list
-    self.for_json['time_per_count'] = duration
-
-class Slave(object):
-  def __init__(self, resources):
-    self.for_json = {
-        'resources': resources
-    }
-
-  def json_object(self):
-    return self.for_json
-
-class Scenario(object):
-  def __init__(self, slaves, batch_jobs, serve_jobs, label='', label_cols=''):
-    self.slaves = slaves
-    self.batch_jobs = batch_jobs
-    self.serve_jobs = serve_jobs
-    self.label = label
-    self.label_cols = label_cols
-
-  def json_object(self):
-    batch_object = {}
-    for i in xrange(len(self.batch_jobs)):
-      batch_object['batch' + str(i)] = self.batch_jobs[i].json_object()
-    serve_object = {}
-    for i in xrange(len(self.serve_jobs)):
-      serve_object['serve' + str(i)] = self.serve_jobs[i].json_object()
-    return {
-        'slaves': map(lambda s: s.json_object(), self.slaves),
-        'batch': batch_object,
-        'serve': serve_object,
-        'label': self.label,
-        'label_cols': self.label_cols,
-    }
-
-  def dump(self):
-    return json.dumps(self.json_object())
-
-
-def constant_dist(x):
-  def result():
-    return x
-  return result
 def sample_size():
   return int(random.expovariate(1.0/10.0))
 
@@ -237,6 +101,9 @@ def make_scenario(offset):
   random.seed(42)
   start_times = []
   last_time = 0.0
+  interarrival = args.interarrival
+  if args.vary_interval:
+    args.interarrival *= offset
   for i in xrange(args.num_background):
     start_times.append(last_time)
     if args.interarrival > 0.0:
@@ -256,10 +123,14 @@ def make_scenario(offset):
         else:
           myargs.memory_round_func = lambda x: (1.0 + offset / 5.0) * x
       elif args.vary_memory_round:
-        FACTOR = 0.25 * (offset + 1)
+        FACTOR = 0.5 * (offset + 1)
         myargs.memory_round_func = make_round_memory(FACTOR)
       elif args.vary_cpu:
         myargs.cpu_round_func = lambda x: (0.5 + offset / 5.0) * x
+
+    if args.memory_accuracy > 0.0 and 'memory_round_func' not in vars(myargs):
+      myargs.memory_round_func = make_round_memory(args.memory_accuracy)
+
     return BatchJob.sample(**vars(myargs))
 
   fixed_jobs = map(lambda start_time: sample_one(start_time=start_time), start_times)
@@ -277,7 +148,7 @@ def make_scenario(offset):
         args.serve_time_unit)
 
   return Scenario(
-            slaves = map(lambda x: Slave(resources='mem:40;cpus:8.0'),
+            slaves = map(lambda x: Slave(resources=args.slave_resources),
               xrange(args.slaves)),
             batch_jobs = fixed_jobs + experiment_jobs,
             serve_jobs = serve_jobs,

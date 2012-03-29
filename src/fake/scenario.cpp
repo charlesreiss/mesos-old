@@ -218,10 +218,12 @@ void populateScenarioFrom(const ptree& spec, Scenario* scenario)
         TaskID taskId;
         taskId.set_value(key);
         const double taskTime = task.get<double>("cpu_time", -1.0);
+        const Resources extraConstResources(
+            Resources::parse(batch.get<std::string>("const_resources", "")));
         CHECK_GE(taskTime, 0.0);
         totalTime += taskTime;
-        tasks[taskId] = new BatchTask(constResources, batchRequest,
-                                      taskTime, maxCpus);
+        tasks[taskId] = new BatchTask(constResources + extraConstResources,
+                                      batchRequest, taskTime, maxCpus);
         VLOG(2) << "parsed " << *tasks[taskId];
       }
       Attributes attrs;
