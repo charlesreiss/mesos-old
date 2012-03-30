@@ -65,6 +65,10 @@ public:
   virtual Resources freeForSlave(const SlaveID& slaveId) const = 0;
   virtual Resources gaurenteedFreeForSlave(const SlaveID& slaveId) const = 0;
 
+  virtual void sanityCheckAgainst(mesos::internal::master::Master* master) const {
+    LOG(FATAL) << "sanity check not implemented";
+  }
+
   virtual ~UsageTracker() {}
 };
 

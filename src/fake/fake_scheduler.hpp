@@ -106,6 +106,9 @@ public:
     }
   }
 
+  // True if we would accept these resources anywhere. Only for debugging.
+  bool mightAccept(const ResourceHints& resources) const;
+
   ~FakeScheduler()
   {
     process::timers::cancel(startTimer);

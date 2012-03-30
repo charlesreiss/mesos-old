@@ -37,6 +37,22 @@ void FakeScheduler::registered(SchedulerDriver* driver_,
   frameworkId.MergeFrom(frameworkId_);
 }
 
+bool FakeScheduler::mightAccept(const ResourceHints& resources) const
+{
+  bool beforeStartTime = process::Clock::now() < startTime;
+  if (beforeStartTime) {
+    return false;
+  } else {
+    foreachpair (const TaskID& taskId, FakeTask* task, tasksPending) {
+      ResourceHints curRequest = task->getResourceRequest();
+      if (curRequest <= resources) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
 void FakeScheduler::resourceOffers(SchedulerDriver* driver,
                                    const std::vector<Offer>& offers)
 {

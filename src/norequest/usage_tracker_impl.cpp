@@ -433,6 +433,36 @@ UsageTrackerImpl::gaurenteedForExecutor(const SlaveID& slaveId,
   return lookupOrDefault(estimateByExecutor, key).minResources;
 }
 
+void
+UsageTrackerImpl::sanityCheckAgainst(mesos::internal::master::Master* master)
+{
+  int expectNumFrameworks = 0;
+  int expectNumExecutors = 0;
+  foreach (master::Framework* framework, master->getActiveFrameworks())
+  {
+    ++expectNumFrameworks;
+    CHECK(frameworkEstimates.count(framework->id));
+    typedef hashmap<ExecutorID, ExecutorInfo>ExecutorMap;
+    foreachpair (SlaveID slaveId, const ExecutorMap& map, framework->executors) {
+      foreachkey (const ExecutorID& executorId, map) {
+        ++expectNumExecutors;
+        CHECK(estimateByExecutor.count(ExecutorKey(framework->id, executorId, slaveId)));
+      }
+    }
+  }
+  CHECK_EQ(estimateByExecutor.size(), expectNumExecutors);
+  CHECK_EQ(frameworkEstimates.size(), expectNumFrameworks);
+  int expectNumSlaves = 0;
+  foreach (master::Slave* slave, master->getActiveSlaves())
+  {
+    ++expectNumSlaves = 0;
+    CHECK(slaveEstimates.count(slave->id));
+    CHECK(slaveCapacities.count(slave->id));
+  }
+  CHECK_EQ(expectNumSlaves, slaveCapacities.size());
+  CHECK_EQ(expectNumSlaves, slaveEstimates.size());
+}
+
 } // namespace norequest {
 } // namespace internal {
 } // namespace mesos {

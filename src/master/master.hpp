@@ -294,6 +294,7 @@ struct Slave
     VLOG(1) << "Adding task with resources " << task->resources()
 	    << " on slave " << id;
     resourcesInUse += task->resources();
+    resourcesGaurenteed += task->min_resources();
   }
 
   void removeTask(Task* task)
@@ -305,6 +306,7 @@ struct Slave
     VLOG(1) << "Removing task with resources " << task->resources()
 	    << " on slave " << id;
     resourcesInUse -= task->resources();
+    resourcesGaurenteed -= task->min_resources();
   }
 
   void addOffer(Offer* offer)
@@ -396,6 +398,7 @@ struct Slave
 
   ResourceHints resourcesOffered; // Resources currently in offers.
   Resources resourcesInUse;   // Resources currently used by tasks.
+  Resources resourcesGaurenteed; 
   Resources resourcesObservedUsed; // Used resources based on last usage
                                    // message.
 

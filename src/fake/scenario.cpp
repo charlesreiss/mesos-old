@@ -34,9 +34,10 @@ void Scenario::spawnMaster()
         conf.get<std::string>("allocator", "simple"), 0));
 }
 
-void Scenario::spawnMaster(mesos::internal::master::Allocator* allocator)
+void Scenario::spawnMaster(mesos::internal::master::Allocator* allocator_)
 {
   CHECK(process::Clock::paused());
+  allocator = allocator_;
   master = new Master(allocator);
   masterPid = process::spawn(master);
   masterMasterDetector.reset(new BasicMasterDetector(masterPid));
@@ -112,7 +113,30 @@ void Scenario::runFor(double seconds)
   while (seconds > 0.0) {
     process::Clock::advance(std::min(interval, seconds));
     process::Clock::settle();
+    sanityCheck();
     seconds -= interval;
+  }
+}
+
+void Scenario::sanityCheck()
+{
+  allocator->sanityCheck();
+  foreach (master::Framework* framework, master->getActiveFrameworks())
+  {
+    CHECK_EQ(0, framework->offers.size());
+  }
+
+  foreach (master::Slave* slave, master->getActiveSlaves())
+  {
+    // FIXME XXX: This sanity check depends on estimates being conservative.
+    Resources conservativeFreeMin = slave->info.resources() -
+      slave->resourcesOffered.minResources - slave->resourcesGaurenteed;
+    Resources conservativeFreeExpect = slave->info.resources() -
+      slave->resourcesOffered.expectedResources - slave->resourcesInUse;
+    ResourceHints conservativeFree(conservativeFreeExpect, conservativeFreeMin);
+    foreachvalue (FakeScheduler* scheduler, schedulers) {
+      CHECK(!scheduler->mightAccept(conservativeFree));
+    }
   }
 }
 

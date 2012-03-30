@@ -89,6 +89,8 @@ public:
   virtual void timerTick() {}
 
   virtual void gotUsage(const UsageMessage& usage) {}
+
+  virtual void sanityCheck() {}
 };
 
 } // namespace master {

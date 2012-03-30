@@ -2,6 +2,7 @@ import json
 import random
 import math
 import argparse
+import copy
 
 from make_scenario_util import *
 

@@ -108,6 +108,9 @@ public:
   std::vector<Framework*> getOrderedFrameworks();
   void stopMakingOffers() { dontMakeOffers = true; }
   void startMakingOffers() { dontMakeOffers = false; }
+
+  void sanityCheck() { tracker->sanityCheckAgainst(
+      dynamic_cast<mesos::internal::master::Master*>(master)); }
 private:
   void makeNewOffers(const std::vector<Slave*>& slaves);
   void placeUsage(const FrameworkID& frameworkId,

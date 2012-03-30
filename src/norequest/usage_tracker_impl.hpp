@@ -129,17 +129,20 @@ public:
                                   const FrameworkID& frameworkId,
                                   const ExecutorID& executorId) const;
 
+  void sanityCheckAgainst(mesos::internal::master::Master* master);
+
 private:
   const hashmap<FrameworkID, ResourceEstimates>& usageByFramework() const;
   const ResourceEstimates& estimateForFramework(const FrameworkID& framework) const {
     hashmap<FrameworkID, ResourceEstimates>::const_iterator it =
         usageByFramework().find(framework);
     if (it == usageByFramework().end()) {
-      return ResourceEstimates();
+      return _emptyEstimates;
     } else {
       return it->second;
     }
   }
+  const ResourceEstimates _emptyEstimates;
   hashmap<FrameworkID, ResourceEstimates> frameworkEstimates;
   hashmap<SlaveID, ResourceEstimates> slaveEstimates;
   hashmap<SlaveID, Resources> slaveCapacities;

@@ -83,6 +83,8 @@ public:
     return masterPid;
   }
 
+  void sanityCheck();
+
   Scenario();
   Scenario(const Configuration& conf_);
   ~Scenario() { stop(); }
@@ -92,6 +94,7 @@ private:
   Configuration conf;
   FakeTaskTracker tracker;
   Master* master;
+  mesos::internal::master::Allocator* allocator;
   process::PID<Master> masterPid;
   std::vector<Slave*> slaves;
   std::vector<process::PID<Slave> > slavePids;
