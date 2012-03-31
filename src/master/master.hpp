@@ -174,7 +174,8 @@ protected:
   // resources for the task and possibly it's executor.
   ResourceHints launchTask(const TaskDescription& task,
                            Framework* framework,
-                           Slave* slave);
+                           Slave* slave,
+                           Task** pTask);
 
   // Remove a task.
   void removeTask(Task* task);

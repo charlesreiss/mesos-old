@@ -451,10 +451,13 @@ void Master::exited(const UPID& pid)
 
       // Remove the framework's offers.
       foreach (Offer* offer, utils::copy(framework->offers)) {
-        allocator->resourcesRecovered(offer->framework_id(),
-                                      offer->slave_id(),
-                                      ResourceHints::forOffer(*offer));
+        FrameworkID frameworkId = offer->framework_id();
+        SlaveID slaveId = offer->slave_id();
+        ResourceHints resources = ResourceHints::forOffer(*offer);
         removeOffer(offer);
+        allocator->resourcesRecovered(frameworkId,
+                                      slaveId,
+                                      resources);
       }
       return;
     }
@@ -1410,6 +1413,7 @@ void Master::processTasks(Offer* offer,
                           const Filters& filters)
 {
   ResourceHints usedResources; // Accumulated resources used from this offer.
+  vector<Task*> launchedTasks;
 
   vector<TaskDescription> tasks = _tasks;
   if (framework->info.allocates_min()) {
@@ -1445,8 +1449,10 @@ void Master::processTasks(Offer* offer,
     }
 
     if (error.isNone()) {
+      Task* newTask;
       // Task looks good, get it running!
-      usedResources += launchTask(task, framework, slave);
+      usedResources += launchTask(task, framework, slave, &newTask);
+      launchedTasks.push_back(newTask);
     } else {
       // Error validating task, send a failed status update.
       LOG(WARNING) << "Error validating task: " << error.get();
@@ -1480,13 +1486,6 @@ void Master::processTasks(Offer* offer,
   ResourceHints offerResources = ResourceHints::forOffer(*offer);
   ResourceHints unusedResources = offerResources - usedResources;
 
-  if (!unusedResources.empty()) {
-    // Tell the allocator about the unused (e.g., refused) resources.
-    allocator->resourcesUnused(offer->framework_id(),
-                               offer->slave_id(),
-                               unusedResources);
-  }
-
   // TODO(benh): Move all filter logic to the allocators!
 
   // Get the timeout (if it exists) for re-offering refused resources.
@@ -1505,13 +1504,30 @@ void Master::processTasks(Offer* offer,
         Framework::FilterInfo(time, unusedResources);
   }
 
+  FrameworkID frameworkId = offer->framework_id();
+  SlaveID slaveId = offer->slave_id();
+
   removeOffer(offer);
+
+  foreach (Task* t, launchedTasks) {
+    allocator->taskAdded(t);
+  }
+
+  if (!unusedResources.empty()) {
+    // Tell the allocator about the unused (e.g., refused) resources.
+    allocator->resourcesUnused(frameworkId,
+                               slaveId,
+                               unusedResources);
+  } else {
+    LOG(INFO) << "all resources used";
+  }
 }
 
 
 ResourceHints Master::launchTask(const TaskDescription& task,
                                  Framework* framework,
-                                 Slave* slave)
+                                 Slave* slave,
+                                 Task** pTask)
 {
   CHECK(framework != NULL);
   CHECK(slave != NULL);
@@ -1567,7 +1583,7 @@ ResourceHints Master::launchTask(const TaskDescription& task,
   // makes sure transitions are valid.
   stats.tasks[TASK_STARTING]++;
 
-  allocator->taskAdded(t);
+  *pTask = t;
 
   return ResourceHints(resources, minResources);
 }
