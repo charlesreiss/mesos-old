@@ -69,12 +69,14 @@ NoRequestAllocator::slaveRemoved(Slave* slave) {
 
 void
 NoRequestAllocator::taskAdded(Task* task) {
+  LOG(INFO) << "add task";
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              task, 0, Option<ExecutorInfo>::none());
 }
 
 void
 NoRequestAllocator::taskRemoved(Task* task) {
+  LOG(INFO) << "remove task";
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              0, task, Option<ExecutorInfo>::none());
   Slave* slave = master->getSlave(task->slave_id());
@@ -331,6 +333,8 @@ void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
   // FIXME(Charles): There may be a race between setting refusers here
   // and what happened while the offer was pending; should we set refusers
   // earlier to compensate?
+  LOG(INFO) << "resourcesUnused: " << frameworkId.value() << ", "
+            << slaveId.value() << unusedResources;
   refusers[master->getSlave(slaveId)].insert(frameworkId);
   if (aggressiveReoffer) {
     makeNewOffers(master->getActiveSlaves());

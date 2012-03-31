@@ -291,6 +291,7 @@ UsageTrackerImpl::estimateFor(const FrameworkID& frameworkId,
                               const ExecutorID& executorId,
                               const SlaveID& slaveId) {
   ExecutorKey key(frameworkId, executorId, slaveId);
+  VLOG(2) << "estimateFor: looking up " << key;
   hashmap<ExecutorKey, ResourceEstimates>::iterator it =
     estimateByExecutor.find(key);
   if (it == estimateByExecutor.end()) {
@@ -345,7 +346,7 @@ UsageTrackerImpl::forgetExecutor(const FrameworkID& frameworkId,
                                  const SlaveID& slaveId,
                                  bool clearCharge) {
   LOG(INFO) << "forgetExecutor(" << frameworkId << "," << executorId
-            << slaveId << ")";
+            << "," << slaveId << ")";
   const ExecutorKey key(frameworkId, executorId, slaveId);
   if (estimateByExecutor.count(key) > 0) {
     estimateByExecutor[key].clearUsage(lastTickTime, clearCharge);
@@ -438,24 +439,35 @@ UsageTrackerImpl::sanityCheckAgainst(mesos::internal::master::Master* master)
 {
   int expectNumFrameworks = 0;
   int expectNumExecutors = 0;
-  foreach (master::Framework* framework, master->getActiveFrameworks())
-  {
-    ++expectNumFrameworks;
-    CHECK(frameworkEstimates.count(framework->id));
-    typedef hashmap<ExecutorID, ExecutorInfo>ExecutorMap;
+  foreach (master::Framework* framework, master->getActiveFrameworks()) {
+    if (framework->executors.size() > 0) {
+      ++expectNumFrameworks;
+      CHECK(frameworkEstimates.count(framework->id)) << framework->id;
+    }
+    typedef hashmap<ExecutorID, ExecutorInfo> ExecutorMap;
     foreachpair (SlaveID slaveId, const ExecutorMap& map, framework->executors) {
       foreachkey (const ExecutorID& executorId, map) {
         ++expectNumExecutors;
-        CHECK(estimateByExecutor.count(ExecutorKey(framework->id, executorId, slaveId)));
+        ExecutorKey key(framework->id, executorId, slaveId);
+        CHECK(estimateByExecutor.count(key)) << key;
       }
     }
   }
-  CHECK_EQ(estimateByExecutor.size(), expectNumExecutors);
-  CHECK_EQ(frameworkEstimates.size(), expectNumFrameworks);
+  foreachpair (const ExecutorKey& key, const ResourceEstimates& estimates,
+      estimateByExecutor) {
+    if (estimates.usedResources == Resources() &&
+        estimates.minResources == Resources() &&
+        estimates.nextUsedResources == Resources())
+      continue;
+    master::Framework* framework = master->getFramework(key.frameworkId);
+    CHECK(framework) << key << " " << estimates;
+    CHECK(framework->executors.count(key.slaveId)) << key << " " << estimates;
+    CHECK(framework->executors[key.slaveId].count(key.executorId)) << key << " " << estimates;
+  }
   int expectNumSlaves = 0;
   foreach (master::Slave* slave, master->getActiveSlaves())
   {
-    ++expectNumSlaves = 0;
+    ++expectNumSlaves;
     CHECK(slaveEstimates.count(slave->id));
     CHECK(slaveCapacities.count(slave->id));
   }

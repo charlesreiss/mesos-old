@@ -1560,6 +1560,8 @@ ResourceHints Master::launchTask(const TaskDescription& task,
     resources += executorInfo.resources();
     minResources += executorInfo.min_resources();
   }
+  CHECK(framework->hasExecutor(slave->id, executorInfo.executor_id()))
+    << framework->id << " " << slave->id << " " << executorInfo.executor_id();
 
   slave->addTask(t);
 

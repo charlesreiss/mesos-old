@@ -188,10 +188,12 @@ protected:
   void removeExecutor(Slave* slave, Framework* framework,
                       const ExecutorInfo& info);
 
+public: // for debugging
   Framework* getFramework(const FrameworkID& frameworkId);
   Slave* getSlave(const SlaveID& slaveId);
   Offer* getOffer(const OfferID& offerId);
 
+protected:
   FrameworkID newFrameworkId();
   OfferID newOfferId();
   SlaveID newSlaveId();
@@ -334,6 +336,8 @@ struct Slave
   void addExecutor(const FrameworkID& frameworkId,
 		   const ExecutorInfo& executorInfo)
   {
+    LOG(INFO) << "Slave: " << frameworkId << " adding executor "
+              << executorInfo.DebugString() << " on " << id;
     CHECK(!hasExecutor(frameworkId, executorInfo.executor_id()));
     executors[frameworkId][executorInfo.executor_id()] = executorInfo;
 
@@ -344,15 +348,22 @@ struct Slave
   void removeExecutor(const FrameworkID& frameworkId,
 		      const ExecutorID& executorId)
   {
+    LOG(INFO) << "Slave: " << frameworkId << " remove executor "
+              << executorId << " on " << id;
     if (hasExecutor(frameworkId, executorId)) {
       // Update the resources in use to reflect removing this executor.
       resourcesInUse -= executors[frameworkId][executorId].resources();
       clearObservedUsageFor(frameworkId, executorId);
 
+      executors[frameworkId].erase(executorId);
       if (executors[frameworkId].size() == 0) {
 	executors.erase(frameworkId);
         usageMessages.erase(frameworkId);
       }
+    } else {
+      LOG(WARNING) << "asked to remove non-existent executor "
+                   << frameworkId << " " << executorId << " from "
+                   << id;
     }
   }
 
@@ -491,6 +502,8 @@ struct Framework
                    const ExecutorInfo& executorInfo)
   {
     CHECK(!hasExecutor(slaveId, executorInfo.executor_id()));
+    LOG(INFO) << "Framework: framework " << id << " adding executor "
+              << executorInfo.DebugString() << " to " << slaveId;
     executors[slaveId][executorInfo.executor_id()] = executorInfo;
 
     // Update our resources to reflect running this executor.
@@ -500,6 +513,8 @@ struct Framework
   void removeExecutor(const SlaveID& slaveId,
                       const ExecutorID& executorId)
   {
+    LOG(INFO) << "Framework: framework " << id << " removing executor "
+              <<  executorId << " from " << slaveId;
     if (hasExecutor(slaveId, executorId)) {
       // Update our resources to reflect removing this executor.
       resources -= executors[slaveId][executorId].resources();
@@ -508,6 +523,9 @@ struct Framework
       if (executors[slaveId].size() == 0) {
         executors.erase(slaveId);
       }
+    } else {
+      LOG(WARNING) << "removing non-existent executor " << executorId
+                   << " for framework " << id << " (slave " << slaveId << ")";
     }
   }
 

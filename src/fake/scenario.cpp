@@ -134,8 +134,10 @@ void Scenario::sanityCheck()
     Resources conservativeFreeExpect = slave->info.resources() -
       slave->resourcesOffered.expectedResources - slave->resourcesInUse;
     ResourceHints conservativeFree(conservativeFreeExpect, conservativeFreeMin);
-    foreachvalue (FakeScheduler* scheduler, schedulers) {
-      CHECK(!scheduler->mightAccept(conservativeFree));
+    LOG(INFO) << "We think that " << conservativeFree << " is free on slave "
+              << slave->id;
+    foreachpair (const std::string& name, FakeScheduler* scheduler, schedulers) {
+      CHECK(!scheduler->mightAccept(conservativeFree)) << name;
     }
   }
 }
