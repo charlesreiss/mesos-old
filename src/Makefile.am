@@ -532,7 +532,7 @@ java/jni/org_apache_mesos_Log.h: $(MESOS_JAR)
 $(EXAMPLES_JAR): $(JAVA_EXAMPLES_SRC)
 	@echo "Building examples.jar ..."
 	@$(MKDIR_P) examples/java
-	@$(JAVAC) -cp					\ \
+	@$(JAVAC) -cp					\
           $(PROTOBUF_JAR):$(MESOS_JAR):$(srcdir)/examples/java		\
           -sourcepath $(srcdir)/examples/java -d examples/java	        \
           $(srcdir)/examples/java/*.java
