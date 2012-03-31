@@ -49,7 +49,7 @@ parser.add_argument('--serve_request', default='cpus:2.0;mem:4')
 parser.add_argument('--serve_cpu_unit', default=0.1, type=float)
 
 parser.add_argument('--vary_interval', default=False, action='store_true')
-parser.add_argument('--vary_interval_factor', default=0.2, type=float)
+parser.add_argument('--vary_interval_factor', default=0.5, type=float)
 parser.add_argument('--slave_resources', default='cpus:8.0;mem:40')
 
 args = parser.parse_args()
@@ -103,15 +103,19 @@ def make_scenario(offset):
   start_times = []
   last_time = 0.0
   interarrival = args.interarrival
+  cur_args = copy.deepcopy(args)
+  cur_args.mean_duration_func = sample_time
+  cur_args.duration_func = sample_time_dist
+  cur_args.cpu_sample_func = constant_dist(args.cpu_max)
   if args.vary_interval:
-    args.interarrival *= offset
+    cur_args.interarrival *= (offset + 1) * args.vary_interval_factor
   for i in xrange(args.num_background):
     start_times.append(last_time)
-    if args.interarrival > 0.0:
+    if cur_args.interarrival > 0.0:
       last_time += random.expovariate(1.0 / args.interarrival)
 
   def sample_one(start_time, is_experiment=False):
-    myargs = args
+    myargs = cur_args
     myargs.start_time = start_time
     if is_experiment:
       myargs.memory_sample_func = lambda ignored: args.experiment_memory

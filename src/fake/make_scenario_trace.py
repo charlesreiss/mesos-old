@@ -154,6 +154,7 @@ class JobConverter(object):
         cpu_sample_func = constant_dist(max_cpus),
         sort_by_cpu_time = False,
         sample_each_memory = True,
+        target_seconds = job['duration'] * self.args.scale_time,
         memory_max = self.args.scale_memory * .99,
         request_memory = job['max_req_memory'] * self.args.scale_memory,
         request_cpu = job['max_req_cpus'] * self.args.scale_cpu,
