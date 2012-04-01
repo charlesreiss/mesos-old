@@ -123,7 +123,7 @@ public:
     process::Clock::resume();
   }
 
-  void addTask(const TaskID& taskId, FakeTask* task) {
+  void addTask(const std::string& taskId, FakeTask* task) {
     scheduler->addTask(taskId, task);
   }
 
@@ -213,7 +213,7 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
                    Return(TASK_RUNNING)));
   EXPECT_CALL(task, getResourceRequest()).
     WillRepeatedly(Return(ResourceHints::parse("cpu:4;mem:2048", "")));
-  addTask(TASK_ID("task0"), &task);
+  addTask("task0", &task);
   trigger offerComplete, gotStatus;
   EXPECT_CALL(allocator, resourcesUnused(_, _,
               ResourceHints::parse("cpu:4;mem:2048", "cpu:8;mem:4096"))).
@@ -227,7 +227,7 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
   tick();  // task should schedule by now.
   WAIT_UNTIL(tookUsage);
   LOG(INFO) << "tookUsage";
-  Task* masterTask = masterSlave->getTask(masterFramework->id, TASK_ID("task0"));
+  Task* masterTask = masterSlave->getTask(masterFramework->id, TASK_ID("task0:1"));
   ASSERT_TRUE(masterTask);
   EXPECT_EQ(Resources::parse("cpu:4;mem:2048"), masterTask->resources());
   trigger tookFinished;

@@ -46,7 +46,7 @@ public:
                 FakeTaskTracker* taskTracker_)
     : attributes(attributes_), taskTracker(taskTracker_),
       haveMinRequest(false), startTime(0), driver(0),
-      finishedScore(0) {}
+      finishedScore(0), taskCount(0) {}
   void registered(SchedulerDriver* driver, const FrameworkID& frameworkId);
   void resourceOffers(SchedulerDriver* driver,
                       const std::vector<Offer>& offers);
@@ -73,15 +73,27 @@ public:
     return std::max(0.0, startTime - minTime);
   }
 
-  void setTasks(const map<TaskID, FakeTask*>& tasks_) {
+  void setTasks(const map<std::string, FakeTask*>& tasks_) {
     tasksPending = tasks_;
     updateMinRequest();
   }
 
-  void addTask(const TaskID& taskId, FakeTask* task) {
+  void setTasks(const map<TaskID, FakeTask*>& tasks_) {
+    tasksPending.clear();
+    foreachpair(const TaskID& baseTaskIdAsId, FakeTask* task, tasks_) {
+      tasksPending[baseTaskIdAsId.value()] = task;
+    }
+    updateMinRequest();
+  }
+
+  void addTask(const std::string& taskId, FakeTask* task) {
     CHECK(task);
     tasksPending[taskId] = task;
     updateMinRequest(task->getResourceRequest());
+  }
+
+  void addTask(const TaskID& _taskId, FakeTask* task) {
+    addTask(_taskId.value(), task);
   }
 
   int countPending() const {
@@ -123,8 +135,9 @@ private:
   void atStartTime();
 
   FakeTaskTracker* taskTracker;
-  map<TaskID, FakeTask*> tasksPending;
-  map<TaskID, FakeTask*> tasksRunning;
+  map<std::string, FakeTask*> tasksPending;
+  map<std::string, FakeTask*> tasksRunning;
+  map<TaskID, std::string> runningTaskIds;
   FrameworkID frameworkId;
   Attributes attributes;
   map<TaskState, int> numTerminal;
@@ -136,6 +149,7 @@ private:
   double startTime;
   SchedulerDriver* driver;
   double finishedScore;
+  int taskCount;
 };
 
 }  // namespace fake

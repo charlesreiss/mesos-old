@@ -43,7 +43,7 @@ bool FakeScheduler::mightAccept(const ResourceHints& resources) const
   if (beforeStartTime) {
     return false;
   } else {
-    foreachpair (const TaskID& taskId, FakeTask* task, tasksPending) {
+    foreachvalue (FakeTask* task, tasksPending) {
       ResourceHints curRequest = task->getResourceRequest();
       if (curRequest <= resources) {
         return true;
@@ -62,11 +62,14 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
     vector<TaskDescription> toLaunch;
     ResourceHints bucket = ResourceHints::forOffer(offer);
     if (!beforeStartTime && (!haveMinRequest || minRequest <= bucket)) {
-      foreachpair (const TaskID& taskId, FakeTask* task, tasksPending) {
+      foreachpair (const std::string& baseTaskId, FakeTask* task, tasksPending) {
         ResourceHints curRequest = task->getResourceRequest();
         if (curRequest <= bucket) {
+          TaskID taskId;
+          ++taskCount;
+          taskId.set_value(baseTaskId + ":" + boost::lexical_cast<std::string>(taskCount));
           TaskDescription newTask;
-          newTask.set_name("dummy-name");
+          newTask.set_name(baseTaskId);
           newTask.mutable_task_id()->MergeFrom(taskId);
           newTask.mutable_slave_id()->MergeFrom(offer.slave_id());
           newTask.mutable_resources()->MergeFrom(curRequest.expectedResources);
@@ -78,7 +81,8 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
           bucket -= curRequest;
           taskTracker->registerTask(frameworkId,
               newTask.executor().executor_id(), taskId, task);
-          tasksRunning[taskId] = task;
+          tasksRunning[baseTaskId] = task;
+          runningTaskIds[newTask.task_id()] = baseTaskId;
           LOG(INFO) << "placed " << task << " in " << newTask.DebugString();
         } else {
           LOG(INFO) << "rejected " << task << "; only " << bucket << " versus "
@@ -86,7 +90,7 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
         }
       }
       foreach (const TaskDescription& task, toLaunch) {
-        tasksPending.erase(task.task_id());
+        tasksPending.erase(task.name());
       }
     }
     driver->launchTasks(offer.id(), toLaunch);
@@ -105,17 +109,27 @@ void FakeScheduler::statusUpdate(SchedulerDriver* driver,
     numTerminal[status.state()]++;
   }
 
+  if (!runningTaskIds.count(status.task_id())) {
+    LOG(WARNING) << "Late status update " << status.DebugString();
+    return;
+  }
+
+  std::string decodedTaskLabel = runningTaskIds[status.task_id()];
+
+  // TODO(Charles): Handle "delayed" updates for old ids for old ids
+
   switch (status.state()) {
   case TASK_STARTING: case TASK_RUNNING:
     break;
   case TASK_FINISHED:
     {
-      map<TaskID, FakeTask*>::iterator it =
-        tasksRunning.find(status.task_id());
+      map<std::string, FakeTask*>::iterator it =
+        tasksRunning.find(decodedTaskLabel);
       CHECK(it != tasksRunning.end());
       CHECK(it->second);
       finishedScore += it->second->getScore();
       tasksRunning.erase(it);
+      runningTaskIds.erase(status.task_id());
       ExecutorID executorId;
       executorId.set_value(status.task_id().value());
       taskTracker->unregisterTask(frameworkId, executorId, status.task_id());
@@ -123,11 +137,12 @@ void FakeScheduler::statusUpdate(SchedulerDriver* driver,
     break;
   case TASK_FAILED: case TASK_KILLED: case TASK_LOST:
     {
-      map<TaskID, FakeTask*>::iterator it =
-        tasksRunning.find(status.task_id());
+      map<std::string, FakeTask*>::iterator it =
+        tasksRunning.find(decodedTaskLabel);
       if (it != tasksRunning.end()) {
         tasksPending[it->first] = it->second;
         tasksRunning.erase(it);
+        runningTaskIds.erase(status.task_id());
         driver->reviveOffers();
       } else {
         LOG(WARNING) << "excess termination for task ID " << status.task_id();

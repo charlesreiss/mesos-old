@@ -123,7 +123,7 @@ public:
     if (mockTask) {
       EXPECT_CALL(*mockTask, getResourceRequest()).
         WillRepeatedly(Return(taskResources));
-      scheduler->addTask(TASK_ID(taskId), mockTask);
+      scheduler->addTask(taskId, mockTask);
     }
 
     vector<TaskDescription> result;
@@ -132,16 +132,16 @@ public:
     scheduler->resourceOffers(&schedulerDriver,
         singleOffer("offer0", "slave0", offerResources));
     ASSERT_EQ(result.size(), 1);
-    EXPECT_EQ(result[0].task_id(), TASK_ID(taskId));
+    EXPECT_EQ(result[0].task_id().value().substr(0, taskId.size()), taskId);
     EXPECT_EQ(result[0].resources(), taskResources.expectedResources);
     EXPECT_EQ(result[0].min_resources(), taskResources.minResources);
-    EXPECT_EQ(result[0].executor().executor_id().value(), taskId);
+    EXPECT_EQ(result[0].executor().executor_id().value(), result[0].task_id().value());
 
     if (mockTask) {
       EXPECT_EQ(mockTask,
           tracker.getTaskFor(DEFAULT_FRAMEWORK_ID,
                              result[0].executor().executor_id(),
-                             TASK_ID(taskId)));
+                             result[0].task_id()));
     }
   }
 
@@ -207,7 +207,7 @@ TEST_F(FakeSchedulerTest, CannotFitTask)
   EXPECT_CALL(mockTask, getResourceRequest()).
     WillRepeatedly(Return(
           ResourceHints(Resources::parse("cpus:9.0"), Resources())));
-  scheduler->addTask(TASK_ID("task0"), &mockTask);
+  scheduler->addTask("task0", &mockTask);
   vector<TaskDescription> result;
   EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
     WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
@@ -223,7 +223,7 @@ TEST_F(FakeSchedulerTest, FinishTask)
   registerScheduler();
   MockFakeTask mockTask;
   makeAndAcceptOfferDefault("task0", &mockTask);
-  updateTask("task0", TASK_FINISHED);
+  updateTask("task0:1", TASK_FINISHED);
 
   EXPECT_EQ(1, scheduler->count(TASK_FINISHED));
 }
@@ -235,7 +235,7 @@ TEST_F(FakeSchedulerTest, RespawnTask)
   makeAndAcceptOfferDefault("task0", &mockTask);
   EXPECT_CALL(schedulerDriver, reviveOffers()).
     WillOnce(Return(OK));
-  updateTask("task0", TASK_LOST);
+  updateTask("task0:1", TASK_LOST);
   makeAndAcceptOfferDefault("task0", 0);
 
   EXPECT_EQ(1, scheduler->count(TASK_LOST));
@@ -307,12 +307,12 @@ TEST_F(FakeSchedulerTest, ScoreTask)
   EXPECT_DOUBLE_EQ(100.0, scheduler->getScore());
   EXPECT_CALL(mockTask, getScore()).
     WillOnce(Return(200.0));
-  updateTask("task0", TASK_FINISHED);
+  updateTask("task0:1", TASK_FINISHED);
   EXPECT_DOUBLE_EQ(200.0, scheduler->getScore());
   MockFakeTask mockTask2;
   EXPECT_CALL(mockTask2, getResourceRequest()).
     WillOnce(testing::Return(ResourceHints()));
-  scheduler->addTask(TASK_ID("task1"), &mockTask2);
+  scheduler->addTask("task1", &mockTask2);
   makeAndAcceptOfferDefault("task1", &mockTask2);
   EXPECT_CALL(mockTask2, getScore()).
     WillOnce(Return(300.0));
@@ -321,6 +321,6 @@ TEST_F(FakeSchedulerTest, ScoreTask)
     WillOnce(Return(-500.0));
   EXPECT_CALL(schedulerDriver, reviveOffers()).
     WillOnce(Return(OK));
-  updateTask("task1", TASK_LOST);
+  updateTask("task1:2", TASK_LOST);
   EXPECT_DOUBLE_EQ(-300.0, scheduler->getScore());
 }
