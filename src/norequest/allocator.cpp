@@ -330,12 +330,16 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
 void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
                                          const SlaveID& slaveId,
                                          const ResourceHints& unusedResources) {
-  // FIXME(Charles): There may be a race between setting refusers here
-  // and what happened while the offer was pending; should we set refusers
-  // earlier to compensate?
   LOG(INFO) << "resourcesUnused: " << frameworkId.value() << ", "
             << slaveId.value() << unusedResources;
-  refusers[master->getSlave(slaveId)].insert(frameworkId);
+  /* Before recording a framework as a refuser, make sure we would offer
+   * them at least as many resources now. If not, give them a chance to get the
+   * resources we reclaimed asynchronously.
+   */
+  if (tracker->freeForSlave(slaveId) <= unusedResources.expectedResources &&
+      tracker->gaurenteedFreeForSlave(slaveId) <= unusedResources.minResources) {
+    refusers[master->getSlave(slaveId)].insert(frameworkId);
+  }
   if (aggressiveReoffer) {
     makeNewOffers(master->getActiveSlaves());
   } else {
@@ -362,6 +366,7 @@ void NoRequestAllocator::resourcesRecovered(const FrameworkID& frameworkId,
 }
 
 void NoRequestAllocator::offersRevived(Framework* framework) {
+  LOG(INFO) << "offersRevived for " << framework->id;
   std::vector<Slave*> revivedSlaves;
   foreachpair (Slave* slave, boost::unordered_set<FrameworkID>& refuserSet,
                refusers) {
@@ -371,11 +376,9 @@ void NoRequestAllocator::offersRevived(Framework* framework) {
     }
   }
   allRefusers.clear();
-  if (aggressiveReoffer) {
-    makeNewOffers(master->getActiveSlaves());
-  } else {
-    makeNewOffers(revivedSlaves);
-  }
+  // TODO(Charles): Can we get away with doing this for jsut revivedSlaves
+  // plus allRefusers entries we actually cleared?
+  makeNewOffers(master->getActiveSlaves());
 }
 
 void NoRequestAllocator::timerTick() {

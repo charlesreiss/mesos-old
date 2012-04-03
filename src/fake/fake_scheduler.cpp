@@ -39,7 +39,7 @@ void FakeScheduler::registered(SchedulerDriver* driver_,
 
 bool FakeScheduler::mightAccept(const ResourceHints& resources) const
 {
-  bool beforeStartTime = process::Clock::now() < startTime;
+  bool beforeStartTime = process::Clock::now() <= startTime;
   if (beforeStartTime) {
     return false;
   } else {
@@ -57,10 +57,19 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
                                    const std::vector<Offer>& offers)
 {
   bool beforeStartTime = process::Clock::now() < startTime;
+  if (beforeStartTime) {
+    CHECK(!passedStartTime) << (process::Clock::now() - startTime);
+  }
   foreach (const Offer& offer, offers) {
+    LOG(INFO) << "got offer " << offer.DebugString();
+    LOG(INFO) << attributes << ": tasksPending has "
+              << tasksPending.size() << " entries.";
     CHECK_EQ(offer.framework_id(), frameworkId);
     vector<TaskDescription> toLaunch;
     ResourceHints bucket = ResourceHints::forOffer(offer);
+    LOG(INFO) << "minRequest = " << minRequest << "; bucket = " << bucket
+              << "; beforeStartTime = " << beforeStartTime
+              << "; now - startTime = " << (process::Clock::now() - startTime);
     if (!beforeStartTime && (!haveMinRequest || minRequest <= bucket)) {
       foreachpair (const std::string& baseTaskId, FakeTask* task, tasksPending) {
         ResourceHints curRequest = task->getResourceRequest();
@@ -83,9 +92,9 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
               newTask.executor().executor_id(), taskId, task);
           tasksRunning[baseTaskId] = task;
           runningTaskIds[newTask.task_id()] = baseTaskId;
-          LOG(INFO) << "placed " << task << " in " << newTask.DebugString();
+          LOG(INFO) << "placed " << *task << " in " << newTask.DebugString();
         } else {
-          LOG(INFO) << "rejected " << task << "; only " << bucket << " versus "
+          LOG(INFO) << "rejected " << *task << "; only " << bucket << " versus "
                     << curRequest;
         }
       }
@@ -154,15 +163,28 @@ void FakeScheduler::statusUpdate(SchedulerDriver* driver,
 
 void FakeScheduler::setStartTime(double time)
 {
+  CHECK(process::Clock::paused());
   startTime = time;
-  process::timers::cancel(startTimer);
-  startTimer = process::timers::create(
-      time - process::Clock::now(),
-      std::tr1::bind(&FakeScheduler::atStartTime, this));
+  passedStartTime = false;
+  if (!startTimer.get()) {
+    startTimer.reset(new SchedulerStartTimerProcess(this));
+    (void) process::spawn(startTimer.get());
+  }
+  startTimer->setTime(time);
+}
+
+void SchedulerStartTimerProcess::gotStartTime()
+{
+  LOG(INFO) << "gotStartTime()";
+  scheduler->atStartTime();
 }
 
 void FakeScheduler::atStartTime()
 {
+  LOG(INFO) << "atStartTime: " << attributes;
+  CHECK_LT(process::Clock::now() - startTime, 1.0);
+  CHECK_GE(process::Clock::now() - startTime, 0.0);
+  passedStartTime = true;
   if (driver) {
     driver->reviveOffers();
   }
@@ -186,6 +208,9 @@ void FakeScheduler::updateMinRequest()
   }
   foreachvalue (FakeTask* task, tasksRunning) {
     updateMinRequest(task->getResourceRequest());
+  }
+  if (driver) {
+    driver->reviveOffers();
   }
 }
 

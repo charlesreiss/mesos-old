@@ -96,6 +96,7 @@ BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
   CHECK_GT(delta, 0);
   if (resources < constUsage) {
     cpuUnits = initialCpuUnits;
+    LOG(INFO) << "TASK_LOST: needed " << constUsage << "; got " << resources;
     return TASK_LOST;
   } else {
     cpuUnits -= resources.get("cpus", Value::Scalar()).value() * delta;

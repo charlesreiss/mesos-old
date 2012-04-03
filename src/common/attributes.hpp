@@ -226,6 +226,29 @@ inline Value::Text Attributes::get(
   return text;
 }
 
+inline std::ostream&
+operator<<(std::ostream& out, const Attribute& attribute)
+{
+  out << attribute.name() << "=";
+  if (attribute.type() == Value::SCALAR) {
+    out << attribute.scalar().value();
+  } else if (attribute.type() == Value::TEXT) {
+    out << attribute.text().value();
+  } else {
+    out << attribute.DebugString(); // FIXME XXX
+  }
+  return out;
+}
+
+inline std::ostream&
+operator<<(std::ostream& out, const Attributes& attributes)
+{
+  foreach (const Attribute& attribute, attributes) {
+    out << attribute << ",";
+  }
+  return out;
+}
+
 
 } // namespace internal {
 } // namespace mesos {

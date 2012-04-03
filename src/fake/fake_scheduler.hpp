@@ -25,6 +25,8 @@
 
 #include "fake/fake_task.hpp"
 
+#include "boost/scoped_ptr.hpp"
+
 #include "common/type_utils.hpp"
 #include "common/attributes.hpp"
 
@@ -40,13 +42,54 @@ namespace fake {
 
 using std::map;
 
+class FakeScheduler;
+
+// We use this process to ensure that we execute reviveOffers() from a
+// process context, so timing information is passed through.
+struct SchedulerStartTimerProcess
+    : public process::Process<SchedulerStartTimerProcess> {
+  SchedulerStartTimerProcess(FakeScheduler* scheduler_) : scheduler(scheduler_)
+  {}
+
+  void realSetTime(double time) {
+    CHECK(process::Clock::paused());
+    process::timers::cancel(startTimer);
+    const double delta = time - process::Clock::now();
+    LOG(INFO) << "delta = " << delta;
+    CHECK_GT(delta, 0.0);
+    startTimer = delay(delta, self(),
+        &SchedulerStartTimerProcess::gotStartTime);
+  }
+
+  void setTime(double time) {
+    process::dispatch(self(), &SchedulerStartTimerProcess::realSetTime,
+        time);
+  }
+
+  void gotStartTime();
+
+  virtual ~SchedulerStartTimerProcess() {
+    process::timers::cancel(startTimer);
+  }
+
+  FakeScheduler* scheduler;
+  process::Timer startTimer;
+};
+
 class FakeScheduler : public Scheduler {
 public:
   FakeScheduler(const Attributes& attributes_,
                 FakeTaskTracker* taskTracker_)
     : attributes(attributes_), taskTracker(taskTracker_),
       haveMinRequest(false), startTime(0), driver(0),
-      finishedScore(0), taskCount(0) {}
+      finishedScore(0), taskCount(0), passedStartTime(true) {}
+
+  virtual ~FakeScheduler() {
+    if (startTimer.get()) {
+      process::terminate(startTimer.get());
+      process::wait(startTimer.get());
+    }
+  }
   void registered(SchedulerDriver* driver, const FrameworkID& frameworkId);
   void resourceOffers(SchedulerDriver* driver,
                       const std::vector<Offer>& offers);
@@ -121,18 +164,13 @@ public:
   // True if we would accept these resources anywhere. Only for debugging.
   bool mightAccept(const ResourceHints& resources) const;
 
-  ~FakeScheduler()
-  {
-    process::timers::cancel(startTimer);
-  }
-
   double getScore() const;
+
+  void atStartTime();
 
 private:
   void updateMinRequest();
   void updateMinRequest(const ResourceHints& request);
-
-  void atStartTime();
 
   FakeTaskTracker* taskTracker;
   map<std::string, FakeTask*> tasksPending;
@@ -145,11 +183,12 @@ private:
   bool haveMinRequest;
   ResourceHints minRequest;
 
-  process::Timer startTimer;
+  boost::scoped_ptr<SchedulerStartTimerProcess> startTimer;
   double startTime;
   SchedulerDriver* driver;
   double finishedScore;
   int taskCount;
+  bool passedStartTime;
 };
 
 }  // namespace fake
