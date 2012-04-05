@@ -45,7 +45,8 @@ public:
   // XXX FIXME pass Configuration for real
   NoRequestAllocator() :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(0),
-    master(0), aggressiveReoffer(false), useCharge(false) {}
+    master(0), aggressiveReoffer(false), useCharge(false), lastTime(0.0),
+    offersSinceTimeChange(0) {}
 
   NoRequestAllocator(AllocatorMasterInterface* _master,
                      UsageTracker* _tracker) :
@@ -127,6 +128,8 @@ private:
   Configuration conf;
   bool aggressiveReoffer;
   bool useCharge;
+  double lastTime;
+  int offersSinceTimeChange;
 
   // A framework enters refusers when we learn that it left part of an offer we
   // gave it unused. We will not reoffer resources to this framework until:
@@ -135,9 +138,30 @@ private:
   // - the framework makes a reviveOffers() call; or
   // - all frameworks are refusers (see allRefusers)
   boost::unordered_map<Slave*, boost::unordered_set<FrameworkID> > refusers;
-  // This is a `second-chance' list for when all frameworks refuse a slave. We
-  // will reject
+  // This is a `second-chance' list for when all frameworks refuse a slave. When
+  // all frameworks refuse a slave, we add it to this set and clear the refuser
+  // list for the slave. If all frameworks refuse a slave again (without us
+  // having removed the slave from allRefusers), then we will not make offers
+  // on the slave until the next timer tick.
+  //
+  // Every time an entry is cleared from refusers, we need to clear the
+  // corresponding allRefusers entry.
   boost::unordered_set<Slave*> allRefusers;
+
+  // We want to make sure we eventually consolidate offers that are being
+  // refused. Whenever an offer is returned unused and more resources are not
+  // available immediately, we do not offer the resources again immediately if
+  // there are resources in offers in flight with which it might be combined.
+  //
+  // Instead, we will delay responding to the offer until the next natural
+  // occassion to make an offer for that slave (which may be another offer
+  // refusal). As a special case, if the pending offer is completely accepted
+  // after we delay responding to a prior offer, we need to make sure we reoffer
+  // the prior offer at that time.
+  //
+  // Note that we still always offer on timer ticks, which gaurentees that we
+  // make progress in spite of a framework hoarding offers.
+  boost::unordered_set<Slave*> waitingOffers;
 
   // We keep track of the set of known tasks here so we can incrementally
   // update our estimates. Otherwise, we will be confused when, e.g.,

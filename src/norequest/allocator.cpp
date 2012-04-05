@@ -65,6 +65,7 @@ NoRequestAllocator::slaveRemoved(Slave* slave) {
   tracker->setCapacity(slave->id, Resources());
   refusers.erase(slave);
   allRefusers.erase(slave);
+  waitingOffers.erase(slave);
 }
 
 void
@@ -72,6 +73,12 @@ NoRequestAllocator::taskAdded(Task* task) {
   LOG(INFO) << "add task";
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              task, 0, Option<ExecutorInfo>::none());
+  Slave* slave = master->getSlave(task->slave_id());
+  if (waitingOffers.count(slave)) {
+    std::vector<Slave*> slave_alone;
+    slave_alone.push_back(slave);
+    makeNewOffers(slave_alone);
+  }
 }
 
 void
@@ -215,13 +222,29 @@ namespace {
 
 bool enoughResources(Resources res) {
   const double kMinCPU = 0.01;
-  const double kMinMem = 16;
+  const double kMinMem = 0.01;
   return (res.get("cpus", Value::Scalar()).value() > kMinCPU &&
           res.get("mem", Value::Scalar()).value() > kMinMem);
 }
 
 Resource kNoCPU = Resources::parse("cpus", "0.0");
 Resource kNoMem = Resources::parse("mem", "0.0");
+
+double myround(double x) {
+#if 0
+  const int kPrecision = 20;
+  int exp;
+  double fraction = frexp(x, &exp);
+  int factor = std::min(kPrecision + exp, kPrecision);
+  fraction = ldexp(ceil(ldexp(fraction, factor)), -factor);
+  double result = ldexp(fraction, exp);
+  CHECK_GE(result, x);
+  CHECK_LT(result, x + .0001);
+  return result;
+#else
+  return x;
+#endif
+}
 
 void fixResources(Resources* res) {
   if (res->get(kNoCPU).isNone()) {
@@ -233,6 +256,8 @@ void fixResources(Resources* res) {
   foreach (Resource& resource, *res) {
     if (resource.scalar().value() < 0.0) {
       resource.mutable_scalar()->set_value(0.0);
+    } else if (resource.name() == "cpus") {
+      resource.mutable_scalar()->set_value(myround(resource.scalar().value()));
     }
   }
 }
@@ -242,6 +267,14 @@ void fixResources(Resources* res) {
 void
 NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
   if (dontMakeOffers) return;
+  if (lastTime != process::Clock::now()) {
+    lastTime = process::Clock::now();
+    offersSinceTimeChange = 0;
+  }
+  ++offersSinceTimeChange;
+  if (offersSinceTimeChange > 1000) {
+    LOG(FATAL) << "Stuck in reoffer loop";
+  }
   LOG(INFO) << "makeNewOffers for " << slaves.size() << " slaves";
   vector<Framework*> orderedFrameworks = getOrderedFrameworks();
 
@@ -257,6 +290,7 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
     Resources gaurenteed =
       tracker->gaurenteedFreeForSlave(slave->id).allocatable() -
       gaurenteedOffered;
+    waitingOffers.erase(slave);
     if (enoughResources(free) || enoughResources(gaurenteed)) {
       ResourceHints offer;
       fixResources(&free);
@@ -331,21 +365,34 @@ void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
                                          const SlaveID& slaveId,
                                          const ResourceHints& unusedResources) {
   LOG(INFO) << "resourcesUnused: " << frameworkId.value() << ", "
-            << slaveId.value() << unusedResources;
+            << slaveId.value() << ": " << unusedResources;
   /* Before recording a framework as a refuser, make sure we would offer
    * them at least as many resources now. If not, give them a chance to get the
    * resources we reclaimed asynchronously.
    */
+  bool addedRefuser = false;
+  Slave* slave = master->getSlave(slaveId);
   if (tracker->freeForSlave(slaveId) <= unusedResources.expectedResources &&
       tracker->gaurenteedFreeForSlave(slaveId) <= unusedResources.minResources) {
-    refusers[master->getSlave(slaveId)].insert(frameworkId);
+    LOG(INFO) << "adding refuser";
+    refusers[slave].insert(frameworkId);
+    addedRefuser = true;
   }
-  if (aggressiveReoffer) {
-    makeNewOffers(master->getActiveSlaves());
+
+  // XXX Can addedRefuser be true if waitingOffers.count(slave) > 0?
+  if (addedRefuser && slave->offers.size() > 0 && !waitingOffers.count(slave)) {
+    LOG(INFO) << "delaying response for " << slaveId.value();
+    // Delay offering until there's another pending offer, so we can make
+    // a strictly bigger offer to the next framework.
+    waitingOffers.insert(slave);
   } else {
-    std::vector<Slave*> returnedSlave;
-    returnedSlave.push_back(master->getSlave(slaveId));
-    makeNewOffers(returnedSlave);
+    if (aggressiveReoffer) {
+      makeNewOffers(master->getActiveSlaves());
+    } else {
+      std::vector<Slave*> returnedSlave;
+      returnedSlave.push_back(slave);
+      makeNewOffers(returnedSlave);
+    }
   }
 }
 

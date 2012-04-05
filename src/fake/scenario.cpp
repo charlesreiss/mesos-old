@@ -126,18 +126,23 @@ void Scenario::sanityCheck()
     CHECK_EQ(0, framework->offers.size());
   }
 
-  foreach (master::Slave* slave, master->getActiveSlaves())
-  {
-    // FIXME XXX: This sanity check depends on estimates being conservative.
-    Resources conservativeFreeMin = slave->info.resources() -
-      slave->resourcesOffered.minResources - slave->resourcesGaurenteed;
-    Resources conservativeFreeExpect = slave->info.resources() -
-      slave->resourcesOffered.expectedResources - slave->resourcesInUse;
-    ResourceHints conservativeFree(conservativeFreeExpect, conservativeFreeMin);
-    LOG(INFO) << "We think that " << conservativeFree << " is free on slave "
-              << slave->id;
-    foreachpair (const std::string& name, FakeScheduler* scheduler, schedulers) {
-      CHECK(!scheduler->mightAccept(conservativeFree)) << name;
+  if (conf.get<std::string>("allocator", "simple") != "simple") {
+    const Resources smallResources(Resources::parse("cpus:0.0001;mem:0.0001"));
+    foreach (master::Slave* slave, master->getActiveSlaves())
+    {
+      // FIXME XXX: This sanity check depends on estimates being conservative.
+      Resources conservativeFreeMin = slave->info.resources() -
+        slave->resourcesOffered.minResources - slave->resourcesGaurenteed;
+      Resources conservativeFreeExpect = slave->info.resources() -
+        slave->resourcesOffered.expectedResources - slave->resourcesInUse;
+      conservativeFreeMin -= smallResources;
+      conservativeFreeExpect -= smallResources;
+      ResourceHints conservativeFree(conservativeFreeExpect, conservativeFreeMin);
+      LOG(INFO) << "We think that " << conservativeFree << " is free on slave "
+                << slave->id;
+      foreachpair (const std::string& name, FakeScheduler* scheduler, schedulers) {
+        CHECK(!scheduler->mightAccept(conservativeFree)) << name;
+      }
     }
   }
 }

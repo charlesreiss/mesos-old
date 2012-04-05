@@ -55,10 +55,9 @@ struct SchedulerStartTimerProcess
     CHECK(process::Clock::paused());
     process::timers::cancel(startTimer);
     const double delta = time - process::Clock::now();
-    LOG(INFO) << "delta = " << delta;
-    CHECK_GT(delta, 0.0);
     startTimer = delay(delta, self(),
         &SchedulerStartTimerProcess::gotStartTime);
+    CHECK_EQ(startTimer.creator(), self());
   }
 
   void setTime(double time) {

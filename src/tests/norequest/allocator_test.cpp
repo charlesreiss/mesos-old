@@ -198,6 +198,11 @@ protected:
   void setSlaveOffered(Slave *slave, const Resources& normal,
                       const Resources& min) {
     slave->resourcesOffered = ResourceHints(normal, min);
+    if (normal == Resources() && min == Resources()) {
+      slave->offers.clear();
+    } else {
+      slave->offers.insert(0); // XXX hack
+    }
   }
 
   void makeSlave(const std::string& name, const Resources& resources) {
@@ -208,6 +213,7 @@ protected:
     slaves.push_back(new Slave(info, id, UPID(), 0.0));
     slaves.back().active = true;
     setSlaveFree(name, resources, resources);
+    setSlaveOffered(&slaves.back(), Resources(), Resources());
     EXPECT_CALL(master, getSlave(id)).
       WillRepeatedly(Return(&slaves.back()));
     EXPECT_CALL(tracker, setCapacity(slaves.back().id, resources))
@@ -568,7 +574,7 @@ TEST_F(NoRequestAllocatorTest, ExecutorAddedDoesPlaceUsageOneTask) {
   expectPlaceUsage("framework0", "slave0",
       Resources::parse("cpus:24;mem:100"),
       Resources::parse("cpus:0.5;mem:200"), 1);
-  Task *task = addTask("task-framework0-0", &frameworks[0], &slaves[0],
+  addTask("task-framework0-0", &frameworks[0], &slaves[0],
       Resources::parse("cpus:24;mem:100"),
       Resources::parse("cpus:0.5;mem:200"));
   ExecutorInfo executorInfo;
@@ -629,8 +635,8 @@ TEST_F(NoRequestAllocatorTest, ReOfferAfterUsage) {
   expectPlaceUsage("framework1", "slave0",
                    Option<Resources>(Resources::parse("cpus:24;mem:768")),
                    Resources(), 1);
-  Task* task = addTask("task-framework1-1", &frameworks[1], &slaves[0],
-                       Resources::parse("cpus:24;mem:768"));
+  addTask("task-framework1-1", &frameworks[1], &slaves[0],
+          Resources::parse("cpus:24;mem:768"));
   allocator->startMakingOffers();
   UsageMessage update;
   update.mutable_slave_id()->set_value("slave0");
@@ -652,4 +658,46 @@ TEST_F(NoRequestAllocatorTest, ReOfferAfterUsage) {
   EXPECT_CALL(tracker, recordUsage(EqProto(update)));
   allocator->gotUsage(update);
   process::Clock::resume();
+}
+
+TEST_F(NoRequestAllocatorTest, DelayOfferOnPendingOffer) {
+  process::Clock::pause();
+  initTwoFrameworksOneSlave();
+  setSlaveFree("slave0", Resources::parse("cpus:2;mem:1"),
+               Resources::parse("cpus:2;mem:1"));
+  setSlaveOffered(&slaves[0], Resources::parse("cpus:1;mem:2"),
+                  Resources::parse("cpus:1;mem:2"));
+  // No offer in response to this.
+  returnOffer(&frameworks[1], &slaves[0],
+              Resources::parse("cpus:2;mem:1"),
+              Resources::parse("cpus:2;mem:1"));
+  setSlaveOffered(&slaves[0], Resources::parse(""), Resources::parse(""));
+  setSlaveFree("slave0", Resources::parse("cpus:3;mem:3"), Resources::parse("cpus:3;mem:3"));
+  expectOffer(&frameworks[0], &slaves[0],
+              Resources::parse("cpus:3;mem:3"),
+              Resources::parse("cpus:3;mem:3"));
+  returnOffer(&frameworks[1], &slaves[0],
+              Resources::parse("cpus:1;mem:2"),
+              Resources::parse("cpus:1;mem:2"));
+}
+
+TEST_F(NoRequestAllocatorTest, DelayOfferTillAccept) {
+  process::Clock::pause();
+  initTwoFrameworksOneSlave();
+  setSlaveFree("slave0", Resources::parse("cpus:2;mem:1"), Resources::parse("cpus:2;mem:1"));
+  setSlaveOffered(&slaves[0], Resources::parse("cpus:1;mem:2"), Resources::parse("cpus:1;mem:2"));
+  // No offer in response to this.
+  returnOffer(&frameworks[1], &slaves[0],
+              Resources::parse("cpus:2;mem:1"),
+              Resources::parse("cpus:2;mem:1"));
+  setSlaveFree("slave0", Resources::parse("cpus:2;mem:1"), Resources::parse("cpus:2;mem:1"));
+  setSlaveOffered(&slaves[0], Resources::parse(""), Resources::parse(""));
+  expectOffer(&frameworks[0], &slaves[0],
+              Resources::parse("cpus:2;mem:1"),
+              Resources::parse("cpus:2;mem:1"));
+  expectPlaceUsage("framework0", "slave0",
+      Option<Resources>(Resources::parse("cpus:2;mem:1")),
+      Resources(), 1);
+  addTask("task0", &frameworks[0], &slaves[0],
+          Resources::parse("cpus:2;mem:1"));
 }

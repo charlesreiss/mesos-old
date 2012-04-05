@@ -18,6 +18,7 @@
 
 #include "fake/fake_scheduler.hpp"
 
+#include <iomanip>
 #include <vector>
 
 namespace mesos {
@@ -168,14 +169,17 @@ void FakeScheduler::setStartTime(double time)
   passedStartTime = false;
   if (!startTimer.get()) {
     startTimer.reset(new SchedulerStartTimerProcess(this));
-    (void) process::spawn(startTimer.get());
+    process::UPID pid = process::spawn(startTimer.get());
+    LOG(INFO) << "scheduler is " << pid;
   }
   startTimer->setTime(time);
 }
 
 void SchedulerStartTimerProcess::gotStartTime()
 {
-  LOG(INFO) << "gotStartTime()";
+  LOG(INFO) << "gotStartTime(): " << std::setprecision(9) << std::fixed <<
+    process::Clock::now();
+  CHECK(process::Clock::paused());
   scheduler->atStartTime();
 }
 

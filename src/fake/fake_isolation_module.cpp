@@ -158,11 +158,12 @@ void FakeIsolationModule::killExecutor(
     driver->stop();
     delete driver;
     delete executor;
+
+    // Only do this when we were actually running the executor.
+    dispatch(slave, &Slave::executorExited, frameworkId, executorId, 0);
   }
   tasks.erase(make_pair(frameworkId, executorId));
   CHECK_EQ(0, tasks.count(make_pair(frameworkId, executorId)));
-
-  dispatch(slave, &Slave::executorExited, frameworkId, executorId, 0);
 }
 
 void FakeIsolationModule::killedExecutor(
