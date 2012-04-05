@@ -140,6 +140,7 @@ protected:
       WillByDefault(Return(Resources()));
     EXPECT_CALL(tracker, gaurenteedForExecutor(_, _, _)).
       Times(AnyNumber());
+    EXPECT_CALL(tracker, nextUsedForFramework(_)).Times(AnyNumber());
     // Use dummy resource 'default', so it's easy to see when the default 0
     // value is used.
     testing::DefaultValue<Resources>::Set(Resources::parse("default:0"));
@@ -546,8 +547,8 @@ TEST_F(NoRequestAllocatorTest, ResourcesUnusedHandlesMinRes) {
               Resources::parse("cpus:32;mem:1024"));
   EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now()))).Times(1);
   allocator->timerTick();
-  setSlaveOffered(&slaves[0], Resources::parse(""),
-                  Resources::parse("cpus:32;mem:1024"));
+  setSlaveFree("slave0", Resources::parse("cpus:32;mem:1024"),
+               Resources::parse("cpus:0;mem:0"));
   expectOffer(&frameworks[1], &slaves[0], Resources::parse("cpus:32;mem:1024"),
               Resources::parse("cpus:0;mem:0"));
   returnOffer(&frameworks[0], &slaves[0], Resources::parse("cpus:32;mem:1024"),

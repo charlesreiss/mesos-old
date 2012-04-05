@@ -120,6 +120,8 @@ private:
                   Task* newTask, Task* removedTask,
                   Option<ExecutorInfo> maybeExecutorInfo);
 
+  ResourceHints nextOfferForSlave(Slave* slave);
+
   Resources totalResources;
   AllocatorMasterInterface* master;
   UsageTracker* tracker;

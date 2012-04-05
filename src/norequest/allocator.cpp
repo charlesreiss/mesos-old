@@ -264,6 +264,20 @@ void fixResources(Resources* res) {
 
 }
 
+ResourceHints
+NoRequestAllocator::nextOfferForSlave(Slave* slave)
+{
+  Resources offered = slave->resourcesOffered.expectedResources;
+  Resources gaurenteedOffered = slave->resourcesOffered.minResources;
+  Resources free = tracker->freeForSlave(slave->id).allocatable() - offered;
+  Resources gaurenteed =
+    tracker->gaurenteedFreeForSlave(slave->id).allocatable() -
+    gaurenteedOffered;
+  fixResources(&free);
+  fixResources(&gaurenteed);
+  return ResourceHints(free, gaurenteed);
+}
+
 void
 NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
   if (dontMakeOffers) return;
@@ -272,7 +286,7 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
     offersSinceTimeChange = 0;
   }
   ++offersSinceTimeChange;
-  if (offersSinceTimeChange > 1000) {
+  if (offersSinceTimeChange > 10000) {
     LOG(FATAL) << "Stuck in reoffer loop";
   }
   LOG(INFO) << "makeNewOffers for " << slaves.size() << " slaves";
@@ -284,23 +298,14 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
     LOG(INFO) << "slave " << slave << "; active = " << slave->active;
     if (!slave->active) continue;
     // TODO(charles): FIXME offered but unlaunched tracking
-    Resources offered = slave->resourcesOffered.expectedResources;
-    Resources gaurenteedOffered = slave->resourcesOffered.minResources;
-    Resources free = tracker->freeForSlave(slave->id).allocatable() - offered;
-    Resources gaurenteed =
-      tracker->gaurenteedFreeForSlave(slave->id).allocatable() -
-      gaurenteedOffered;
+    ResourceHints toOffer = nextOfferForSlave(slave);
     waitingOffers.erase(slave);
-    if (enoughResources(free) || enoughResources(gaurenteed)) {
-      ResourceHints offer;
-      fixResources(&free);
-      fixResources(&gaurenteed);
-      offer.expectedResources = free;
-      offer.minResources = gaurenteed;
-      freeResources[slave] = offer;
+    if (enoughResources(toOffer.expectedResources) ||
+        enoughResources(toOffer.minResources)) {
+      freeResources[slave] = toOffer;
     } else {
       LOG(INFO) << "not enough for " << slave->id << ": "
-                << free << " and " << gaurenteed;
+                << toOffer;
       LOG(INFO) << "offered = " << slave->resourcesOffered;
       LOG(INFO) << "[in use] = " << slave->resourcesInUse;
       LOG(INFO) << "[observed] = "  << slave->resourcesObservedUsed;
@@ -363,29 +368,34 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
 
 void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
                                          const SlaveID& slaveId,
-                                         const ResourceHints& unusedResources) {
+                                         const ResourceHints& _unusedResources) {
+  ResourceHints unusedResources = _unusedResources;
+  fixResources(&unusedResources.expectedResources);
+  fixResources(&unusedResources.minResources);
   LOG(INFO) << "resourcesUnused: " << frameworkId.value() << ", "
             << slaveId.value() << ": " << unusedResources;
   /* Before recording a framework as a refuser, make sure we would offer
    * them at least as many resources now. If not, give them a chance to get the
    * resources we reclaimed asynchronously.
    */
-  bool addedRefuser = false;
   Slave* slave = master->getSlave(slaveId);
-  if (tracker->freeForSlave(slaveId) <= unusedResources.expectedResources &&
-      tracker->gaurenteedFreeForSlave(slaveId) <= unusedResources.minResources) {
+  ResourceHints freeResources = nextOfferForSlave(slave);
+  LOG(INFO) << "Comparing free resources " << freeResources
+            << " versus unused " << unusedResources;
+  waitingOffers.erase(slave);
+  if (freeResources <= unusedResources) {
     LOG(INFO) << "adding refuser";
-    refusers[slave].insert(frameworkId);
-    addedRefuser = true;
+    if (slave->offers.size() > 0) {
+      LOG(INFO) << "delaying response for " << slaveId.value();
+      waitingOffers.insert(slave);
+    } else {
+      LOG(INFO) << "marking " << frameworkId << " as a refuser";
+      refusers[slave].insert(frameworkId);
+    }
   }
 
   // XXX Can addedRefuser be true if waitingOffers.count(slave) > 0?
-  if (addedRefuser && slave->offers.size() > 0 && !waitingOffers.count(slave)) {
-    LOG(INFO) << "delaying response for " << slaveId.value();
-    // Delay offering until there's another pending offer, so we can make
-    // a strictly bigger offer to the next framework.
-    waitingOffers.insert(slave);
-  } else {
+  if (!waitingOffers.count(slave)) {
     if (aggressiveReoffer) {
       makeNewOffers(master->getActiveSlaves());
     } else {
