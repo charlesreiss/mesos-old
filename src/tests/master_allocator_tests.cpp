@@ -40,6 +40,7 @@ using process::PID;
 using std::vector;
 
 using testing::_;
+using testing::AnyNumber;
 using testing::Eq;
 using testing::DoAll;
 using testing::Return;
@@ -65,6 +66,9 @@ protected:
 
   void TearDown()
   {
+    EXPECT_CALL(allocator, taskRemoved(_)).Times(AnyNumber());
+    EXPECT_CALL(allocator, executorRemoved(_, _, _)).Times(AnyNumber());
+    EXPECT_CALL(allocator, resourcesRecovered(_, _, _)).Times(AnyNumber());
     if (frameworkPid) {
       EXPECT_CALL(allocator, frameworkRemoved(_)).Times(1);
     }
@@ -163,11 +167,17 @@ protected:
 
   void unregisterFramework()
   {
-    EXPECT_CALL(allocator, frameworkRemoved(_)).Times(1);
+    trigger allocatorGotRemoved;
+    EXPECT_CALL(allocator, frameworkRemoved(_)).
+      WillOnce(Trigger(&allocatorGotRemoved));
     UnregisterFrameworkMessage unregisterMessage;
     unregisterMessage.mutable_framework_id()->MergeFrom(frameworkId);
-    slave->expect<ShutdownFrameworkMessage>();
+    trigger gotShutdown;
+    slave->expectAndWait<ShutdownFrameworkMessage>(process::UPID(),
+        &gotShutdown);
     framework->send(masterPid, unregisterMessage);
+    WAIT_UNTIL(allocatorGotRemoved);
+    WAIT_UNTIL(gotShutdown);
     process::terminate(frameworkPid);
     process::wait(frameworkPid);
     framework.reset(0);
@@ -387,11 +397,13 @@ TEST_F(MasterAllocatorTest, UnregisterSlave) {
   EXPECT_CALL(allocator, taskRemoved(_));
   EXPECT_CALL(allocator, executorRemoved(_, _,
                                          EqProto(DEFAULT_EXECUTOR_INFO)));
-  framework->expect<StatusUpdateMessage>();
+  trigger statusUpdate;
+  framework->expectAndWait<StatusUpdateMessage>(process::UPID(), &statusUpdate);
   trigger lostSlave;
   framework->expectAndWait<LostSlaveMessage>(process::UPID(), &lostSlave);
   unregisterSlave();
   WAIT_UNTIL(lostSlave);
+  WAIT_UNTIL(statusUpdate);
 }
 
 TEST_F(MasterAllocatorTest, ExitedExecutor) {
