@@ -11,8 +11,8 @@ import parse_usage
 parser = argparse.ArgumentParser()
 
 def build_args_ext(parser):
-  parser.add_argument('--scale_memory', type=float, default=40.0)
-  parser.add_argument('--scale_cpu', type=float, default=8.0)
+  parser.add_argument('--scale_memory', type=float, default=1024.0)
+  parser.add_argument('--scale_cpu', type=float, default=16.0)
 
 def build_args(parser):
   build_args_ext(parser)
