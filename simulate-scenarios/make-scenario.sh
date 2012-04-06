@@ -22,11 +22,19 @@ $MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \
   --serve_tasks=10 --num_serves=1 \
   >vm_10_interarrive_serve.json
 
-$MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \
-  --target_memory_seconds=2000 --interarrival=400 \
+$MAKE_SCENARIO --vary_interval --num_background=40 --slaves=4 \
+  --target_memory_seconds=1000 --interarrival=100 \
   --cpu_max=1.0 --cpu_request=1.0 \
-  >vm_10_interarrive.json
+  --memory_accuracy=2.0 \
+  >vary_interval_4_slaves_40_jobs_acc_20.json
 
+$MAKE_SCENARIO --vary_interval --num_background=40 --slaves=4 \
+  --target_memory_seconds=1000 --interarrival=100 \
+  --cpu_max=1.0 --cpu_request=1.0 \
+  --memory_accuracy=0.1 \
+  >vary_interval_4_slaves_40_jobs_acc_01.json
+
+exit
 
 REPEAT=50
 #python ../src/fake/make_scenario.py \
