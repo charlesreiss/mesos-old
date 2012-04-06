@@ -164,6 +164,11 @@ void Slave::registerOptions(Configurator* configurator)
       "executor_shutdown_timeout_seconds",
       "Amount of time (in seconds) to wait for an executor to shut down\n",
       EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS);
+
+  configurator->addOption<bool>(
+      "no_create_work_dir",
+      "Do not create work directories. (Likely to break any real "
+      "deployments.)");
 }
 
 
@@ -1443,6 +1448,9 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
 
   for (int i = 0; i < INT_MAX; i++) {
     out << i;
+    if (conf.get<bool>("no_create_work_dir", false)) {
+      return out.str();
+    }
     VLOG(1) << "Checking if " << out.str() << " already exists";
     if (!utils::os::exists(out.str())) {
       bool created = utils::os::mkdir(out.str());
