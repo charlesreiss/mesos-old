@@ -23,16 +23,30 @@ $MAKE_SCENARIO --vary_memory_round --num_background=40 --slaves=10 \
   >vm_10_interarrive_serve.json
 
 $MAKE_SCENARIO --vary_interval --num_background=40 --slaves=4 \
-  --target_memory_seconds=1000 --interarrival=100 \
+  --target_memory_seconds=1000 --interarrival=20 \
   --cpu_max=1.0 --cpu_request=1.0 \
   --memory_accuracy=2.0 \
-  >vary_interval_4_slaves_40_jobs_acc_20.json
+  >vary_b_interval_4_slaves_40_jobs_acc_20.json
 
 $MAKE_SCENARIO --vary_interval --num_background=40 --slaves=4 \
-  --target_memory_seconds=1000 --interarrival=100 \
+  --target_memory_seconds=1000 --interarrival=20 \
   --cpu_max=1.0 --cpu_request=1.0 \
   --memory_accuracy=0.1 \
-  >vary_interval_4_slaves_40_jobs_acc_01.json
+  >vary_b_interval_4_slaves_40_jobs_acc_01.json
+
+
+$MAKE_SCENARIO --vary_interval --num_background=40 --slaves=4 \
+  --target_memory_seconds=1000 --interarrival=15 \
+  --cpu_max=1.0 --cpu_request=1.0 \
+  --memory_accuracy=5.0 \
+  >vary_c_interval_4_slaves_40_jobs_acc_50.json
+
+$MAKE_SCENARIO --vary_interval --num_background=40 --slaves=4 \
+  --target_memory_seconds=1000 --interarrival=15 \
+  --cpu_max=1.0 --cpu_request=1.0 \
+  --memory_accuracy=0.1 \
+  >vary_c_interval_4_slaves_40_jobs_acc_01.json
+
 
 exit
 
