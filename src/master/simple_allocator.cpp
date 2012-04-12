@@ -100,16 +100,28 @@ void SimpleAllocator::resourcesUnused(
 {
   CHECK(initialized);
 
-  const Resources& resources = offerResources.expectedResources;
+  const Resources& resources = offerResources.expectedResources.allocatable();
+  bool needOffer = false;
+  Slave* slave = master->getSlave(slaveId);
 
-  if (resources.allocatable().size() > 0) {
+  if (resources.size() > 0) {
+    needOffer = true;
     VLOG(1) << "Framework " << frameworkId
             << " left " << resources.allocatable()
             << " unused on slave " << slaveId;
-    refusers.put(slaveId, frameworkId);
+    Resources slaveFree = slave->resourcesFree().allocatable();
+    if (slaveFree <= resources) {
+      // Only add as refuser if we would not immediately offer more resources.
+      refusers.put(slaveId, frameworkId);
+    }
+    if (slave->offers.size() > 0) {
+      needOffer = false; // FIXME XXX: wait until timer tick or other offer handled.
+    }
   }
 
-  makeNewOffers();
+  if (needOffer) {
+    makeNewOffers(slave);
+  }
 }
 
 

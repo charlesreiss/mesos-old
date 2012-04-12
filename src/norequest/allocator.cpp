@@ -286,7 +286,7 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
     offersSinceTimeChange = 0;
   }
   ++offersSinceTimeChange;
-  if (offersSinceTimeChange > 10000) {
+  if (offersSinceTimeChange > 100000000L) {
     LOG(FATAL) << "Stuck in reoffer loop";
   }
   LOG(INFO) << "makeNewOffers for " << slaves.size() << " slaves";
@@ -369,6 +369,7 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
 void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
                                          const SlaveID& slaveId,
                                          const ResourceHints& _unusedResources) {
+  // FIXME(charles): Need to account for allocatable() [and elsewhere]!
   ResourceHints unusedResources = _unusedResources;
   fixResources(&unusedResources.expectedResources);
   fixResources(&unusedResources.minResources);

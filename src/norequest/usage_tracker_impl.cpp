@@ -358,6 +358,9 @@ void
 UsageTrackerImpl::setCapacity(const SlaveID& slaveId,
                               const Resources& resources) {
   slaveCapacities[slaveId] = resources;
+  // force slaveEstimates[slaveId] to exist; should not affect correctness
+  // but needed to make sanityCheck() pass.
+  (void) slaveEstimates[slaveId];
 }
 
 void
@@ -468,8 +471,8 @@ UsageTrackerImpl::sanityCheckAgainst(mesos::internal::master::Master* master)
   foreach (master::Slave* slave, master->getActiveSlaves())
   {
     ++expectNumSlaves;
-    CHECK(slaveEstimates.count(slave->id));
     CHECK(slaveCapacities.count(slave->id));
+    CHECK(slaveEstimates.count(slave->id));
   }
   CHECK_EQ(expectNumSlaves, slaveCapacities.size());
   CHECK_EQ(expectNumSlaves, slaveEstimates.size());
