@@ -94,7 +94,7 @@ if __name__ == '__main__':
     if args.use_memory:
       pyp.plot(data['memory'], label=label + ' memory')
     i = 0
-    for name in framework_names:
+    for name in framework_names[0:3]:
       pyp.figure(i)
       i += 1
       if args.use_cpu:

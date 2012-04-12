@@ -112,6 +112,8 @@ class JobConverter(object):
       while candidate > max_time:
         candidate = facebook_time_dist()
       return candidate * self.args.scale_time
+
+    memory_req_limit = job['max_req_memory']
     memory_values = [
         (0.0, job['t0_pt0_mean_mem']),
         (.25, job['t25_pt25_mean_mem']),
@@ -120,6 +122,8 @@ class JobConverter(object):
         (.99, job['t99_pt99_mean_mem']),
         (1.0, job['tmax_pt99_mean_mem'])
     ]
+    for i in xrange(len(memory_values)):
+      memory_values[i] = (memory_values[i][0], min(memory_req_limit, memory_values[i][1]))
     cpu_values = [
         (0.0, job['t0_pt0_mean_cpu']),
         (.25, job['t25_pt25_mean_cpu']),

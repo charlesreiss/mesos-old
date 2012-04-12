@@ -102,7 +102,6 @@ def make_scenario(offset):
   random.seed(42)
   start_times = []
   last_time = 0.0
-  interarrival = args.interarrival
   cur_args = copy.deepcopy(args)
   cur_args.mean_duration_func = sample_time
   cur_args.duration_func = sample_time_dist
@@ -112,7 +111,7 @@ def make_scenario(offset):
   for i in xrange(args.num_background):
     start_times.append(last_time)
     if cur_args.interarrival > 0.0:
-      last_time += random.expovariate(1.0 / args.interarrival)
+      last_time += random.expovariate(1.0 / cur_args.interarrival)
 
   def sample_one(start_time, is_experiment=False):
     myargs = cur_args
