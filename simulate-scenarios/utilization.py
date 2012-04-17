@@ -107,7 +107,7 @@ if __name__ == '__main__':
   pyp.legend()
   pyp.savefig(args.out_base + '.pdf')
   i = 0
-  for name in framework_names:
+  for name in framework_names[0:3]:
     pyp.figure(i)
     i += 1
     pyp.ylim(0, max(data['cpu']))

@@ -52,6 +52,7 @@ class BatchJob(GenericJob):
       memory_round_func = round_exact,
       cpu_round_func = round_exact,
       sample_each_memory = False,
+      sample_each_cpu = False,
       sort_by_cpu_time = True,
       **ignored_args
   ):
@@ -80,6 +81,8 @@ class BatchJob(GenericJob):
     while total_secs < target_seconds:
       if sample_each_memory:
         actual_memory = memory_sample_func()
+      if sample_each_cpu:
+        actual_cpu = cpu_sample_func()
       current_secs = 0.0
       if target_seconds:
         remaining_time = target_seconds - total_secs
@@ -91,6 +94,8 @@ class BatchJob(GenericJob):
       task = {'cpu_time': cpu_time}
       if sample_each_memory:
         task['const_resources'] = 'mem:' + str(actual_memory)
+      if sample_each_cpu:
+        task['max_cpus'] = actual_cpu
       tasks.append(task)
     if sort_by_cpu_time:
       tasks = sorted(tasks, key=lambda x: x['cpu_time'], reverse=True)

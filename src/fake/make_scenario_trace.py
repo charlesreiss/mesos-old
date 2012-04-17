@@ -16,6 +16,7 @@ parser.add_argument('--max_day', type=float, default=2.0)
 parser.add_argument('--max_duration', type=float, default=0.5)
 parser.add_argument('--max_fail_ratio', type=float, default=0.5)
 parser.add_argument('--min_finish_ratio', type=float, default=0.5)
+parser.add_argument('--min_portion', type=float, default=0.001)
 parser.add_argument('--ignore_diffmachines', type=bool, default=True)
 parser.add_argument('--scale_memory', type=float, default=1024.0)
 parser.add_argument('--scale_cpu', type=float, default=16.0)
@@ -23,6 +24,8 @@ parser.add_argument('--scale_time', type=float, default=24.0 * 60.0 * 60.0)
 parser.add_argument('--slave_count', type=int, default=10)
 parser.add_argument('--max_jobs', type=int, default=None)
 parser.add_argument('--repeat', type=int, default=1)
+parser.add_argument('--slave_memory', type=float, default=0.5)
+parser.add_argument('--slave_cpu', type=float, default=0.5)
 
 parser.add_argument('--max_task_time_ratio', type=float, default=1.0)
 
@@ -102,6 +105,9 @@ class JobConverter(object):
     if args.ignore_diffmachines:
       # XXX: flipping bug
       mask &= jobs['different_machines'] != 0
+    if args.min_portion:
+      mask &= ((jobs['max_req_cpus'] > args.min_portion) &
+               (jobs['max_req_memory'] > args.min_portion))
     assert ((mask != False).any())
     return jobs[mask]
 
@@ -114,11 +120,12 @@ class JobConverter(object):
       return candidate * self.args.scale_time
 
     memory_req_limit = job['max_req_memory']
+    # TODO: Strategies about removing startup usage/mem:0 tasks?
     memory_values = [
-        (0.0, job['t0_pt0_mean_mem']),
-        (.25, job['t25_pt25_mean_mem']),
-        (.5, job['t50_pt50_mean_mem']),
-        (.75, job['t75_pt75_mean_mem']),
+        (0.0, job['t0_pt99_mean_mem']),
+        (.25, job['t25_pt99_mean_mem']),
+        (.5, job['t50_pt99_mean_mem']),
+        (.75, job['t75_pt99_mean_mem']),
         (.99, job['t99_pt99_mean_mem']),
         (1.0, job['tmax_pt99_mean_mem'])
     ]
@@ -132,7 +139,7 @@ class JobConverter(object):
         (.99, job['t99_pt99_mean_cpu']),
         (1.0, job['tmax_pt99_mean_cpu'])
     ]
-    def sample_table(table, scale):
+    def sample_table(table, scale, min_value=0.0):
       def sample():
         index = random.uniform(0, 1)
         table_index = 1
@@ -142,25 +149,29 @@ class JobConverter(object):
         offset /= (
             table[table_index][0] - table[table_index - 1][0]
         )
-        return (table[table_index - 1][1] * (1.0 - offset) +
-                table[table_index][1] * offset) * scale
+        value = (table[table_index - 1][1] * (1.0 - offset) +
+                 table[table_index][1] * offset) * scale
+        return max(min_value, value)
       return sample
 
     sample_memory = sample_table(memory_values, self.args.scale_memory)
-    sample_cpu = sample_table(cpu_values, self.args.scale_cpu)
+    sample_cpu = sample_table(cpu_values, self.args.scale_cpu, 0.001)
     max_cpus = job['t99_pt99_mean_cpu'] * self.args.scale_cpu
+    memory_request = job['max_req_memory'] * self.args.scale_memory
+    memory_request = max(memory_request, job['tmax_pt99_mean_mem'] *
+        self.args.scale_memory)
 
     return BatchJob.sample(
         duration_func = sample_time, 
         memory_sample_func = sample_memory,
-        # Until we actually take multiple samples
-        #cpu_sample_func = sample_cpu,
-        cpu_sample_func = constant_dist(max_cpus),
+        cpu_sample_func = sample_cpu,
+        #cpu_sample_func = constant_dist(max_cpus),
         sort_by_cpu_time = False,
         sample_each_memory = True,
-        target_seconds = job['duration'] * self.args.scale_time,
+        sample_each_cpu = True,
+        target_seconds = job['running_time'] * self.args.scale_time,
         memory_max = self.args.scale_memory * .99,
-        request_memory = job['max_req_memory'] * self.args.scale_memory,
+        request_memory = memory_request,
         request_cpu = job['max_req_cpus'] * self.args.scale_cpu,
         start_time = (job['start_time'] - self.args.min_day) * self.args.scale_time
     )
@@ -181,7 +192,7 @@ def gen_scenario(args, seed):
   converter = JobConverter(args)
   jobs = converter.sample_jobs()
   def make_slave(i):
-    return Slave(resources='mem:' + str(args.scale_memory) + ';cpus:' + str(args.scale_cpu))
+    return Slave(resources='mem:' + str(args.slave_memory * args.scale_memory) + ';cpus:' + str(args.scale_cpu))
 
   slaves = map(make_slave, xrange(args.slave_count))
 

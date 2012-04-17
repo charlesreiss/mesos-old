@@ -33,9 +33,11 @@ for SCENARIO in $@; do
           >$SCENARIO/norequest-aggressive.csv &
     fi
     if test x$GLOG_logtostderr != x1; then
+        if false; then
         $SIMULATE --json_file=$SCENARIO.json --allocator=simple \
           --usage_log_base=$SCENARIO/logs/simple-strong. \
           > $SCENARIO/simple-strong.csv 2>$SCENARIO.logfile.ss&
+      fi
         $SIMULATE --json_file=$SCENARIO.json --fake_extra_cpu --fake_extra_mem \
           --usage_log_base=$SCENARIO/logs/simple-weak. \
           --allocator=simple >$SCENARIO/simple-weak.csv 2>$SCENARIO.logfile.sw &
