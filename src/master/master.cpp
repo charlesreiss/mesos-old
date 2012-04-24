@@ -1367,9 +1367,10 @@ struct ResourceUsageChecker : TaskDescriptionVisitor
 
     if (!((usedResources + taskResources) <=
           ResourceHints::forOffer(*offer))) {
-      LOG(INFO) << "old resources = " << usedResources
-                << "new resources = " << taskResources
-                << "offer resources = " << ResourceHints::forOffer(*offer);
+      LOG(WARNING) << "old resources = " << usedResources
+                   << "new resources = " << taskResources
+                   << "sum resources = " << (usedResources + taskResources)
+                   << "offer resources = " << ResourceHints::forOffer(*offer);
       return TaskDescriptionError::some(
           "Task uses more resources than offered");
     }

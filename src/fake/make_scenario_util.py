@@ -158,10 +158,10 @@ class Scenario(object):
   def json_object(self):
     batch_object = {}
     for i in xrange(len(self.batch_jobs)):
-      batch_object['batch' + str(i)] = self.batch_jobs[i].json_object()
+      batch_object['batch%03d' % (i)] = self.batch_jobs[i].json_object()
     serve_object = {}
     for i in xrange(len(self.serve_jobs)):
-      serve_object['serve' + str(i)] = self.serve_jobs[i].json_object()
+      serve_object['serve%03d' % (i)] = self.serve_jobs[i].json_object()
     return {
         'slaves': map(lambda s: s.json_object(), self.slaves),
         'batch': batch_object,
@@ -171,5 +171,5 @@ class Scenario(object):
     }
 
   def dump(self):
-    return json.dumps(self.json_object())
+    return json.dumps(self.json_object(), sort_keys=True)
 

@@ -2,6 +2,7 @@ import random
 import argparse
 import numpy as np
 import json
+import sys
 from make_scenario_util import *
 
 parser = argparse.ArgumentParser()
@@ -48,6 +49,9 @@ FACEBOOK_MAP_TASK_TIMES = map(lambda x: x/60./60./24., [
     251.726, 285.147, 327.086, 380.764, 457.387,
     576.176, 800.652, 1530.172, 7129.003, 283749
 ])
+
+def diag(s):
+  sys.stderr.write(s + '\n')
 
 facebook_time_dist = empirical_dist(FACEBOOK_MAP_TASK_TIMES)
 
@@ -111,7 +115,7 @@ class JobConverter(object):
     assert ((mask != False).any())
     return jobs[mask]
 
-  def convert_job(self, job):
+  def convert_job(self, job, index=-1):
     max_time = job['duration'] * self.args.max_task_time_ratio
     def sample_time(ignored_duration):
       candidate = facebook_time_dist()
@@ -161,6 +165,19 @@ class JobConverter(object):
     memory_request = max(memory_request, job['tmax_pt99_mean_mem'] *
         self.args.scale_memory)
 
+    if job['running_time'] > 0.2:
+      diag(('Converting job %(index)d that takes more than 10%% of a day\n'
+            '%(duration)s (duration) * %(tasks)s (tasks) = %(running_time)s\n'
+            '... * %(memory_request)s (memory) = %(mem_time)s\n') %
+            { 
+              'index': index,
+              'duration': job['duration'],
+              'running_time': job['running_time'],
+              'tasks': job['num_tasks'],
+              'memory_request': memory_request,
+              'mem_time': memory_request * job['running_time'],
+            })
+
     return BatchJob.sample(
         duration_func = sample_time, 
         memory_sample_func = sample_memory,
@@ -185,7 +202,7 @@ class JobConverter(object):
     if self.args.max_jobs is not None:
       filtered_jobs = filtered_jobs[0:self.args.max_jobs]
     assert len(filtered_jobs) > 0
-    return map(lambda x: self.convert_job(x), filtered_jobs)
+    return map(lambda x: self.convert_job(filtered_jobs[x], index=x), xrange(len(filtered_jobs)))
   
 def gen_scenario(args, seed):
   random.seed(seed)
