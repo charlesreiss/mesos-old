@@ -72,6 +72,9 @@ BatchTask::BatchTask(const Resources& constUsage_,
     : constUsage(constUsage_), request(request_), initialCpuUnits(cpuUnits_),
       cpuUnits(cpuUnits_), maxCpuRate(maxCpuRate_)
 {
+  CHECK(constUsage <= request.expectedResources);
+  CHECK_GT(cpuUnits, 1e-8);
+  CHECK_GT(maxCpuRate, 1e-8);
 }
 
 Resources
@@ -92,15 +95,21 @@ BatchTask::getUsage(seconds from, seconds to) const
 TaskState
 BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
 {
+  // Make sure rounding errors between getUsage() --> takeUsage() don't cause
+  // us to never complete.
+  const double kSmall = 1e-10;
   double delta = to.value - from.value;
   CHECK_GT(delta, 0);
   if (resources < constUsage) {
     cpuUnits = initialCpuUnits;
-    LOG(INFO) << "TASK_LOST: needed " << constUsage << "; got " << resources;
+    LOG(WARNING) << "TASK_LOST: needed " << constUsage << "; got "
+                 << resources << "; requested " << request;
     return TASK_LOST;
   } else {
+    double cpuTaken = resources.get("cpus", Value::Scalar()).value();
+    CHECK_GT(cpuTaken, 1e-6) << *this << " got " << resources;
     cpuUnits -= resources.get("cpus", Value::Scalar()).value() * delta;
-    if (cpuUnits <= 0.0) {
+    if (cpuUnits <= kSmall) {
       return TASK_FINISHED;
     } else {
       return TASK_RUNNING;

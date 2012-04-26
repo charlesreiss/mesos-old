@@ -96,6 +96,8 @@ void FakeIsolationModule::registerOptions(Configurator* configurator)
       "use minimum for gaurenteed allocation instead of expected", false);
   configurator->addOption<double>("fake_mem_slack",
       "slack memory", false);
+  configurator->addOption<double>("fake_base_cpu_weight",
+      "minimum CPU share (cores)", 0.01);
 }
 
 FakeIsolationModule::FakeIsolationModule(const FakeTaskTracker& fakeTasks_)
@@ -117,7 +119,8 @@ void FakeIsolationModule::initialize(const Configuration& conf, bool local,
   extraCpu = conf.get<bool>("fake_extra_cpu", false);
   extraMem = conf.get<bool>("fake_extra_mem", false);
   assignMin = conf.get<bool>("fake_assign_min", false);
-  slackMem = conf.get<double>("fake_slack_mem", 0.05);
+  slackMem = conf.get<double>("fake_slack_mem", 0.0);
+  baseCpuWeight = conf.get<double>("fake_base_cpu_weight", 0.01);
   totalResources = Resources::parse(conf.get<std::string>("resources", ""));
   lastUsageTime = lastTime = process::Clock::now();
   ticker.reset(new FakeIsolationModuleTicker(this, interval));
@@ -242,6 +245,7 @@ struct DesiredUsage {
   typedef std::pair<FrameworkID, ExecutorID> FrameworkExecutorID;
   FrameworkExecutorID id;
   FakeIsolationModule::RunningTaskInfo* task;
+  Resources remainingDesiredUsage;
   Resources desiredUsage;
   Resources assignedUsage;
 
@@ -251,25 +255,40 @@ struct DesiredUsage {
   double memWeight; // currently deliberately kept at 1.
 
   void setDesired(const Resources& desired) {
-    desiredUsage = desired;
+    desiredUsage = remainingDesiredUsage = desired;
     excessCpu = desired.get("cpus", Value::Scalar()).value();
     excessMem = desired.get("mem", Value::Scalar()).value();
   }
 
   void assign(const Resources& usage) {
-    desiredUsage -= usage;
+    remainingDesiredUsage -= usage;
     assignedUsage += usage;
     excessCpu -= usage.get("cpus", Value::Scalar()).value();
     excessMem -= usage.get("mem", Value::Scalar()).value();
   }
 
   void assign(const Resource& resource) {
-    desiredUsage -= resource;
+    remainingDesiredUsage -= resource;
     assignedUsage += resource;
     if (resource.name() == "cpus") {
       excessCpu -= resource.scalar().value();
     } else if (resource.name() == "mem") {
       excessMem -= resource.scalar().value();
+    }
+  }
+
+  void roundUpUsage() {
+    const double kClose = 1e-3;
+    Resources missing = desiredUsage - assignedUsage;
+    foreach (const Resource& resource, missing) {
+      if (resource.type() != Value::SCALAR) continue;
+      if (resource.scalar().value() <= kClose && resource.scalar().value() > 0.0) {
+        foreach (Resource& assignedResource, assignedUsage) {
+          if (assignedResource.name() == resource.name()) {
+            assignedResource.MergeFrom(desiredUsage.get(resource).get());
+          }
+        }
+      }
     }
   }
 
@@ -281,7 +300,7 @@ inline std::ostream& operator<<(std::ostream& out, const DesiredUsage& usage)
 {
   return out << usage.id.first << ", " << usage.id.second
              << ": assigned " << usage.assignedUsage
-             << "; desired " << usage.desiredUsage
+             << "; desired " << usage.remainingDesiredUsage
              << "; extra CPU = " << usage.excessCpu
              << "; CPU weight = " << usage.cpuWeight;
 }
@@ -311,7 +330,8 @@ void distributeFree(const std::string& name,
     }
 
     VLOG(1) << "excess (" << name << ") = " << totalExcess << "; "
-            << "weight = " << totalWeight;
+            << "weight = " << totalWeight
+            << "extra = " << extra << "; used = " << used;
 
     if (totalExcess <= kSmall) {
       break;
@@ -323,7 +343,8 @@ void distributeFree(const std::string& name,
     foreach (DesiredUsage& usage, *usages) {
       double assignAmount = (perUnit <= kSmall || perUnit >= kLarge) ?
           extra / numExcess : usage.*weightMember * perUnit;
-      assignAmount = std::min(usage.*excessMember, assignAmount);
+      assignAmount = std::min(std::max(0.0, usage.*excessMember), assignAmount);
+      CHECK_GE(assignAmount, 0.0);
       mesos::Resource usageAssign;
       usageAssign.set_name(name);
       usageAssign.set_type(Value::SCALAR);
@@ -367,13 +388,14 @@ bool FakeIsolationModule::tick() {
         usage->id = frameworkAndExec;
         usage->task = &task;
         usage->setDesired(task.fakeTask->getUsage(oldTime, newTime));
-        Resources toAssign = minResources(usage->desiredUsage,
+        Resources toAssign = minResources(usage->remainingDesiredUsage,
             assignMin ? task.assignedResources.minResources :
                         task.assignedResources.expectedResources);
         usage->assign(toAssign);
         usage->cpuWeight =
-            task.assignedResources.expectedResources.get(
-                "cpus", Value::Scalar()).value();
+            std::max(baseCpuWeight,
+                task.assignedResources.expectedResources.get(
+                  "cpus", Value::Scalar()).value());
         totalUsed += toAssign;
 
         VLOG(1) << "Created usage " << *usage;
@@ -389,6 +411,11 @@ bool FakeIsolationModule::tick() {
     if (extraMem) {
       distributeFree("mem", &DesiredUsage::memWeight, &DesiredUsage::excessMem,
           totalUsed, totalResources, &usages);
+    }
+
+    // 2.5) Round up usage
+    foreach (DesiredUsage& usage, usages) {
+      usage.roundUpUsage();
     }
 
     // 3) Use assigned usages to actually consume simulated resources.

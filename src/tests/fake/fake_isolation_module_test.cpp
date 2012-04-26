@@ -383,6 +383,15 @@ TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicyMinUnused)
   stopSlave();
 }
 
+TEST_F(FakeIsolationModuleTest, ExtraCPURoundUp)
+{
+  conf.set("fake_extra_cpu", "1");
+
+  startSlave();
+  expectIsolationPolicy("cpus:1", "cpus:0", "cpus:1.0000001", "cpus:1.0000001");
+  stopSlave();
+}
+
 // TODO(Charles Reiss): Decide on a policy for the uneven base allocation
 // case.
 TEST_F(FakeIsolationModuleTest, ExtraMemoryPolicyProportionalEqual)

@@ -190,6 +190,7 @@ private:
   double usageInterval;
   double lastUsageTime;
   double slackMem;
+  double baseCpuWeight;
 };
 
 }  // namespace fake
