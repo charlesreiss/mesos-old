@@ -160,7 +160,7 @@ class JobConverter(object):
 
     sample_memory = sample_table(memory_values, self.args.scale_memory)
     sample_cpu = sample_table(cpu_values, self.args.scale_cpu, 0.001)
-    max_cpus = job['t99_pt99_mean_cpu'] * self.args.scale_cpu
+    max_cpus = max(job['t99_pt99_mean_cpu'] * self.args.scale_cpu, 0.001)
     memory_request = job['max_req_memory'] * self.args.scale_memory
     memory_request = max(memory_request, job['tmax_pt99_mean_mem'] *
         self.args.scale_memory)

@@ -59,16 +59,23 @@ class BatchJob(GenericJob):
     actual_memory = min(memory_max, memory_sample_func())
     if request_memory is None:
       request_memory = min(memory_max, memory_round_func(actual_memory))
-    actual_cpu = cpu_sample_func()
+    actual_cpu = None
+    if not sample_each_cpu:
+      actual_cpu = cpu_sample_func()
     if request_cpu is None:
       request_cpu = cpu_round_func(actual_cpu)
     mean_time = mean_duration_func()
     def time_dist():
       return duration_func(mean_time)
 
+    if sample_each_memory:
+      const_resources = ''
+    else:
+      const_resources = 'mem:' + str(actual_memory)
+
     job = BatchJob(
       request='cpus:' + str(request_cpu) + ';mem:' + str(request_memory),
-      const_resources='mem:' + str(actual_memory),
+      const_resources=const_resources,
       max_cpus=actual_cpu,
       start_time=start_time,
     )
@@ -80,7 +87,7 @@ class BatchJob(GenericJob):
     tasks = []
     while total_secs < target_seconds:
       if sample_each_memory:
-        actual_memory = memory_sample_func()
+        actual_memory = min(memory_max, memory_sample_func())
       if sample_each_cpu:
         actual_cpu = cpu_sample_func()
       current_secs = 0.0
