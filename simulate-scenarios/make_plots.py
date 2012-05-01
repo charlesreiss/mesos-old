@@ -28,6 +28,11 @@ def error_bars(data, x_var, y_vars, low_percentile=25., high_percentile=75.):
               y_var + '_max']
 
   result = []
+  try:
+    if len(data) <= 1:
+      return None
+  except TypeError:
+    return None
   for x_value in x_values:
     y_values = data[data[x_var] == x_value]
     line = [x_value]
@@ -45,6 +50,8 @@ def error_bars(data, x_var, y_vars, low_percentile=25., high_percentile=75.):
 
 def make_error_bars(data, x_var, y_var, **plot_options):
   xformed = error_bars(data, x_var, [y_var])
+  if xformed is None:
+    return
   print "transformed = ", xformed
   y_low = xformed[y_var + '_median'] - xformed[y_var + '_low']
   y_high = xformed[y_var + '_high'] - xformed[y_var + '_median']
