@@ -107,7 +107,7 @@ BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
     return TASK_LOST;
   } else {
     double cpuTaken = resources.get("cpus", Value::Scalar()).value();
-    CHECK_GT(cpuTaken, 1e-6) << *this << " got " << resources;
+    CHECK_GT(cpuTaken, 1e-10) << *this << " got " << resources;
     cpuUnits -= resources.get("cpus", Value::Scalar()).value() * delta;
     if (cpuUnits <= kSmall) {
       return TASK_FINISHED;

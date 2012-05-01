@@ -454,6 +454,11 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
   process::Clock::advance(kTick);
   WAIT_UNTIL(gotSecondUsage);
 
+  EXPECT_EQ(Resources::parse("cpus:1.0;mem:0.5"),
+            firstUsage.expected_resources());
+  EXPECT_EQ(Resources::parse("cpus:1.0;mem:0.5"),
+            secondUsage.expected_resources());
+
   EXPECT_DOUBLE_EQ(start + kTick * 2.0, firstUsage.timestamp());
   EXPECT_DOUBLE_EQ(kTick * 2.0, firstUsage.duration());
   EXPECT_EQ(Resources::parse("cpus:0.6875;mem:0.5"), firstUsage.resources());

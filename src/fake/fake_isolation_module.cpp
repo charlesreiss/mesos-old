@@ -424,8 +424,10 @@ bool FakeIsolationModule::tick() {
       FakeTask* fakeTask = usage.task->fakeTask;
       TaskState state =
           fakeTask->takeUsage(oldTime, newTime, usage.assignedUsage);
-        recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage,
-            state != TASK_RUNNING);
+      recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage,
+          state != TASK_RUNNING);
+      recentUsage[usage.id].expectedResources =
+        usage.task->assignedResources.expectedResources;
       VLOG(1) << "state == "
               << TaskState_descriptor()->FindValueByNumber(state)->name();
       if (state != TASK_RUNNING) {
@@ -526,6 +528,7 @@ Resources FakeIsolationModule::ResourceRecord::getResult(seconds secs) const
 void FakeIsolationModule::ResourceRecord::clear()
 {
   cpuTime = memoryTime = maxMemory = 0.0;
+  expectedResources = Resources();
 }
 
 void FakeIsolationModule::sendUsage()
@@ -541,6 +544,10 @@ void FakeIsolationModule::sendUsage()
     message.set_duration(interval.value);
     message.mutable_resources()->MergeFrom(record.getResult(interval));
     message.set_still_running(!record.dead);
+
+    message.mutable_expected_resources()->MergeFrom(
+        record.expectedResources);
+
     dispatch(slave, &Slave::sendUsageUpdate, message);
   }
   recentUsage.clear();

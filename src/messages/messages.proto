@@ -238,6 +238,9 @@ message UsageMessage {
   // us from needing to resolve races between executor exited messages and usage
   // messages.
   optional bool still_running = 7 [default = true];
+
+  // Extra fields for simulation convenience...
+  repeated Resource expected_resources = 8;
 }
 
 // Tells a slave to shut down all executors of the given framework.

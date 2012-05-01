@@ -177,6 +177,7 @@ private:
     double memoryTime;
     double maxMemory;
     bool dead;
+    Resources expectedResources;
 
     ResourceRecord();
 
