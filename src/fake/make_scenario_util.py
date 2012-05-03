@@ -6,8 +6,13 @@ def round_exact(actual):
   return actual
 
 def constant_dist(x):
-  def result():
+  def result(ignored=None):
     return x
+  return result
+
+def normal_dist(mean, sd):
+  def result(ignored=None):
+    return random.normalvariate(mean, sd)
   return result
 
 def empirical_dist(quantiles):
@@ -29,7 +34,7 @@ class GenericJob(object):
     }
 
   def add_task(self, **kw):
-    next_task_id = 't' + str(len(self.for_json['tasks']))
+    next_task_id = 't%04d' % (len(self.for_json['tasks']))
     self.for_json['tasks'][next_task_id] = kw
 
   def json_object(self):
@@ -93,9 +98,9 @@ class BatchJob(GenericJob):
       current_secs = 0.0
       if target_seconds:
         remaining_time = target_seconds - total_secs
-        current_secs = min(time_dist(), remaining_time + 10.0)
+        current_secs = max(0.001, min(time_dist(), remaining_time + 10.0))
       else:
-        current_secs = time_dist()
+        current_secs = max(0.001, time_dist())
       cpu_time = current_secs * actual_cpu
       total_secs += current_secs
       task = {'cpu_time': cpu_time}

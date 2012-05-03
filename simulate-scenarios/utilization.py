@@ -31,6 +31,8 @@ def framework_id(usage):
 def utilization_from(record, framework_names, slave_names):
   total_cpu = 0.0
   total_memory = 0.0
+  total_req_cpu = 0.0
+  total_req_memory = 0.0
   machine_tasks = {}
   for name in slave_names:
     machine_tasks[name] = 0
@@ -58,7 +60,15 @@ def utilization_from(record, framework_names, slave_names):
         memory = resource.scalar.value * effective_duration / args.scale_memory
         total_memory += memory
         framework_memory[framework] += memory
-  result = [total_tasks, total_cpu, total_memory]
+    for resource in usage.expected_resources:
+      if resource.name == 'cpus':
+        cpu = resource.scalar.value * effective_duration / args.scale_cpu
+        total_req_cpu += cpu
+      elif resource.name == 'mem':
+        memory = resource.scalar.value * effective_duration / args.scale_memory
+        total_req_memory += memory
+
+  result = [total_tasks, total_cpu, total_memory, total_req_cpu, total_req_memory]
   for name in framework_names:
     result.append(framework_cpu[name])
     result.append(framework_memory[name])
@@ -82,10 +92,11 @@ def read_file(name):
   for record in parse_usage.usage_from_stream(stream):
     values = tuple(utilization_from(record, framework_names, slave_names))
     assert len(values) == ((len(framework_names) + 1) * 2 + (len(slave_names) +
-      1))
+      1) + 2)
     data.append(values)
   stream.close()
-  datatypes = [('tasks', float), ('cpu', float), ('memory', float)]
+  datatypes = [('tasks', float), ('cpu', float), ('memory', float),
+               ('req_cpu', float), ('req_memory', float)]
   for name in framework_names: 
     datatypes += [('cpu_' + name, float), ('memory_' + name, float)]
   i = 0

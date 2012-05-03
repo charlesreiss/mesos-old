@@ -7,9 +7,10 @@ from make_scenario_util import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--jobs_file', type=str,
-    default='/home/eecs/charles/new_job_utils/new_job_utils.npy')
+    default='/scratch/charles/clustertrace/job_utils_2012_04-a.npy')
 parser.add_argument('--jobs2_file', type=str,
-    default='/home/eecs/charles/new_job_utils/new_job_utils2.npy')
+#    default='/home/eecs/charles/new_job_utils/new_job_utils2.npy')
+    default=None)
 parser.add_argument('--scheduling_class', action='append', type=int)
 parser.add_argument('--priority', action='append', type=int)
 parser.add_argument('--min_day', type=float, default=1.0)
@@ -27,8 +28,16 @@ parser.add_argument('--max_jobs', type=int, default=None)
 parser.add_argument('--repeat', type=int, default=1)
 parser.add_argument('--slave_memory', type=float, default=0.5)
 parser.add_argument('--slave_cpu', type=float, default=0.5)
+# TODO: Option to perserve 1-task jobs
+parser.add_argument('--task_split', type=bool, default=True)
+parser.add_argument('--preserve_one_task', type=bool, default=True)
 
 parser.add_argument('--max_task_time_ratio', type=float, default=1.0)
+
+parser.add_argument('--min_tasks', type=int, default=1)
+
+parser.add_argument('--use_duration_relsd', type=bool, default=True)
+parser.add_argument('--duration_relsd', type=float, default=0.25)
 
 DAY = 1000 * 1000 * 60 * 60 * 24
 
@@ -50,10 +59,21 @@ FACEBOOK_MAP_TASK_TIMES = map(lambda x: x/60./60./24., [
     576.176, 800.652, 1530.172, 7129.003, 283749
 ])
 
+FACEBOOK_MAP_TASK_TIMES_CUT = filter(lambda x: x < 1./24./12.,
+    FACEBOOK_MAP_TASK_TIMES)
+
 def diag(s):
   sys.stderr.write(s + '\n')
 
 facebook_time_dist = empirical_dist(FACEBOOK_MAP_TASK_TIMES)
+
+def limited_time_dist(limit):
+  CUT_TIMES = filter(lambda x: x < limit / 60. / 60. / 24.,
+      FACEBOOK_MAP_TASK_TIMES)
+  if len(CUT_TIMES) <= 1:
+    CUT_TIMES = [0., 1.]
+  return empirical_dist(CUT_TIMES)
+
 
 def mask_for(arr, field, values):
   mask = np.zeros(arr.shape, dtype=bool)
@@ -112,21 +132,33 @@ class JobConverter(object):
     if args.min_portion:
       mask &= ((jobs['max_req_cpus'] > args.min_portion) &
                (jobs['max_req_memory'] > args.min_portion))
+    mask &= jobs['num_tasks'] >= args.min_tasks
     assert ((mask != False).any())
     return jobs[mask]
 
   def convert_job(self, job, index=-1):
     max_time = job['duration'] * self.args.max_task_time_ratio
-    def sample_time(ignored_duration):
+    def facebook_sample_time(ignored_duration=None):
       candidate = facebook_time_dist()
       while candidate > max_time:
         candidate = facebook_time_dist()
       return candidate * self.args.scale_time
 
+    sample_time = facebook_sample_time
+    if self.args.use_duration_relsd:
+      base_time = sample_time()
+      sd = self.args.duration_relsd * base_time
+      sample_time = normal_dist(base_time, sd)
+      
+    if not self.args.task_split or (job['num_tasks'] == 1 and
+        self.args.preserve_one_task):
+      diag('preserving single task length')
+      sample_time = constant_dist(constant_dist(job['duration']))
+
     memory_req_limit = job['max_req_memory']
     # TODO: Strategies about removing startup usage/mem:0 tasks?
     memory_values = [
-        (0.0, job['t0_pt99_mean_mem']),
+        (0.0, job['t1_pt99_mean_mem']),
         (.25, job['t25_pt99_mean_mem']),
         (.5, job['t50_pt99_mean_mem']),
         (.75, job['t75_pt99_mean_mem']),
@@ -136,7 +168,7 @@ class JobConverter(object):
     for i in xrange(len(memory_values)):
       memory_values[i] = (memory_values[i][0], min(memory_req_limit, memory_values[i][1]))
     cpu_values = [
-        (0.0, job['t0_pt0_mean_cpu']),
+        (0.0, job['t1_pt1_mean_cpu']),
         (.25, job['t25_pt25_mean_cpu']),
         (.5, job['t50_pt50_mean_cpu']),
         (.75, job['t75_pt75_mean_cpu']),
@@ -195,8 +227,12 @@ class JobConverter(object):
   
   def sample_jobs(self):
     jobs1 = np.load(args.jobs_file)
-    jobs2 = np.load(args.jobs2_file)
-    jobs = self.merge_jobs(jobs1, jobs2)
+    if args.jobs2_file is not None:
+      jobs2 = np.load(args.jobs2_file)
+      jobs = self.merge_jobs(jobs1, jobs2)
+    else:
+      jobs = jobs1
+      jobs.sort(order='start_time')
     self.normalize_jobs(jobs)
     filtered_jobs = self.accept_jobs(jobs)
     if self.args.max_jobs is not None:
