@@ -51,6 +51,16 @@ private:
   google::protobuf::TextFormat::Printer printer;
 };
 
+class BinaryFileUsageLogWriter : public UsageLogWriter
+{
+public:
+  BinaryFileUsageLogWriter(const std::string& filename);
+  virtual void write(const UsageLogRecord& record);
+
+private:
+  std::ofstream out;
+};
+
 using namespace process;
 
 class UsageRecorder;

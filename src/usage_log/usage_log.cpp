@@ -42,6 +42,18 @@ void TextFileUsageLogWriter::write(const UsageLogRecord& record)
   out << tempString << std::endl;
 }
 
+BinaryFileUsageLogWriter::BinaryFileUsageLogWriter(const std::string& filename)
+{
+  out.open(filename.c_str());
+}
+
+void BinaryFileUsageLogWriter::write(const UsageLogRecord& record)
+{
+  int size = record.ByteSize();
+  out.write(reinterpret_cast<char*>(&size), sizeof(size));
+  record.SerializeToOstream(&out);
+}
+
 UsageRecorder::UsageRecorder(UsageLogWriter* out_, const UPID& master_,
                              double interval_)
     : doneFirstTick(false), interval(interval_), out(out_), master(master_)

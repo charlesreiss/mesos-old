@@ -24,7 +24,9 @@ using namespace mesos::internal;
 using namespace mesos::internal::fake;
 
 using mesos::internal::usage_log::UsageRecorder;
+using mesos::internal::usage_log::UsageLogWriter;
 using mesos::internal::usage_log::TextFileUsageLogWriter;
+using mesos::internal::usage_log::BinaryFileUsageLogWriter;
 
 static void headerForBatch(const std::string& name)
 {
@@ -164,8 +166,14 @@ static void runFromFile(const Configuration& conf, const std::string& file)
     if (conf.get<std::string>("usage_log_base", "") != "") {
       std::string logFile = conf.get<std::string>("usage_log_base", "") +
         boost::lexical_cast<std::string>(id);
+      UsageLogWriter* writer = 0;
+      if (conf.get<bool>("usage_log_text", false)) {
+        writer = new TextFileUsageLogWriter(logFile);
+      } else {
+        writer = new BinaryFileUsageLogWriter(logFile + ".bin");
+      }
       recorder.reset(new UsageRecorder(
-            new TextFileUsageLogWriter(logFile),
+            writer,
             scenario.getMaster(),
             1.0));
       process::spawn(recorder.get());
@@ -197,6 +205,7 @@ int main(int argc, char **argv)
   configurator.addOption<int>("repeat", "number of reptitions", 1);
   configurator.addOption<std::string>("usage_log_base",
       "base name for log files", "");
+  configurator.addOption<bool>("usage_log_text", false);
   configurator.addOption<double>("run_for",
       "seconds to run simulation for at minimum", 0.0);
 
