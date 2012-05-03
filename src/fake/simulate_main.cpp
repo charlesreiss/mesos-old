@@ -205,7 +205,7 @@ int main(int argc, char **argv)
   configurator.addOption<int>("repeat", "number of reptitions", 1);
   configurator.addOption<std::string>("usage_log_base",
       "base name for log files", "");
-  configurator.addOption<bool>("usage_log_text", false);
+  configurator.addOption<bool>("usage_log_text", "log as text?", false);
   configurator.addOption<double>("run_for",
       "seconds to run simulation for at minimum", 0.0);
 
