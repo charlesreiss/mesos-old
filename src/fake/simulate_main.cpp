@@ -127,9 +127,9 @@ static void run(const Configuration& conf, bool needHeader,
   std::cout << std::accumulate(totalCpuTimes.begin(), totalCpuTimes.end(), 0.0)
             << "," << (end - start) << std::endl << std::flush;
 
-  LOG(INFO) << "about to call stop() after " << (end - start) << " s simulated";
+  LOG(ERROR) << "about to call stop() after " << (end - start) << " s simulated";
   scenario->stop();
-  LOG(INFO) << "returned from stop()";
+  LOG(ERROR) << "returned from stop()";
 }
 
 static std::string readRecord(std::istream* in)

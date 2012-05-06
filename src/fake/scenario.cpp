@@ -154,12 +154,15 @@ void Scenario::stop()
     driver->stop();
     driver->join();
   }
+  LOG(ERROR) << "stopped/joined schedulers";
   foreach (PID<Slave> slavePid, slavePids) {
     process::terminate(slavePid);
     process::wait(slavePid);
   }
   process::terminate(masterPid);
   process::wait(masterPid);
+
+  LOG(ERROR) << "terminated master, slaves";
 
   // now delete and clear everything we allocated or took ownership of
   if (master) {
