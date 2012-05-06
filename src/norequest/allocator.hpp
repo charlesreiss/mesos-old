@@ -46,14 +46,16 @@ public:
   NoRequestAllocator() :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(0),
     master(0), aggressiveReoffer(false), useCharge(false), lastTime(0.0),
-    offersSinceTimeChange(0) {}
+    offersSinceTimeChange(0), usageReofferDelay(-1.) {}
 
   NoRequestAllocator(AllocatorMasterInterface* _master,
                      UsageTracker* _tracker) :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(_tracker),
-    master(_master), aggressiveReoffer(false), useCharge(false) { }
+    master(_master), aggressiveReoffer(false), useCharge(false),
+    usageReofferDelay(-1.) { }
 
   ~NoRequestAllocator() {
+    process::timers::cancel(usageReofferTimer);
     if (!dontDeleteTracker && tracker) {
       delete tracker;
     }
@@ -69,6 +71,7 @@ public:
       tracker = getUsageTracker(conf);
       dontDeleteTracker = false;
     }
+    usageReofferDelay =  conf.get<double>("norequest_usage_reoffer_delay", -1.);
   }
 
   void initialize(master::Master* _master, const Configuration& _conf) {
@@ -81,6 +84,7 @@ public:
       tracker = getUsageTracker(conf);
       dontDeleteTracker = false;
     }
+    usageReofferDelay =  conf.get<double>("norequest_usage_reoffer_delay", -1.);
   }
 
   void frameworkAdded(Framework* framework);
@@ -112,7 +116,14 @@ public:
 
   void sanityCheck() { tracker->sanityCheckAgainst(
       dynamic_cast<mesos::internal::master::Master*>(master)); }
+
 private:
+  void makeUsageReoffers() {
+    std::vector<Slave*> offerSlaves(
+        usageReofferSlaves.begin(), usageReofferSlaves.end());
+    usageReofferSlaves.clear();
+    makeNewOffers(offerSlaves);
+  }
   void makeNewOffers(const std::vector<Slave*>& slaves);
   void placeUsage(const FrameworkID& frameworkId,
                   const ExecutorID& executorId,
@@ -169,6 +180,13 @@ private:
   // update our estimates. Otherwise, we will be confused when, e.g.,
   // an executor and a task are added/removed simulatenously.
   boost::unordered_map<ExecutorKey, boost::unordered_set<Task*> > knownTasks;
+
+  // After receiving a usage message, wait this long to actually send new
+  // offers. If less than 0, do it immediately. Configured from
+  // norequest_usage_reoffer_delay
+  double usageReofferDelay;
+  boost::unordered_set<Slave*> usageReofferSlaves;
+  process::Timer usageReofferTimer;
 };
 
 } // namespace norequest

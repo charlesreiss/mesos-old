@@ -452,6 +452,33 @@ void NoRequestAllocator::timerTick() {
   makeNewOffers(master->getActiveSlaves());
 }
 
+namespace {
+
+void ignoreProcess(std::tr1::function<void(void)> f,
+                   process::ProcessBase* base)
+{
+  f();
+}
+
+process::Timer timerInProcess(double delay,
+    AllocatorMasterInterface* _master,
+    std::tr1::function<void(void)> f)
+{
+  process::ProcessBase* master = dynamic_cast<process::ProcessBase*>(_master);
+  if (master) {
+    std::tr1::shared_ptr<std::tr1::function<void(process::ProcessBase*)> >
+      ignoreProcessF(new std::tr1::function<void(process::ProcessBase*)>(
+        std::tr1::bind(&ignoreProcess, f, std::tr1::placeholders::_1)));
+    return process::timers::create(delay,
+        std::tr1::bind(&process::internal::dispatch,
+          process::UPID(*master), ignoreProcessF));
+  } else {
+    return process::timers::create(delay, f);
+  }
+}
+
+}
+
 void NoRequestAllocator::gotUsage(const UsageMessage& update) {
   // TODO(Charles): Check whether we actually got more free resources on the
   // slave to short-circuit the reoffer; or defer reoffers until we likely have
@@ -467,14 +494,22 @@ void NoRequestAllocator::gotUsage(const UsageMessage& update) {
     }
     refusers.erase(slave);
     allRefusers.erase(slave);
-    vector<Slave*> singleSlave;
-    singleSlave.push_back(slave);
-    LOG(INFO) << "Trying to make new offers based on usage update for "
-              << update.slave_id();
-    if (aggressiveReoffer) {
-      makeNewOffers(master->getActiveSlaves());
+    if (usageReofferDelay >= 0.0) {
+      LOG(FATAL) << "XXX";
+      usageReofferSlaves.insert(slave);
+      usageReofferTimer = timerInProcess(
+          usageReofferDelay, master,
+          std::tr1::bind(&NoRequestAllocator::makeUsageReoffers, this));
     } else {
-      makeNewOffers(singleSlave);
+      vector<Slave*> singleSlave;
+      singleSlave.push_back(slave);
+      LOG(INFO) << "Trying to make new offers based on usage update for "
+                << update.slave_id();
+      if (aggressiveReoffer) {
+        makeNewOffers(master->getActiveSlaves());
+      } else {
+        makeNewOffers(singleSlave);
+      }
     }
   } else {
     LOG(WARNING) << "Got usage from non-slave " << update.slave_id();
