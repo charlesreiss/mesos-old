@@ -79,17 +79,22 @@ def utilization_from(record, framework_names, slave_names):
 
 
 def read_file(name):
-  stream = open(name, 'r')
+  is_binary = False
+  try:
+    stream = open(name, 'r')
+  except IOError as e:
+    is_binary = True
+    stream = open(name + '.bin', 'r')
   # Pass 0, find framework names
   framework_names = set()
   slave_names = set()
-  for record in parse_usage.usage_from_stream(stream):
+  for record in parse_usage.usage_from_stream(stream, is_binary):
     for usage in record.usage:
       framework_names.add(framework_id(usage))
       slave_names.add(usage.slave_id.value)
   stream.seek(0)
   data = []
-  for record in parse_usage.usage_from_stream(stream):
+  for record in parse_usage.usage_from_stream(stream, is_binary):
     values = tuple(utilization_from(record, framework_names, slave_names))
     assert len(values) == ((len(framework_names) + 1) * 2 + (len(slave_names) +
       1) + 2)
