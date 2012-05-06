@@ -99,6 +99,8 @@ void LxcIsolationModule::initialize(
     LOG(FATAL) << "LXC isolation module requires slave to run as root";
   }
 
+  cgroupRoot = conf.get<std::string>("cgroup_root", "/sys/fs/cgroup");
+
   initialized = true;
 }
 
@@ -426,7 +428,7 @@ bool LxcIsolationModule::getControlGroupValue(
     int64_t *value)
 {
   *value = 0;
-  std::string controlFile = "/sys/fs/cgroup/" +
+  std::string controlFile = cgroupRoot +
     group + "/" + container + "/" + group + "." + property;
   std::ifstream in(controlFile.c_str());
   if (!in) {

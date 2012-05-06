@@ -77,6 +77,8 @@ private:
                             const std::string& property,
                             int64_t *value);
 
+  std::string cgroupRoot;
+
   std::vector<std::string> getControlGroupOptions(const ResourceHints& resources);
 
   // Per-framework information object maintained in info hashmap.
