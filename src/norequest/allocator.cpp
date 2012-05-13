@@ -35,14 +35,12 @@ using std::vector;
 
 void
 NoRequestAllocator::frameworkAdded(Framework* framework) {
-  LOG(INFO) << "add framework";
   allRefusers.clear();
   makeNewOffers(master->getActiveSlaves());
 }
 
 void
 NoRequestAllocator::frameworkRemoved(Framework* framework) {
-  LOG(INFO) << "remove framework " << framework->id;
   foreachvalue (boost::unordered_set<FrameworkID>& refuserSet, refusers) {
     refuserSet.erase(framework->id);
   }
@@ -51,7 +49,6 @@ NoRequestAllocator::frameworkRemoved(Framework* framework) {
 void
 NoRequestAllocator::slaveAdded(Slave* slave) {
   CHECK_EQ(0, refusers.count(slave));
-  LOG(INFO) << "add slave";
   totalResources += slave->info.resources();
   tracker->setCapacity(slave->id, slave->info.resources());
   std::vector<Slave*> slave_alone;
@@ -70,7 +67,6 @@ NoRequestAllocator::slaveRemoved(Slave* slave) {
 
 void
 NoRequestAllocator::taskAdded(Task* task) {
-  LOG(INFO) << "add task";
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              task, 0, Option<ExecutorInfo>::none());
   Slave* slave = master->getSlave(task->slave_id());
@@ -83,7 +79,6 @@ NoRequestAllocator::taskAdded(Task* task) {
 
 void
 NoRequestAllocator::taskRemoved(Task* task) {
-  LOG(INFO) << "remove task";
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              0, task, Option<ExecutorInfo>::none());
   Slave* slave = master->getSlave(task->slave_id());
@@ -98,7 +93,6 @@ void
 NoRequestAllocator::executorAdded(const FrameworkID& frameworkId,
                                   const SlaveID& slaveId,
                                   const ExecutorInfo& info) {
-  LOG(INFO) << "executor added " << info.DebugString();
   placeUsage(frameworkId, info.executor_id(), slaveId, 0, 0, info);
 }
 
@@ -106,7 +100,7 @@ void
 NoRequestAllocator::executorRemoved(const FrameworkID& frameworkId,
                                     const SlaveID& slaveId,
                                     const ExecutorInfo& info) {
-  LOG(INFO) << "executor removed " << info.DebugString();
+  DLOG(INFO) << "executor removed " << info.DebugString();
   tracker->forgetExecutor(frameworkId, info.executor_id(), slaveId);
   knownTasks.erase(ExecutorKey(frameworkId, info.executor_id(), slaveId));
   Slave* slave = master->getSlave(slaveId);
@@ -127,7 +121,6 @@ NoRequestAllocator::placeUsage(const FrameworkID& frameworkId,
                                Option<ExecutorInfo> maybeExecutorInfo) {
   Resources minResources = tracker->gaurenteedForExecutor(
       slaveId, frameworkId, executorId);
-  LOG(INFO) << "min = " << minResources;
   boost::unordered_set<Task*>* tasks = &knownTasks[
     ExecutorKey(frameworkId, executorId, slaveId)];
   // TODO(charles): estimate resources more intelligently
@@ -145,7 +138,6 @@ NoRequestAllocator::placeUsage(const FrameworkID& frameworkId,
     estimate = Option<Resources>(
         tracker->nextUsedForExecutor(slaveId, frameworkId, executorId) +
         maybeExecutorInfo.get().resources());
-    LOG(INFO) << "estimate = " << estimate.get();
     minResources += maybeExecutorInfo.get().min_resources();
   } else if (removedTask) {
     CHECK_EQ(1, tasks->count(removedTask));
@@ -173,7 +165,7 @@ struct ChargedShareComparator {
     double firstShare = dominantShareOf(first);
     double secondShare = dominantShareOf(second);
     if (firstShare == secondShare) {
-      VLOG(3) << "shares equal; comparing "
+      DVLOG(3) << "shares equal; comparing "
               << first->id.value() << " and " << second->id.value()
               << " --> " << (first->id.value() < second->id.value());
       return first->id.value() < second->id.value();
@@ -199,7 +191,7 @@ struct ChargedShareComparator {
         }
       }
     }
-    VLOG(3) << "computed share of " << framework->id << " = " << share;
+    DVLOG(3) << "computed share of " << framework->id << " = " << share;
     return share;
   }
 
@@ -287,15 +279,15 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
   }
   ++offersSinceTimeChange;
   if (offersSinceTimeChange > 100000000L) {
-    LOG(FATAL) << "Stuck in reoffer loop";
+    DLOG(FATAL) << "Stuck in reoffer loop";
   }
-  LOG(INFO) << "makeNewOffers for " << slaves.size() << " slaves";
+  DLOG(INFO) << "makeNewOffers for " << slaves.size() << " slaves";
   vector<Framework*> orderedFrameworks = getOrderedFrameworks();
 
   // expected, min
   unordered_map<Slave*, ResourceHints> freeResources;
   foreach(Slave* slave, slaves) {
-    LOG(INFO) << "slave " << slave << "; active = " << slave->active;
+    DLOG(INFO) << "slave " << slave << "; active = " << slave->active;
     if (!slave->active) continue;
     // TODO(charles): FIXME offered but unlaunched tracking
     ResourceHints toOffer = nextOfferForSlave(slave);
@@ -304,11 +296,11 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
         enoughResources(toOffer.minResources)) {
       freeResources[slave] = toOffer;
     } else {
-      LOG(INFO) << "not enough for " << slave->id << ": "
-                << toOffer;
-      LOG(INFO) << "offered = " << slave->resourcesOffered;
-      LOG(INFO) << "[in use] = " << slave->resourcesInUse;
-      LOG(INFO) << "[observed] = "  << slave->resourcesObservedUsed;
+      DLOG(INFO) << "not enough for " << slave->id << ": "
+                 << toOffer;
+      DLOG(INFO) << "offered = " << slave->resourcesOffered;
+      DLOG(INFO) << "[in use] = " << slave->resourcesInUse;
+      DLOG(INFO) << "[observed] = "  << slave->resourcesObservedUsed;
     }
   }
 
@@ -318,13 +310,13 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
     if (refusers.count(slave) &&
         refusers[slave].size() == orderedFrameworks.size()) {
       if (allRefusers.count(slave) == 0) {
-        VLOG(1) << "Clearing refusers for slave " << slave->id
-                << " because EVERYONE has refused resources from it";
+        DVLOG(1) << "Clearing refusers for slave " << slave->id
+                 << " because EVERYONE has refused resources from it";
         refusers.erase(slave);
         allRefusers.insert(slave);
       } else {
-        VLOG(1) << "EVERYONE has refused offers from " << slave->id
-                << " but we've already had it completely refused twice.";
+        DVLOG(1) << "EVERYONE has refused offers from " << slave->id
+                 << " but we've already had it completely refused twice.";
       }
     }
   }
@@ -340,10 +332,10 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
       if (!(refusers.count(slave) && refusers[slave].count(framework->id)) &&
           !framework->filters(slave, offerRes)) {
         offerable[slave] = offerRes;
-        VLOG(1) << "offering " << framework->id << " "
+        DVLOG(1) << "offering " << framework->id << " "
                   << offerRes << " on slave " << slave->id;
       } else {
-        VLOG(2) << framework->id << " not accepting offer on " << slave->id
+        DVLOG(2) << framework->id << " not accepting offer on " << slave->id
                 << " -- refuser? "
                 << ((refusers.count(slave) &&
                      refusers[slave].count(framework->id)) ? "yes" : "no")
@@ -353,8 +345,8 @@ NoRequestAllocator::makeNewOffers(const std::vector<Slave*>& slaves) {
     }
 
     if (offerable.size() > 0) {
-      LOG(INFO) << "have " << offerable.size() << " offers for "
-                << framework->id;
+      DLOG(INFO) << "have " << offerable.size() << " offers for "
+                 << framework->id;
     }
 
     if (offerable.size() > 0) {
@@ -373,24 +365,24 @@ void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
   ResourceHints unusedResources = _unusedResources;
   fixResources(&unusedResources.expectedResources);
   fixResources(&unusedResources.minResources);
-  LOG(INFO) << "resourcesUnused: " << frameworkId.value() << ", "
-            << slaveId.value() << ": " << unusedResources;
+  DLOG(INFO) << "resourcesUnused: " << frameworkId.value() << ", "
+             << slaveId.value() << ": " << unusedResources;
   /* Before recording a framework as a refuser, make sure we would offer
    * them at least as many resources now. If not, give them a chance to get the
    * resources we reclaimed asynchronously.
    */
   Slave* slave = master->getSlave(slaveId);
   ResourceHints freeResources = nextOfferForSlave(slave);
-  LOG(INFO) << "Comparing free resources " << freeResources
-            << " versus unused " << unusedResources;
+  DLOG(INFO) << "Comparing free resources " << freeResources
+             << " versus unused " << unusedResources;
   waitingOffers.erase(slave);
   if (freeResources <= unusedResources) {
-    LOG(INFO) << "adding refuser";
+    DLOG(INFO) << "adding refuser";
     if (slave->offers.size() > 0) {
-      LOG(INFO) << "delaying response for " << slaveId.value();
+      DLOG(INFO) << "delaying response for " << slaveId.value();
       waitingOffers.insert(slave);
     } else {
-      LOG(INFO) << "marking " << frameworkId << " as a refuser";
+      DLOG(INFO) << "marking " << frameworkId << " as a refuser";
       refusers[slave].insert(frameworkId);
     }
   }
@@ -424,7 +416,7 @@ void NoRequestAllocator::resourcesRecovered(const FrameworkID& frameworkId,
 }
 
 void NoRequestAllocator::offersRevived(Framework* framework) {
-  LOG(INFO) << "offersRevived for " << framework->id;
+  DLOG(INFO) << "offersRevived for " << framework->id;
   std::vector<Slave*> revivedSlaves;
   foreachpair (Slave* slave, boost::unordered_set<FrameworkID>& refuserSet,
                refusers) {
@@ -495,7 +487,6 @@ void NoRequestAllocator::gotUsage(const UsageMessage& update) {
     refusers.erase(slave);
     allRefusers.erase(slave);
     if (usageReofferDelay >= 0.0) {
-      LOG(FATAL) << "XXX";
       usageReofferSlaves.insert(slave);
       usageReofferTimer = timerInProcess(
           usageReofferDelay, master,
@@ -503,8 +494,8 @@ void NoRequestAllocator::gotUsage(const UsageMessage& update) {
     } else {
       vector<Slave*> singleSlave;
       singleSlave.push_back(slave);
-      LOG(INFO) << "Trying to make new offers based on usage update for "
-                << update.slave_id();
+      DLOG(INFO) << "Trying to make new offers based on usage update for "
+                 << update.slave_id();
       if (aggressiveReoffer) {
         makeNewOffers(master->getActiveSlaves());
       } else {

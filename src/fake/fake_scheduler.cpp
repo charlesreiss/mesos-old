@@ -61,16 +61,25 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
   if (beforeStartTime) {
     CHECK(!passedStartTime) << (process::Clock::now() - startTime);
   }
+
+  if (tasksPending.size() == 0) {
+    foreach (const Offer& offer, offers) {
+      vector<TaskDescription> toLaunch;
+      driver->launchTasks(offer.id(), toLaunch);
+    }
+    return;
+  }
+
   foreach (const Offer& offer, offers) {
-    LOG(INFO) << "got offer " << offer.DebugString();
-    LOG(INFO) << attributes << ": tasksPending has "
+    DLOG(INFO) << "got offer " << offer.DebugString();
+    DLOG(INFO) << attributes << ": tasksPending has "
               << tasksPending.size() << " entries.";
-    CHECK_EQ(offer.framework_id(), frameworkId);
+    DCHECK_EQ(offer.framework_id(), frameworkId);
     vector<TaskDescription> toLaunch;
     ResourceHints bucket = ResourceHints::forOffer(offer);
-    LOG(INFO) << "minRequest = " << minRequest << "; bucket = " << bucket
-              << "; beforeStartTime = " << beforeStartTime
-              << "; now - startTime = " << (process::Clock::now() - startTime);
+    DLOG(INFO) << "minRequest = " << minRequest << "; bucket = " << bucket
+               << "; beforeStartTime = " << beforeStartTime
+               << "; now - startTime = " << (process::Clock::now() - startTime);
     if (!beforeStartTime && (!haveMinRequest || minRequest <= bucket)) {
       foreachpair (const std::string& baseTaskId, FakeTask* task, tasksPending) {
         ResourceHints curRequest = task->getResourceRequest();
@@ -93,10 +102,13 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
               newTask.executor().executor_id(), taskId, task);
           tasksRunning[baseTaskId] = task;
           runningTaskIds[newTask.task_id()] = baseTaskId;
-          LOG(INFO) << "placed " << *task << " in " << newTask.DebugString();
+          if (!(minRequest <= bucket)) {
+            break;
+          }
+          DLOG(INFO) << "placed " << *task << " in " << newTask.DebugString();
         } else {
-          LOG(INFO) << "rejected " << *task << "; only " << bucket << " versus "
-                    << curRequest;
+          DLOG(INFO) << "rejected " << *task << "; only " << bucket << " versus "
+                     << curRequest;
         }
       }
       foreach (const TaskDescription& task, toLaunch) {
