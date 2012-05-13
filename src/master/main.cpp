@@ -18,6 +18,8 @@
 
 #include <libgen.h>
 
+#include "boost/scoped_ptr.hpp"
+
 #include "common/build.hpp"
 #include "common/fatal.hpp"
 #include "common/logging.hpp"
@@ -32,8 +34,14 @@
 #include "master/master.hpp"
 #include "master/webui.hpp"
 
+#include "usage_log/usage_log.hpp"
+
 using namespace mesos::internal;
 using namespace mesos::internal::master;
+
+using mesos::internal::usage_log::UsageRecorder;
+using mesos::internal::usage_log::UsageLogWriter;
+using mesos::internal::usage_log::BinaryFileUsageLogWriter;
 
 using std::cerr;
 using std::endl;
@@ -66,6 +74,10 @@ int main(int argc, char **argv)
 #ifdef MESOS_WEBUI
   configurator.addOption<int>("webui_port", 'w', "Web UI port", 8080);
 #endif
+  configurator.addOption<std::string>(
+      "usage_log_file",
+      "file to write (binary) usage log to",
+      "");
 
   if (argc == 2 && string("--help") == argv[1]) {
     usage(argv[0], configurator);
@@ -111,6 +123,14 @@ int main(int argc, char **argv)
 
   MasterDetector* detector =
     MasterDetector::create(url, master->self(), true, Logging::isQuiet(conf));
+
+  string usageLog = conf.get("usage_log_file", "");
+  boost::scoped_ptr<UsageRecorder> usageRecorder;
+  if (usageLog != "") {
+    UsageLogWriter *logWriter = new BinaryFileUsageLogWriter(usageLog);
+    usageRecorder.reset(new UsageRecorder(logWriter, master->self(), 1.0));
+    process::spawn(usageRecorder.get());
+  }
 
 #ifdef MESOS_WEBUI
   webui::start(master->self(), conf);
