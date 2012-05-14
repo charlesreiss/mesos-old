@@ -46,16 +46,31 @@ namespace fake {
 typedef mesos::internal::slave::Slave Slave;
 typedef mesos::internal::master::Master Master;
 
-class Scenario {
+class ScenarioInterface {
+public:
+  virtual void spawnMaster() = 0;
+  virtual void spawnSlave(const Resources& resources) = 0;
+  virtual void spawnScheduler(const std::string& name,
+                              const Attributes& attributes,
+                              const std::map<TaskID, FakeTask*>& tasks,
+                              double startTime) = 0;
+  virtual void stopScheduler(const std::string& name) = 0;
+  virtual void finishSetup() = 0;
+  virtual void runFor(double seconds) = 0;
+  virtual void stop() = 0;
+};
+
+class Scenario : public ScenarioInterface{
 public:
   static void registerOptions(Configurator* configurator);
 
   void spawnMaster();
   void spawnMaster(mesos::internal::master::Allocator* allocator);
   void spawnSlave(const Resources& resources);
-  FakeScheduler* spawnScheduler(const std::string& name,
-                                const Attributes& attributes,
-                                const std::map<TaskID, FakeTask*>& tasks);
+  void spawnScheduler(const std::string& name,
+                      const Attributes& attributes,
+                      const std::map<TaskID, FakeTask*>& tasks,
+                      double startTime);
   void stopScheduler(const std::string& name);
   FakeScheduler* getScheduler(const std::string& name) {
     return schedulers[name];

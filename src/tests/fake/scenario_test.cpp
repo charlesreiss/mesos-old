@@ -29,7 +29,7 @@ protected:
     for (int i = 0; i < numTasks; ++i) {
       makeBatchTask(i, &tasks);
     }
-    scenario.spawnScheduler("batch", Attributes::parse(""), tasks);
+    scenario.spawnScheduler("batch", Attributes::parse(""), tasks, 0.0);
     scenario.finishSetup();
     scenario.runFor(time);
     EXPECT_EQ(0, scenario.getScheduler("batch")->countPending());

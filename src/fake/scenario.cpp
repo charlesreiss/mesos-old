@@ -64,9 +64,9 @@ void Scenario::spawnSlave(const Resources& resources)
   isolationModules.push_back(module);
 }
 
-FakeScheduler* Scenario::spawnScheduler(
+void Scenario::spawnScheduler(
     const std::string& name, const Attributes& attributes,
-    const std::map<TaskID, FakeTask*>& tasks)
+    const std::map<TaskID, FakeTask*>& tasks, double startTime)
 {
   CHECK(schedulers.find(name) == schedulers.end());
   FakeScheduler* scheduler = new FakeScheduler(attributes, &tracker);
@@ -89,7 +89,9 @@ FakeScheduler* Scenario::spawnScheduler(
   foreachvalue (FakeTask* task, tasks) {
     allTasks.push_back(task);
   }
-  return scheduler;
+  if (startTime > 0.0) {
+    scheduler->setStartTime(startTime);
+  }
 }
 
 void Scenario::stopScheduler(const std::string& name)
@@ -218,10 +220,8 @@ void setupScheduler(Scenario* scenario,
   }
   schedAttributes.add(Attributes::parse("type", type));
   schedAttributes.add(Attributes::parse("name", schedName));
-  FakeScheduler* scheduler =
-      scenario->spawnScheduler(schedName, schedAttributes, tasks);
   const double startTime(spec.get<double>("start_time", 0.0) + now);
-  scheduler->setStartTime(startTime);
+  scenario->spawnScheduler(schedName, schedAttributes, tasks, startTime);
 }
 
 }  // namespace
