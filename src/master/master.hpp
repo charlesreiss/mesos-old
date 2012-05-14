@@ -384,7 +384,7 @@ struct Slave
     clearObservedUsageFor(usage.framework_id(), usage.executor_id());
     resourcesObservedUsed += usage.resources();
     usageMessages[usage.framework_id()][usage.executor_id()] = usage;
-    LOG(INFO) << "Got usage " << usage.DebugString();
+    DLOG(INFO) << "Got usage " << usage.DebugString();
   }
 
   Resources resourcesFree()

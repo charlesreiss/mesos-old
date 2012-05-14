@@ -138,9 +138,9 @@ void UsageRecorder::emit()
     record.set_min_seen_timestamp(minTimestamp);
     record.set_max_seen_timestamp(maxTimestamp);
   }
-  LOG(INFO) << "Recording " << record.DebugString()
-            << " at delta "
-            << (process::Clock::now() - record.min_expect_timestamp());
+  DLOG(INFO) << "Recording " << record.DebugString()
+             << " at delta "
+             << (process::Clock::now() - record.min_expect_timestamp());
   out->write(record);
 }
 

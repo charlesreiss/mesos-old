@@ -177,27 +177,33 @@ struct ChargedShareComparator {
   double dominantShareOf(Framework* framework) {
     // TODO(charles): is the right metric?
     // TODO(Charles): Test for this!
-    Resources charge = useCharge ?
-      tracker->chargeForFramework(framework->id) :
-      tracker->nextUsedForFramework(framework->id);
-    charge += framework->offeredResources;
-    double share = 0.0;
-    foreach (const Resource& resource, charge) {
-      if (resource.type() == Value::SCALAR) {
-        double total =
-            totalResources.get(resource.name(), Value::Scalar()).value();
-        if (total > 0.0) {
-          share = std::max(share, resource.scalar().value() / total);
+    if (drfFor.count(framework) > 0) {
+      return drfFor[framework];
+    } else {
+      Resources charge = useCharge ?
+        tracker->chargeForFramework(framework->id) :
+        tracker->nextUsedForFramework(framework->id);
+      charge += framework->offeredResources;
+      double share = 0.0;
+      foreach (const Resource& resource, charge) {
+        if (resource.type() == Value::SCALAR) {
+          double total =
+              totalResources.get(resource.name(), Value::Scalar()).value();
+          if (total > 0.0) {
+            share = std::max(share, resource.scalar().value() / total);
+          }
         }
       }
+      DVLOG(3) << "computed share of " << framework->id << " = " << share;
+      drfFor[framework] = share;
+      return share;
     }
-    DVLOG(3) << "computed share of " << framework->id << " = " << share;
-    return share;
   }
 
   UsageTracker *tracker;
   Resources totalResources;
   bool useCharge;
+  unordered_map<Framework*, double> drfFor;
 };
 
 }
