@@ -30,6 +30,7 @@
 
 #include "process/pid.hpp"
 
+#include "common/lock.hpp"
 #include "configurator/configurator.hpp"
 #include "configurator/configuration.hpp"
 #include "detector/detector.hpp"
@@ -60,7 +61,7 @@ public:
   virtual void stop() = 0;
 };
 
-class Scenario : public ScenarioInterface{
+class Scenario : public ScenarioInterface {
 public:
   static void registerOptions(Configurator* configurator);
 
@@ -103,7 +104,9 @@ public:
   Scenario();
   Scenario(const Configuration& conf_);
   ~Scenario() { stop(); }
+
 private:
+  void finishStartScheduler(const std::string& name);
   void init();
 
   Configuration conf;
@@ -115,13 +118,16 @@ private:
   std::vector<process::PID<Slave> > slavePids;
   boost::scoped_ptr<BasicMasterDetector> masterMasterDetector;
   std::vector<BasicMasterDetector*> slaveMasterDetectors;
-  std::map<std::string, MesosSchedulerDriver*> schedulerDrivers;
-  std::map<std::string, FakeScheduler*> schedulers;
   std::vector<FakeTask*> allTasks;
   std::vector<FakeIsolationModule*> isolationModules;
   std::string label;
   std::string labelColumns;
   double interval;
+
+  pthread_mutex_t schedulersMutex;
+  std::map<std::string, MesosSchedulerDriver*> schedulerDrivers;
+  std::map<std::string, FakeScheduler*> schedulers;
+  std::map<std::string, process::Timer> startTimers;
 };
 
 void populateScenarioFrom(const boost::property_tree::ptree& spec,

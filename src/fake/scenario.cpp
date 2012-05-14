@@ -21,11 +21,13 @@ void Scenario::registerOptions(Configurator* configurator)
 
 Scenario::Scenario() : master(0), conf(), interval(1./8.)
 {
+  pthread_mutex_init(&schedulersMutex, 0);
 }
 
 Scenario::Scenario(const Configuration& conf_)
     : master(0), conf(conf_), interval(conf_.get<double>("fake_interval", 1./8.))
 {
+  pthread_mutex_init(&schedulersMutex, 0);
 }
 
 void Scenario::spawnMaster()
@@ -68,30 +70,45 @@ void Scenario::spawnScheduler(
     const std::string& name, const Attributes& attributes,
     const std::map<TaskID, FakeTask*>& tasks, double startTime)
 {
-  CHECK(schedulers.find(name) == schedulers.end());
-  FakeScheduler* scheduler = new FakeScheduler(attributes, &tracker);
-  scheduler->setTasks(tasks);
-  ExecutorInfo info;
-  info.mutable_executor_id()->set_value("SHOULD-NOT-BE-RUN");
-  info.set_uri("does-not-exist");
-  FrameworkID id;
-  id.set_value(name);
-  MesosSchedulerDriver* driver = new MesosSchedulerDriver(
-      scheduler,
-      name,
-      info,
-      "mesos://" + std::string(masterPid),
-      id);
-  CHECK_EQ(OK, driver->start());
-  schedulers[name] = scheduler;
-  schedulerDrivers[name] = driver;
+  {
+    Lock l(&schedulersMutex);
+    CHECK(schedulers.find(name) == schedulers.end());
+    FakeScheduler* scheduler = new FakeScheduler(attributes, &tracker);
+    scheduler->setTasks(tasks);
+    schedulers[name] = scheduler;
+    foreachvalue (FakeTask* task, tasks) {
+      allTasks.push_back(task);
+    }
+    ExecutorInfo info;
+    info.mutable_executor_id()->set_value("SHOULD-NOT-BE-RUN");
+    info.set_uri("does-not-exist");
+    FrameworkID id;
+    id.set_value(name);
+    MesosSchedulerDriver* driver = new MesosSchedulerDriver(
+        scheduler,
+        name,
+        info,
+        "mesos://" + std::string(masterPid),
+        id);
+    schedulerDrivers[name] = driver;
+    if (startTime > 0.0) {
+      scheduler->setStartTime(startTime);
+      startTimers[name] = process::timers::create(
+          startTime - process::Clock::now(),
+          std::tr1::function<void(void)>(
+            std::tr1::bind(&Scenario::finishStartScheduler, this, name)));
+    }
+  }
+  if (startTime <= 0.0) {
+    finishStartScheduler(name);
+  }
+}
 
-  foreachvalue (FakeTask* task, tasks) {
-    allTasks.push_back(task);
-  }
-  if (startTime > 0.0) {
-    scheduler->setStartTime(startTime);
-  }
+void Scenario::finishStartScheduler(const std::string& name)
+{
+  Lock l(&schedulersMutex);
+  startTimers.erase(name);
+  CHECK_EQ(OK, schedulerDrivers[name]->start());
 }
 
 void Scenario::stopScheduler(const std::string& name)
@@ -163,6 +180,25 @@ void Scenario::stop()
   }
   process::terminate(masterPid);
   process::wait(masterPid);
+
+  bool hadTimers = false;
+
+  {
+    Lock l(&schedulersMutex);
+    foreachvalue (process::Timer& timer, startTimers) {
+      hadTimers = true;
+      process::timers::cancel(timer);
+    }
+    startTimers.clear();
+  }
+  // make sure any pending timers are finished
+  if (hadTimers) {
+    process::Clock::settle();
+  }
+  {
+    Lock l(&schedulersMutex);
+    pthread_mutex_destroy(&schedulersMutex);
+  }
 
   LOG(ERROR) << "terminated master, slaves";
 
