@@ -59,48 +59,6 @@ using testing::Return;
 using testing::SaveArg;
 
 
-TEST(ExceptionTest, AbortOnFrameworkError)
-{
-  ASSERT_TRUE(GTEST_IS_THREADSAFE);
-
-  PID<Master> master = local::launch(1, 2, 1 * Gigabyte, false);
-
-  MockScheduler sched;
-
-  // Create an invalid ExecutorInfo to trigger framework error.
-  MesosSchedulerDriver driver(&sched,
-                              "",
-                              CREATE_EXECUTOR_INFO(DEFAULT_EXECUTOR_ID, ""),
-                              master);
-
-  trigger errorCall;
-
-  EXPECT_CALL(sched, registered(&driver, _))
-    .Times(0);
-
-  EXPECT_CALL(sched, resourceOffers(&driver, _))
-    .WillRepeatedly(Return());
-
-  EXPECT_CALL(sched, offerRescinded(&driver, _))
-    .Times(AtMost(1));
-
-  EXPECT_CALL(sched, error(&driver, _, _))
-    .WillOnce(Trigger(&errorCall));
-
-  driver.start();
-
-  WAIT_UNTIL(errorCall);
-
-  Status status = driver.join();
-
-  ASSERT_EQ(DRIVER_ABORTED, status);
-
-  driver.stop();
-
-  local::shutdown();
-}
-
-
 TEST(ExceptionTest, DeactiveFrameworkOnAbort)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
@@ -115,11 +73,11 @@ TEST(ExceptionTest, DeactiveFrameworkOnAbort)
 
   MockScheduler sched;
 
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
   trigger schedRegisteredCall;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .WillOnce(Trigger(&schedRegisteredCall));
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))
@@ -137,10 +95,7 @@ TEST(ExceptionTest, DeactiveFrameworkOnAbort)
 
   WAIT_UNTIL(schedRegisteredCall);
 
-  Status status;
-
-  status = driver.abort();
-  ASSERT_EQ(OK, status);
+  ASSERT_EQ(DRIVER_ABORTED, driver.abort());
 
   WAIT_UNTIL(deactivateMsg);
 
@@ -159,11 +114,11 @@ TEST(ExceptionTest, DisallowSchedulerActionsOnAbort)
 
   MockScheduler sched;
 
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
   trigger schedRegisteredCall;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .WillOnce(Trigger(&schedRegisteredCall));
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))
@@ -176,13 +131,9 @@ TEST(ExceptionTest, DisallowSchedulerActionsOnAbort)
 
   WAIT_UNTIL(schedRegisteredCall);
 
-  Status status;
+  ASSERT_EQ(DRIVER_ABORTED, driver.abort());
 
-  status = driver.abort();
-  ASSERT_EQ(OK, status);
-
-  status = driver.reviveOffers();
-  ASSERT_EQ(DRIVER_ABORTED, status);
+  ASSERT_EQ(DRIVER_ABORTED, driver.reviveOffers());
 
   driver.stop();
   local::shutdown();
@@ -203,9 +154,9 @@ TEST(ExceptionTest, DisallowSchedulerCallbacksOnAbort)
 
   MockScheduler sched;
 
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .Times(1);
 
   trigger resourceOffersCall;
@@ -229,7 +180,7 @@ TEST(ExceptionTest, DisallowSchedulerCallbacksOnAbort)
   EXPECT_CALL(sched, slaveLost(&driver, _))
       .Times(0);
 
-  EXPECT_CALL(sched, error(&driver, _, _))
+  EXPECT_CALL(sched, error(&driver, _))
       .Times(0);
 
   process::Message message;
@@ -250,10 +201,8 @@ TEST(ExceptionTest, DisallowSchedulerCallbacksOnAbort)
   WAIT_UNTIL(resourceOffersCall);
   EXPECT_NE(0, offers.size());
 
-  Status status;
 
-  status = driver.abort();
-  ASSERT_EQ(OK, status);
+  ASSERT_EQ(DRIVER_ABORTED, driver.abort());
 
   // Simulate a message from master to the scheduler.
   RescindResourceOfferMessage rescindMessage;

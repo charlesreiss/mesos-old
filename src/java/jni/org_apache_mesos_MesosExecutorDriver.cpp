@@ -42,15 +42,15 @@ public:
 
   virtual void registered(ExecutorDriver* driver,
                           const ExecutorInfo& executorInfo,
-                          const FrameworkID& frameworkId,
                           const FrameworkInfo& frameworkInfo,
-                          const SlaveID& slaveId,
                           const SlaveInfo& slaveInfo);
-  virtual void launchTask(ExecutorDriver* driver, const TaskDescription& task);
+  virtual void reregistered(ExecutorDriver* driver, const SlaveInfo& slaveInfo);
+  virtual void disconnected(ExecutorDriver* driver);
+  virtual void launchTask(ExecutorDriver* driver, const TaskInfo& task);
   virtual void killTask(ExecutorDriver* driver, const TaskID& taskId);
   virtual void frameworkMessage(ExecutorDriver* driver, const string& data);
   virtual void shutdown(ExecutorDriver* driver);
-  virtual void error(ExecutorDriver* driver, int code, const string& message);
+  virtual void error(ExecutorDriver* driver, const string& message);
 
   JavaVM* jvm;
   JNIEnv* env;
@@ -60,40 +60,34 @@ public:
 
 void JNIExecutor::registered(ExecutorDriver* driver,
                             const ExecutorInfo& executorInfo,
-                            const FrameworkID& frameworkId,
                             const FrameworkInfo& frameworkInfo,
-                            const SlaveID& slaveId,
                             const SlaveInfo& slaveInfo)
 {
   jvm->AttachCurrentThread((void**) &env, NULL);
 
   jclass clazz = env->GetObjectClass(jdriver);
 
-  jfieldID exec = env->GetFieldID(clazz, "exec", "Lorg/apache/mesos/Executor;");
-  jobject jexec = env->GetObjectField(jdriver, exec);
+  jfieldID executor = env->GetFieldID(clazz, "executor", "Lorg/apache/mesos/Executor;");
+  jobject jexecutor = env->GetObjectField(jdriver, executor);
 
-  clazz = env->GetObjectClass(jexec);
+  clazz = env->GetObjectClass(jexecutor);
 
-  // exec.registered(driver);
+  // executor.registered(driver);
   jmethodID registered =
     env->GetMethodID(clazz, "registered",
                      "(Lorg/apache/mesos/ExecutorDriver;"
                      "Lorg/apache/mesos/Protos$ExecutorInfo;"
-                     "Lorg/apache/mesos/Protos$FrameworkID;"
                      "Lorg/apache/mesos/Protos$FrameworkInfo;"
-                     "Lorg/apache/mesos/Protos$SlaveID;"
                      "Lorg/apache/mesos/Protos$SlaveInfo;)V");
 
   jobject jexecutorInfo = convert<ExecutorInfo>(env, executorInfo);
-  jobject jframeworkId = convert<FrameworkID>(env, frameworkId);
   jobject jframeworkInfo = convert<FrameworkInfo>(env, frameworkInfo);
-  jobject jslaveId = convert<SlaveID>(env, slaveId);
   jobject jslaveInfo = convert<SlaveInfo>(env, slaveInfo);
 
   env->ExceptionClear();
 
-  env->CallVoidMethod(jexec, registered, jdriver, jexecutorInfo,
-                      jframeworkId, jframeworkInfo, jslaveId, jslaveInfo);
+  env->CallVoidMethod(jexecutor, registered, jdriver, jexecutorInfo,
+                      jframeworkInfo, jslaveInfo);
 
   if (env->ExceptionCheck()) {
     env->ExceptionDescribe();
@@ -107,28 +101,96 @@ void JNIExecutor::registered(ExecutorDriver* driver,
 }
 
 
-void JNIExecutor::launchTask(ExecutorDriver* driver, const TaskDescription& desc)
+void JNIExecutor::reregistered(ExecutorDriver* driver,
+                               const SlaveInfo& slaveInfo)
 {
   jvm->AttachCurrentThread((void**) &env, NULL);
 
   jclass clazz = env->GetObjectClass(jdriver);
 
-  jfieldID exec = env->GetFieldID(clazz, "exec", "Lorg/apache/mesos/Executor;");
-  jobject jexec = env->GetObjectField(jdriver, exec);
+  jfieldID executor = env->GetFieldID(clazz, "executor", "Lorg/apache/mesos/Executor;");
+  jobject jexecutor = env->GetObjectField(jdriver, executor);
 
-  clazz = env->GetObjectClass(jexec);
+  clazz = env->GetObjectClass(jexecutor);
 
-  // exec.launchTask(driver, desc);
-  jmethodID launchTask =
-    env->GetMethodID(clazz, "launchTask",
-		     "(Lorg/apache/mesos/ExecutorDriver;"
-		     "Lorg/apache/mesos/Protos$TaskDescription;)V");
+  // executor.reregistered(driver, slaveInfo);
+  jmethodID reregistered =
+    env->GetMethodID(clazz, "reregistered",
+                     "(Lorg/apache/mesos/ExecutorDriver;"
+                     "Lorg/apache/mesos/Protos$SlaveInfo;)V");
 
-  jobject jdesc = convert<TaskDescription>(env, desc);
+  jobject jslaveInfo = convert<SlaveInfo>(env, slaveInfo);
 
   env->ExceptionClear();
 
-  env->CallVoidMethod(jexec, launchTask, jdriver, jdesc);
+  env->CallVoidMethod(jexecutor, reregistered, jdriver, jslaveInfo);
+
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    jvm->DetachCurrentThread();
+    driver->abort();
+    return;
+  }
+
+  jvm->DetachCurrentThread();
+}
+
+
+void JNIExecutor::disconnected(ExecutorDriver* driver)
+{
+  jvm->AttachCurrentThread((void**) &env, NULL);
+
+  jclass clazz = env->GetObjectClass(jdriver);
+
+  jfieldID executor = env->GetFieldID(clazz, "executor", "Lorg/apache/mesos/Executor;");
+  jobject jexecutor = env->GetObjectField(jdriver, executor);
+
+  clazz = env->GetObjectClass(jexecutor);
+
+  // executor.disconnected(driver);
+  jmethodID disconnected =
+    env->GetMethodID(clazz, "disconnected",
+         "(Lorg/apache/mesos/ExecutorDriver;)V");
+
+  env->ExceptionClear();
+
+  env->CallVoidMethod(jexecutor, disconnected, jdriver);
+
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    jvm->DetachCurrentThread();
+    driver->abort();
+    return;
+  }
+
+  jvm->DetachCurrentThread();
+}
+
+
+void JNIExecutor::launchTask(ExecutorDriver* driver, const TaskInfo& desc)
+{
+  jvm->AttachCurrentThread((void**) &env, NULL);
+
+  jclass clazz = env->GetObjectClass(jdriver);
+
+  jfieldID executor = env->GetFieldID(clazz, "executor", "Lorg/apache/mesos/Executor;");
+  jobject jexecutor = env->GetObjectField(jdriver, executor);
+
+  clazz = env->GetObjectClass(jexecutor);
+
+  // executor.launchTask(driver, desc);
+  jmethodID launchTask =
+    env->GetMethodID(clazz, "launchTask",
+		     "(Lorg/apache/mesos/ExecutorDriver;"
+		     "Lorg/apache/mesos/Protos$TaskInfo;)V");
+
+  jobject jdesc = convert<TaskInfo>(env, desc);
+
+  env->ExceptionClear();
+
+  env->CallVoidMethod(jexecutor, launchTask, jdriver, jdesc);
 
   if (env->ExceptionCheck()) {
     env->ExceptionDescribe();
@@ -148,12 +210,12 @@ void JNIExecutor::killTask(ExecutorDriver* driver, const TaskID& taskId)
 
   jclass clazz = env->GetObjectClass(jdriver);
 
-  jfieldID exec = env->GetFieldID(clazz, "exec", "Lorg/apache/mesos/Executor;");
-  jobject jexec = env->GetObjectField(jdriver, exec);
+  jfieldID executor = env->GetFieldID(clazz, "executor", "Lorg/apache/mesos/Executor;");
+  jobject jexecutor = env->GetObjectField(jdriver, executor);
 
-  clazz = env->GetObjectClass(jexec);
+  clazz = env->GetObjectClass(jexecutor);
 
-  // exec.killTask(driver, taskId);
+  // executor.killTask(driver, taskId);
   jmethodID killTask =
     env->GetMethodID(clazz, "killTask",
 		     "(Lorg/apache/mesos/ExecutorDriver;"
@@ -163,7 +225,7 @@ void JNIExecutor::killTask(ExecutorDriver* driver, const TaskID& taskId)
 
   env->ExceptionClear();
 
-  env->CallVoidMethod(jexec, killTask, jdriver, jtaskId);
+  env->CallVoidMethod(jexecutor, killTask, jdriver, jtaskId);
 
   if (env->ExceptionCheck()) {
     env->ExceptionDescribe();
@@ -183,12 +245,12 @@ void JNIExecutor::frameworkMessage(ExecutorDriver* driver, const string& data)
 
   jclass clazz = env->GetObjectClass(jdriver);
 
-  jfieldID exec = env->GetFieldID(clazz, "exec", "Lorg/apache/mesos/Executor;");
-  jobject jexec = env->GetObjectField(jdriver, exec);
+  jfieldID executor = env->GetFieldID(clazz, "executor", "Lorg/apache/mesos/Executor;");
+  jobject jexecutor = env->GetObjectField(jdriver, executor);
 
-  clazz = env->GetObjectClass(jexec);
+  clazz = env->GetObjectClass(jexecutor);
 
-  // exec.frameworkMessage(driver, data);
+  // executor.frameworkMessage(driver, data);
   jmethodID frameworkMessage =
     env->GetMethodID(clazz, "frameworkMessage",
 		     "(Lorg/apache/mesos/ExecutorDriver;"
@@ -200,7 +262,7 @@ void JNIExecutor::frameworkMessage(ExecutorDriver* driver, const string& data)
 
   env->ExceptionClear();
 
-  env->CallVoidMethod(jexec, frameworkMessage, jdriver, jdata);
+  env->CallVoidMethod(jexecutor, frameworkMessage, jdriver, jdata);
 
   if (env->ExceptionCheck()) {
     env->ExceptionDescribe();
@@ -220,19 +282,19 @@ void JNIExecutor::shutdown(ExecutorDriver* driver)
 
   jclass clazz = env->GetObjectClass(jdriver);
 
-  jfieldID exec = env->GetFieldID(clazz, "exec", "Lorg/apache/mesos/Executor;");
-  jobject jexec = env->GetObjectField(jdriver, exec);
+  jfieldID executor = env->GetFieldID(clazz, "executor", "Lorg/apache/mesos/Executor;");
+  jobject jexecutor = env->GetObjectField(jdriver, executor);
 
-  clazz = env->GetObjectClass(jexec);
+  clazz = env->GetObjectClass(jexecutor);
 
-  // exec.shutdown(driver);
+  // executor.shutdown(driver);
   jmethodID shutdown =
     env->GetMethodID(clazz, "shutdown",
 		     "(Lorg/apache/mesos/ExecutorDriver;)V");
 
   env->ExceptionClear();
 
-  env->CallVoidMethod(jexec, shutdown, jdriver);
+  env->CallVoidMethod(jexecutor, shutdown, jdriver);
 
   if (env->ExceptionCheck()) {
     env->ExceptionDescribe();
@@ -246,30 +308,28 @@ void JNIExecutor::shutdown(ExecutorDriver* driver)
 }
 
 
-void JNIExecutor::error(ExecutorDriver* driver, int code, const string& message)
+void JNIExecutor::error(ExecutorDriver* driver, const string& message)
 {
   jvm->AttachCurrentThread((void**) &env, NULL);
 
   jclass clazz = env->GetObjectClass(jdriver);
 
-  jfieldID exec = env->GetFieldID(clazz, "exec", "Lorg/apache/mesos/Executor;");
-  jobject jexec = env->GetObjectField(jdriver, exec);
+  jfieldID executor = env->GetFieldID(clazz, "executor", "Lorg/apache/mesos/Executor;");
+  jobject jexecutor = env->GetObjectField(jdriver, executor);
 
-  clazz = env->GetObjectClass(jexec);
+  clazz = env->GetObjectClass(jexecutor);
 
-  // exec.error(driver, code, message);
+  // executor.error(driver, message);
   jmethodID error =
     env->GetMethodID(clazz, "error",
 		     "(Lorg/apache/mesos/ExecutorDriver;"
-		     "I"
 		     "Ljava/lang/String;)V");
 
-  jint jcode = code;
   jobject jmessage = convert<string>(env, message);
 
   env->ExceptionClear();
 
-  env->CallVoidMethod(jexec, error, jdriver, jcode, jmessage);
+  env->CallVoidMethod(jexecutor, error, jdriver, jmessage);
 
   if (env->ExceptionCheck()) {
     env->ExceptionDescribe();
@@ -300,14 +360,14 @@ JNIEXPORT void JNICALL Java_org_apache_mesos_MesosExecutorDriver_initialize
   // the instance but we make it weak so the JVM can exit).
   jweak jdriver = env->NewWeakGlobalRef(thiz);
 
-  // Create the C++ executor and initialize the __exec variable.
-  JNIExecutor* exec = new JNIExecutor(env, jdriver);
+  // Create the C++ executor and initialize the __executor variable.
+  JNIExecutor* executor = new JNIExecutor(env, jdriver);
 
-  jfieldID __exec = env->GetFieldID(clazz, "__exec", "J");
-  env->SetLongField(thiz, __exec, (jlong) exec);
+  jfieldID __executor = env->GetFieldID(clazz, "__executor", "J");
+  env->SetLongField(thiz, __executor, (jlong) executor);
 
   // Create the C++ driver and initialize the __driver variable.
-  MesosExecutorDriver* driver = new MesosExecutorDriver(exec);
+  MesosExecutorDriver* driver = new MesosExecutorDriver(executor);
 
   jfieldID __driver = env->GetFieldID(clazz, "__driver", "J");
   env->SetLongField(thiz, __driver, (jlong) driver);
@@ -334,12 +394,12 @@ JNIEXPORT void JNICALL Java_org_apache_mesos_MesosExecutorDriver_finalize
 
   delete driver;
 
-  jfieldID __exec = env->GetFieldID(clazz, "__exec", "J");
-  JNIExecutor* exec = (JNIExecutor*) env->GetLongField(thiz, __exec);
+  jfieldID __executor = env->GetFieldID(clazz, "__executor", "J");
+  JNIExecutor* executor = (JNIExecutor*) env->GetLongField(thiz, __executor);
 
-  env->DeleteWeakGlobalRef(exec->jdriver);
+  env->DeleteWeakGlobalRef(executor->jdriver);
 
-  delete exec;
+  delete executor;
 }
 
 

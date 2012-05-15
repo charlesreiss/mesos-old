@@ -15,14 +15,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#ifndef __BUILD_HPP__
+#define __BUILD_HPP__
 
 #include <string>
 
-
-namespace mesos { namespace internal { namespace build {
+namespace mesos {
+namespace internal {
+namespace build {
 
 extern const std::string DATE;
+extern const double TIME;
 extern const std::string USER;
 extern const std::string FLAGS;
 
-}}} // namespace mesos { namespace internal { namespace build {
+} // namespace build {
+} // namespace internal {
+} // namespace mesos {
+
+#endif // __BUILD_HPP__

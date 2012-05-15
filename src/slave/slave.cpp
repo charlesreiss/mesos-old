@@ -17,14 +17,19 @@
  */
 
 #include <errno.h>
+#include <signal.h>
 
 #include <algorithm>
 #include <iomanip>
 
-#include <process/timer.hpp>
+#include <process/delay.hpp>
+#include <process/dispatch.hpp>
+#include <process/id.hpp>
 
 #include "common/build.hpp"
 #include "common/option.hpp"
+#include "common/strings.hpp"
+#include "common/try.hpp"
 #include "common/type_utils.hpp"
 #include "common/utils.hpp"
 
@@ -68,11 +73,20 @@ namespace mesos { namespace internal { namespace slave {
 //   double timeout;
 // };
 
+// Helper function that returns true if the task state is terminal
+bool isTerminalTaskState(TaskState state)
+{
+  return state == TASK_FINISHED ||
+    state == TASK_FAILED ||
+    state == TASK_KILLED ||
+    state == TASK_LOST;
+}
+
 
 Slave::Slave(const Resources& _resources,
              bool _local,
              IsolationModule* _isolationModule)
-  : ProcessBase("slave"),
+  : ProcessBase(ID::generate("slave")),
     resources(_resources),
     local(_local),
     isolationModule(_isolationModule)
@@ -82,13 +96,43 @@ Slave::Slave(const Resources& _resources,
 Slave::Slave(const Configuration& _conf,
              bool _local,
              IsolationModule* _isolationModule)
-  : ProcessBase("slave"),
+  : ProcessBase(ID::generate("slave")),
     conf(_conf),
     local(_local),
     isolationModule(_isolationModule)
 {
+  Try<long> cpus = utils::os::cpus();
+  Try<long> mem = utils::os::memory();
+
+  if (!cpus.isSome()) {
+    LOG(WARNING) << "Failed to auto-detect the number of cpus to use,"
+                 << " defaulting to 1";
+    cpus = Try<long>::some(1);
+  }
+
+  if (!mem.isSome()) {
+    LOG(WARNING) << "Failed to auto-detect the size of main memory,"
+                 << " defaulting to 1024 MB";
+    mem = Try<long>::some(1024);
+  } else {
+    // Convert to MB.
+    mem = mem.get() / 1048576;
+
+    // Leave 1 GB free if we have more than 1 GB, otherwise, use all!
+    // TODO(benh): Have better default scheme (e.g., % of mem not
+    // greater than 1 GB?)
+    if (mem.get() > 1024) {
+      mem = Try<long>::some(mem.get() - 1024);
+    }
+  }
+
+  Try<string> defaults =
+    strings::format("cpus:%d;mem:%d", cpus.get(), mem.get());
+
+  CHECK(defaults.isSome());
+
   resources =
-    Resources::parse(conf.get<string>("resources", "cpus:1;mem:1024"));
+    Resources::parse(conf.get<string>("resources", defaults.get()));
 
   attributes =
     Attributes::parse(conf.get<string>("attributes", ""));
@@ -139,7 +183,7 @@ void Slave::registerOptions(Configurator* configurator)
   configurator->addOption<string>(
       "work_dir",
       "Where to place framework work directories\n"
-      "(default: MESOS_HOME/work)");
+      "(default: /tmp/mesos)");
 
   configurator->addOption<string>(
       "hadoop_home",
@@ -158,7 +202,7 @@ void Slave::registerOptions(Configurator* configurator)
   configurator->addOption<string>(
       "frameworks_home",
       "Directory prepended to relative executor\n"
-      "paths (default: MESOS_HOME/frameworks)");
+      "paths (no default)");
 
   configurator->addOption<double>(
       "executor_shutdown_timeout_seconds",
@@ -174,9 +218,10 @@ void Slave::registerOptions(Configurator* configurator)
 
 void Slave::initialize()
 {
-  LOG(INFO) << "Slave started at " << self();
+  LOG(INFO) << "Slave started on " << string(self()).substr(6);
   LOG(INFO) << "Slave resources: " << resources;
 
+  // Determine our hostname.
   Result<string> result = utils::os::hostname();
 
   if (result.isError()) {
@@ -212,8 +257,7 @@ void Slave::initialize()
            conf, local, self());
 
   // Start all the statistics at 0.
-  CHECK(TASK_STARTING == TaskState_MIN);
-  CHECK(TASK_LOST == TaskState_MAX);
+  stats.tasks[TASK_STAGING] = 0;
   stats.tasks[TASK_STARTING] = 0;
   stats.tasks[TASK_RUNNING] = 0;
   stats.tasks[TASK_FINISHED] = 0;
@@ -364,6 +408,7 @@ void Slave::registered(const SlaveID& slaveId)
 {
   LOG(INFO) << "Registered with master; given slave ID " << slaveId;
   id = slaveId;
+
   connected = true;
 }
 
@@ -418,20 +463,18 @@ void Slave::doReliableRegistration()
 void Slave::runTask(const FrameworkInfo& frameworkInfo,
                     const FrameworkID& frameworkId,
                     const string& pid,
-                    const TaskDescription& task)
+                    const TaskInfo& task)
 {
   LOG(INFO) << "Got assigned task " << task.task_id()
             << " for framework " << frameworkId;
 
   Framework* framework = getFramework(frameworkId);
   if (framework == NULL) {
-    framework = new Framework(frameworkId, frameworkInfo, pid);
+    framework = new Framework(frameworkId, frameworkInfo, pid, conf);
     frameworks[frameworkId] = framework;
   }
 
-  const ExecutorInfo& executorInfo = task.has_executor()
-    ? task.executor()
-    : framework->info.executor();
+  const ExecutorInfo& executorInfo = framework->getExecutorInfo(task);
 
   const ExecutorID& executorId = executorInfo.executor_id();
 
@@ -466,7 +509,7 @@ void Slave::runTask(const FrameworkInfo& frameworkInfo,
       // Add the task and send it to the executor.
       executor->addTask(task);
 
-      stats.tasks[TASK_STARTING]++;
+      stats.tasks[TASK_STAGING]++;
 
       // Update the resources.
       // TODO(Charles Reiss): The isolation module is not guaranteed to update
@@ -484,8 +527,8 @@ void Slave::runTask(const FrameworkInfo& frameworkInfo,
     }
   } else {
     // Launch an executor for this task.
-    const string& directory = createUniqueWorkDirectory(framework->id,
-                                                        executorId);
+    const string& directory =
+      createUniqueWorkDirectory(framework->id, executorId);
 
     LOG(INFO) << "Using '" << directory
               << "' as work directory for executor '" << executorId
@@ -605,8 +648,8 @@ void Slave::shutdownFramework(const FrameworkID& frameworkId)
 
 
 void Slave::schedulerMessage(const SlaveID& slaveId,
-			     const FrameworkID& frameworkId,
-			     const ExecutorID& executorId,
+                             const FrameworkID& frameworkId,
+                             const ExecutorID& executorId,
                              const string& data)
 {
   Framework* framework = getFramework(frameworkId);
@@ -667,7 +710,14 @@ void Slave::statusUpdateAcknowledgement(const SlaveID& slaveId,
       LOG(INFO) << "Got acknowledgement of status update"
                 << " for task " << taskId
                 << " of framework " << frameworkId;
+
       framework->updates.erase(UUID::fromBytes(uuid));
+
+      // Cleanup if this framework has no executors running and no pending updates.
+      if (framework->executors.size() == 0 && framework->updates.empty()) {
+        frameworks.erase(framework->id);
+        delete framework;
+      }
     }
   }
 }
@@ -772,12 +822,17 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
                  << "' of framework " << frameworkId
                  << " is already running";
     reply(ShutdownExecutorMessage());
+  } else if (executor->shutdown) {
+    LOG(WARNING) << "WARNING! executor '" << executorId
+                 << "' of framework " << frameworkId
+                 << " should be shutting down";
+    reply(ShutdownExecutorMessage());
   } else {
     // Save the pid for the executor.
     executor->pid = from;
 
     // First account for the tasks we're about to start.
-    foreachvalue (const TaskDescription& task, executor->queuedTasks) {
+    foreachvalue (const TaskInfo& task, executor->queuedTasks) {
       // Add the task to the executor.
       executor->addTask(task);
     }
@@ -803,8 +858,8 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
     LOG(INFO) << "Flushing " << executor->queuedTasks.size()
               << " queued tasks for framework " << framework->id;
 
-    foreachvalue (const TaskDescription& task, executor->queuedTasks) {
-      stats.tasks[TASK_STARTING]++;
+    foreachvalue (const TaskInfo& task, executor->queuedTasks) {
+      stats.tasks[TASK_STAGING]++;
 
       RunTaskMessage message;
       message.mutable_framework_id()->MergeFrom(framework->id);
@@ -955,10 +1010,7 @@ void Slave::statusUpdate(const StatusUpdate& update)
       executor->updateTaskState(status.task_id(), status.state());
 
       // Handle the task appropriately if it's terminated.
-      if (status.state() == TASK_FINISHED ||
-          status.state() == TASK_FAILED ||
-          status.state() == TASK_KILLED ||
-          status.state() == TASK_LOST) {
+      if (isTerminalTaskState(status.state())) {
         executor->removeTask(status.task_id());
 
         dispatch(isolationModule,
@@ -1285,51 +1337,125 @@ void Slave::executorStarted(const FrameworkID& frameworkId,
 }
 
 
+StatusUpdate Slave::createStatusUpdate(const TaskID& taskId,
+                                       const ExecutorID& executorId,
+                                       const FrameworkID& frameworkId,
+                                       TaskState taskState,
+                                       const string& reason)
+{
+  TaskStatus status;
+  status.mutable_task_id()->MergeFrom(taskId);
+  status.set_state(taskState);
+  status.set_message(reason);
+
+  StatusUpdate update;
+  update.mutable_framework_id()->MergeFrom(frameworkId);
+  update.mutable_slave_id()->MergeFrom(id);
+  update.mutable_executor_id()->MergeFrom(executorId);
+  update.mutable_status()->MergeFrom(status);
+  update.set_timestamp(Clock::now());
+  update.set_uuid(UUID::random().toBytes());
+
+  return update;
+}
+
+
+// Called when an executor is exited.
+// Transitions a live task to TASK_LOST/TASK_FAILED and sends status update.
+void Slave::transitionLiveTask(const TaskID& taskId,
+                               const ExecutorID& executorId,
+                               const FrameworkID& frameworkId,
+                               bool isCommandExecutor,
+                               int status)
+{
+  StatusUpdate update;
+
+  if (isCommandExecutor) {
+    update = createStatusUpdate(taskId,
+                                executorId,
+                                frameworkId,
+                                TASK_FAILED,
+                                "Executor running the task's command failed");
+  } else {
+    update = createStatusUpdate(taskId,
+                                executorId,
+                                frameworkId,
+                                TASK_LOST,
+                                "Executor exited");
+  }
+
+  statusUpdate(update);
+}
+
+
 // Called by the isolation module when an executor process exits.
 void Slave::executorExited(const FrameworkID& frameworkId,
                            const ExecutorID& executorId,
                            int status)
 {
+  LOG(INFO) << "Executor '" << executorId
+            << "' of framework " << frameworkId
+            << (WIFEXITED(status)
+                ? " has exited with status "
+                : " has terminated with signal ")
+            << (WIFEXITED(status)
+                ? utils::stringify(WEXITSTATUS(status))
+                : strsignal(WTERMSIG(status)));
+
   Framework* framework = getFramework(frameworkId);
   if (framework == NULL) {
-    LOG(WARNING) << "WARNING! Unknown executor '" << executorId
-                 << "' of unknown framework " << frameworkId
-                 << " has exited with status " << status;
+    LOG(WARNING) << "Framework " << frameworkId
+                 << " for executor '" << executorId
+                 << "' is no longer valid";
     return;
   }
 
   Executor* executor = framework->getExecutor(executorId);
   if (executor == NULL) {
-    LOG(WARNING) << "WARNING! UNKNOWN executor '" << executorId
+    LOG(WARNING) << "Invalid executor '" << executorId
                  << "' of framework " << frameworkId
-                 << " has exited with status " << status;
+                 << " has exited/terminated";
     return;
   }
 
-  LOG(INFO) << "Executor '" << executorId
-            << "' of framework " << frameworkId
-            << " has exited with status " << status;
+  bool isCommandExecutor = false;
 
-  ExitedExecutorMessage message;
-  message.mutable_slave_id()->MergeFrom(id);
-  message.mutable_framework_id()->MergeFrom(frameworkId);
-  message.mutable_executor_id()->MergeFrom(executorId);
-  message.set_status(status);
-  send(master, message);
+  // Transition all live tasks to TASK_LOST/TASK_FAILED.
+  foreachvalue (Task* task, utils::copy(executor->launchedTasks)) {
+    if (!isTerminalTaskState(task->state())) {
+      isCommandExecutor = !task->has_executor_id();
 
-  // TODO(benh): Send status updates for remaining tasks here rather
-  // than at the master! As in, eliminate the code in
-  // Master::exitedExecutor and put it here.
+      transitionLiveTask(task->task_id(),
+                         executor->id,
+                         framework->id,
+                         isCommandExecutor,
+                         status);
+    }
+  }
+
+  // Transition all queued tasks to TASK_LOST/TASK_FAILED.
+  foreachvalue (const TaskInfo& task, utils::copy(executor->queuedTasks)) {
+    isCommandExecutor = task.has_command();
+
+    transitionLiveTask(task.task_id(),
+                       executor->id,
+                       framework->id,
+                       isCommandExecutor,
+                       status);
+  }
+
+
+  if (!isCommandExecutor) {
+    ExitedExecutorMessage message;
+    message.mutable_slave_id()->MergeFrom(id);
+    message.mutable_framework_id()->MergeFrom(frameworkId);
+    message.mutable_executor_id()->MergeFrom(executorId);
+    message.set_status(status);
+
+    send(master, message);
+  }
 
   framework->destroyExecutor(executor->id);
-
-  // Cleanup if this framework has nothing running.
-  if (framework->executors.size() == 0) {
-    // TODO(benh): But there might be some remaining status updates
-    // that haven't been acknowledged!
-    frameworks.erase(framework->id);
-    delete framework;
-  }
 }
 
 
@@ -1364,12 +1490,8 @@ void Slave::shutdownExecutorTimeout(const FrameworkID& frameworkId,
   }
 
   Executor* executor = framework->getExecutor(executorId);
-  if (executor == NULL) {
-    return;
-  }
-
   // Make sure this timeout is valid.
-  if (executor->uuid == uuid) {
+  if (executor != NULL && executor->uuid == uuid) {
     LOG(INFO) << "Killing executor '" << executor->id
               << "' of framework " << framework->id;
 
@@ -1377,26 +1499,13 @@ void Slave::shutdownExecutorTimeout(const FrameworkID& frameworkId,
              &IsolationModule::killExecutor,
              framework->id, executor->id);
 
-    ExitedExecutorMessage message;
-    message.mutable_slave_id()->MergeFrom(id);
-    message.mutable_framework_id()->MergeFrom(frameworkId);
-    message.mutable_executor_id()->MergeFrom(executorId);
-    message.set_status(-1);
-    send(master, message);
-
-    // TODO(benh): Send status updates for remaining tasks here rather
-    // than at the master! As in, eliminate the code in
-    // Master::exitedExecutor and put it here.
-
     framework->destroyExecutor(executor->id);
+  }
 
-    // Cleanup if this framework has nothing running.
-    if (framework->executors.size() == 0) {
-      // TODO(benh): But there might be some remaining status updates
-      // that haven't been acknowledged!
-      frameworks.erase(framework->id);
-      delete framework;
-    }
+  // Cleanup if this framework has no executors running.
+  if (framework->executors.size() == 0) {
+    frameworks.erase(framework->id);
+    delete framework;
   }
 }
 
@@ -1420,22 +1529,9 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
   LOG(INFO) << "Generating a unique work directory for executor '"
             << executorId << "' of framework " << frameworkId;
 
-  string workDir = "work";  // Default work directory.
-
-  // Now look for configured work directory.
-  Option<string> option = conf.get("work_dir");
-  if (option.isNone()) {
-    // Okay, then look for a home directory instead.
-    option = conf.get("home");
-    if (option.isSome()) {
-      workDir = option.get() + "/work";
-    }
-  } else {
-    workDir = option.get();
-  }
-
   std::ostringstream out(std::ios_base::app | std::ios_base::out);
-  out << workDir << "/slaves/" << id
+  out << conf.get<string>("work_dir", "/tmp/mesos")
+      << "/slaves/" << id
       << "/frameworks/" << frameworkId
       << "/executors/" << executorId;
 
@@ -1460,6 +1556,9 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
       out.str(prefix); // Try with prefix again.
     }
   }
+
+  LOG(FATAL) << "Could not create work directory for executor '"
+             << executorId << "' of framework" << frameworkId;
 }
 
 void Slave::queueUsageUpdates() {

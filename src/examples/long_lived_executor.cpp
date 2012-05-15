@@ -26,11 +26,13 @@
 #include <mesos/executor.hpp>
 
 using namespace mesos;
-using namespace std;
-using namespace std::tr1;
+
+using std::cout;
+using std::endl;
+using std::string;
 
 
-void run(ExecutorDriver* driver, const TaskDescription& task)
+void run(ExecutorDriver* driver, const TaskInfo& task)
 {
   sleep(100);
 
@@ -44,34 +46,40 @@ void run(ExecutorDriver* driver, const TaskDescription& task)
 
 void* start(void* arg)
 {
-  function<void(void)>* thunk = (function<void(void)>*) arg;
+  std::tr1::function<void(void)>* thunk = (std::tr1::function<void(void)>*) arg;
   (*thunk)();
   delete thunk;
   return NULL;
 }
 
 
-class MyExecutor : public Executor
+class LongLivedExecutor : public Executor
 {
 public:
-  virtual ~MyExecutor() {}
+  virtual ~LongLivedExecutor() {}
 
   virtual void registered(ExecutorDriver* driver,
                           const ExecutorInfo& executorInfo,
-                          const FrameworkID& frameworkId,
                           const FrameworkInfo& frameworkInfo,
-                          const SlaveID& slaveId,
                           const SlaveInfo& slaveInfo)
   {
     cout << "Registered executor on " << slaveInfo.hostname() << endl;
   }
 
-  virtual void launchTask(ExecutorDriver* driver, const TaskDescription& task)
+  virtual void reregistered(ExecutorDriver* driver,
+                            const SlaveInfo& slaveInfo)
+  {
+    cout << "Re-registered executor on " << slaveInfo.hostname() << endl;
+  }
+
+  virtual void disconnected(ExecutorDriver* driver) {}
+
+  virtual void launchTask(ExecutorDriver* driver, const TaskInfo& task)
   {
     cout << "Starting task " << task.task_id().value() << endl;
 
-    function<void(void)>* thunk =
-      new function<void(void)>(bind(&run, driver, task));
+    std::tr1::function<void(void)>* thunk =
+      new std::tr1::function<void(void)>(std::tr1::bind(&run, driver, task));
 
     pthread_t pthread;
     if (pthread_create(&pthread, NULL, &start, thunk) != 0) {
@@ -92,21 +100,15 @@ public:
   }
 
   virtual void killTask(ExecutorDriver* driver, const TaskID& taskId) {}
-
-  virtual void frameworkMessage(ExecutorDriver* driver,
-                                const string& data) {}
-
+  virtual void frameworkMessage(ExecutorDriver* driver, const string& data) {}
   virtual void shutdown(ExecutorDriver* driver) {}
-
-  virtual void error(ExecutorDriver* driver, int code,
-                     const std::string& message) {}
+  virtual void error(ExecutorDriver* driver, const string& message) {}
 };
 
 
 int main(int argc, char** argv)
 {
-  MyExecutor exec;
-  MesosExecutorDriver driver(&exec);
-  driver.run();
-  return 0;
+  LongLivedExecutor executor;
+  MesosExecutorDriver driver(&executor);
+  return driver.run() == DRIVER_STOPPED ? 0 : 1;
 }

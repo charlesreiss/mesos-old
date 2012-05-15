@@ -42,13 +42,13 @@ LEVELDB = leveldb
 PROTOBUF = protobuf-$(PROTOBUF_VERSION)
 ZOOKEEPER = zookeeper-$(ZOOKEEPER_VERSION)
 
-EXTRA_DIST = $(BOOST).tar.gz $(BOTO).zip				\
-	$(DISTRIBUTE)/distribute-$(DISTRIBUTE_VERSION)-py2.6.egg	\
-	$(GLOG).tar.gz $(GMOCK).tar.gz $(LEVELDB).tar.gz		\
+
+EXTRA_DIST = $(BOOST).tar.gz $(BOTO).zip $(DISTRIBUTE).tar.gz	\
+	$(GLOG).tar.gz $(GMOCK).tar.gz $(LEVELDB).tar.gz	\
 	$(PROTOBUF).tar.gz $(ZOOKEEPER).tar.gz
 
-CLEAN_EXTRACTED = $(BOOST) $(BOTO) $(GLOG) $(GMOCK) $(LEVELDB)	\
-	$(PROTOBUF) $(ZOOKEEPER)
+CLEAN_EXTRACTED = $(BOOST) $(BOTO) $(DISTRIBUTE) $(GLOG) $(GMOCK)	\
+	$(LEVELDB) $(PROTOBUF) $(ZOOKEEPER)
 
 
 # Convenience library for gmock/gtest.
@@ -71,6 +71,14 @@ BUILT_SOURCES += $(nodist_libgmock_la_SOURCES)
 
 
 $(BOOST)/boost: $(BOOST)-stamp
+
+if HAS_PYTHON
+DISTRIBUTE_EGG = \
+  $(DISTRIBUTE)/dist/$(DISTRIBUTE)$(PYTHON_EGG_PUREPY_POSTFIX).egg
+
+$(DISTRIBUTE_EGG): $(DISTRIBUTE)-stamp
+	cd $(DISTRIBUTE) && $(PYTHON) setup.py bdist_egg
+endif
 
 $(GLOG)/libglog.la: $(GLOG)-stamp
 	cd $(GLOG) && ./configure $(CONFIGURE_ARGS) && \
@@ -99,6 +107,10 @@ $(ZOOKEEPER)/src/c/libzookeeper_mt.la: $(ZOOKEEPER)-stamp
 THIRD_PARTY_LIBS = $(BOOST)-stamp $(GLOG)/libglog.la		\
 	$(LEVELDB)/libleveldb.a $(PROTOBUF)/src/libprotobuf.la	\
 	$(PROTOBUF)/src/protoc
+
+if HAS_PYTHON
+  THIRD_PARTY_LIBS += $(DISTRIBUTE_EGG)
+endif
 
 if WITH_INCLUDED_ZOOKEEPER
   THIRD_PARTY_LIBS += $(ZOOKEEPER)/src/c/libzookeeper_mt.la

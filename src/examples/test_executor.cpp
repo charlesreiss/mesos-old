@@ -16,31 +16,41 @@
  * limitations under the License.
  */
 
-#include <cstdlib>
+#include <unistd.h>
+
 #include <iostream>
 
 #include <mesos/executor.hpp>
 
 using namespace mesos;
-using namespace std;
+
+using std::cout;
+using std::endl;
+using std::string;
 
 
-class MyExecutor : public Executor
+class TestExecutor : public Executor
 {
 public:
-  virtual ~MyExecutor() {}
+  virtual ~TestExecutor() {}
 
   virtual void registered(ExecutorDriver* driver,
                           const ExecutorInfo& executorInfo,
-                          const FrameworkID& frameworkId,
                           const FrameworkInfo& frameworkInfo,
-                          const SlaveID& slaveId,
                           const SlaveInfo& slaveInfo)
   {
     cout << "Registered executor on " << slaveInfo.hostname() << endl;
   }
 
-  virtual void launchTask(ExecutorDriver* driver, const TaskDescription& task)
+  virtual void reregistered(ExecutorDriver* driver,
+                            const SlaveInfo& slaveInfo)
+  {
+    cout << "Re-registered executor on " << slaveInfo.hostname() << endl;
+  }
+
+  virtual void disconnected(ExecutorDriver* driver) {}
+
+  virtual void launchTask(ExecutorDriver* driver, const TaskInfo& task)
   {
     cout << "Starting task " << task.task_id().value() << endl;
 
@@ -61,21 +71,15 @@ public:
   }
 
   virtual void killTask(ExecutorDriver* driver, const TaskID& taskId) {}
-
-  virtual void frameworkMessage(ExecutorDriver* driver,
-                                const string& data) {}
-
+  virtual void frameworkMessage(ExecutorDriver* driver, const string& data) {}
   virtual void shutdown(ExecutorDriver* driver) {}
-
-  virtual void error(ExecutorDriver* driver, int code,
-                     const std::string& message) {}
+  virtual void error(ExecutorDriver* driver, const string& message) {}
 };
 
 
 int main(int argc, char** argv)
 {
-  MyExecutor exec;
-  MesosExecutorDriver driver(&exec);
-  driver.run();
-  return 0;
+  TestExecutor executor;
+  MesosExecutorDriver driver(&executor);
+  return driver.run() == DRIVER_STOPPED ? 0 : 1;
 }

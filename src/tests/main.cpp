@@ -16,18 +16,16 @@
  * limitations under the License.
  */
 
-#include <glog/logging.h>
-
 #include <gtest/gtest.h>
-
-#include <stdlib.h>
 
 #include <string>
 
 #include <process/process.hpp>
 
-#include "common/fatal.hpp"
+#include "common/logging.hpp"
+#include "common/utils.hpp"
 
+#include "configurator/configuration.hpp"
 #include "configurator/configurator.hpp"
 
 #include "tests/utils.hpp"
@@ -35,66 +33,85 @@
 using namespace mesos::internal;
 using namespace mesos::internal::test;
 
+using std::cerr;
+using std::endl;
 using std::string;
 
-namespace {
 
-// TODO(John Sirois): Consider lifting this to common/utils.
-string getRealpath(const string& relPath)
+void usage(const char* argv0, const Configurator& configurator)
 {
-  char path[PATH_MAX];
-  if (realpath(relPath.c_str(), path) == 0) {
-    fatalerror(
-        string("Failed to find location of " + relPath + " using realpath")
-            .c_str());
-  }
-  return path;
+  cerr << "Usage: " << utils::os::basename(argv0) << " [...]" << endl
+       << endl
+       << "Supported options:" << endl
+       << configurator.getUsage();
 }
 
-
-string getMesosSourceDirectory()
-{
-  return getRealpath(SOURCE_DIR);
-}
-
-
-string getMesosBuildDirectory()
-{
-  return getRealpath(BUILD_DIR);
-}
-
-}
 
 int main(int argc, char** argv)
 {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
-  // Get the absolute path to the Mesos project root directory.
-  mesos::internal::test::mesosSourceDirectory = getMesosSourceDirectory();
+  Configurator configurator;
 
-  std::cout << "Source directory: "
-            << mesos::internal::test::mesosSourceDirectory << std::endl;
+  logging::registerOptions(&configurator);
 
-  // Get absolute path to Mesos home install directory.
-  mesos::internal::test::mesosBuildDirectory = getMesosBuildDirectory();
+  // We log to stderr by default, but when running tests we'd prefer
+  // less junk to fly by, so force one to specify the verbosity.
+  configurator.addOption<bool>(
+      "verbose",
+      'v',
+      "Log all severity levels to stderr (default: serverity above ERROR)",
+      false);
 
-  std::cout << "Build directory: "
-            << mesos::internal::test::mesosBuildDirectory << std::endl;
+  configurator.addOption<bool>(
+      "help",
+      'h',
+      "Prints this usage message");
+
+  Configuration conf;
+  try {
+    conf = configurator.load(argc, argv);
+  } catch (const ConfigurationException& e) {
+    cerr << "Configuration error: " << e.what() << endl;
+    exit(1);
+  }
+
+  if (conf.contains("help")) {
+    usage(argv[0], configurator);
+    cerr << endl;
+    testing::InitGoogleTest(&argc, argv); // Get usage from gtest too.
+    exit(1);
+  }
+
+  // Initialize libprocess.
+  process::initialize();
+
+  // Be quiet by default!
+  conf.set("quiet", !conf.get("verbose", false));
+
+  // Initialize logging.
+  logging::initialize(argv[0], conf);
+
+  // Initialize gmock/gtest.
+  testing::InitGoogleTest(&argc, argv);
+  testing::FLAGS_gtest_death_test_style = "threadsafe";
+
+  // Get the absolute path to the source (i.e., root) directory.
+  Try<string> path = utils::os::realpath(SOURCE_DIR);
+  CHECK(path.isSome()) << "Error getting source directory " << path.error();
+  mesosSourceDirectory = path.get();
+
+  std::cout << "Source directory: " << mesosSourceDirectory << std::endl;
+
+  // Get absolute path to the build directory.
+  path = utils::os::realpath(BUILD_DIR);
+  CHECK(path.isSome()) << "Error getting build directory " << path.error();
+  mesosBuildDirectory = path.get();
+
+  std::cout << "Build directory: " << mesosBuildDirectory << std::endl;
 
   // Clear any MESOS_ environment variables so they don't affect our tests.
   Configurator::clearMesosEnvironmentVars();
-
-  putenv("MESOS_WORK_DIR=" BUILD_DIR "/test_output/work");
-
-  // Initialize Google Logging and Google Test.
-  google::InitGoogleLogging("alltests");
-  testing::InitGoogleTest(&argc, argv);
-  testing::FLAGS_gtest_death_test_style = "threadsafe";
-  if (argc == 2 && strcmp("-v", argv[1]) == 0)
-    google::SetStderrLogging(google::INFO);
-
-  // Initialize libprocess library (but not glog, done above).
-  process::initialize(false);
 
   return RUN_ALL_TESTS();
 }

@@ -81,15 +81,23 @@ public:
    * connect with Mesos. In particular, a scheduler can pass some
    * data to it's executors through the FrameworkInfo.ExecutorInfo's
    * data field.
-   * TODO(vinod): Add a new reregistered callback for when the executor
-   * re-connects with a restarted slave.
    */
   virtual void registered(ExecutorDriver* driver,
                           const ExecutorInfo& executorInfo,
-                          const FrameworkID& frameworkId,
                           const FrameworkInfo& frameworkInfo,
-                          const SlaveID& slaveId,
                           const SlaveInfo& slaveInfo) = 0;
+
+  /**
+   * Invoked when the executor re-registers with a restarted slave.
+   */
+  virtual void reregistered(ExecutorDriver* driver,
+                            const SlaveInfo& slaveInfo) = 0;
+
+  /**
+   * Invoked when the executor becomes "disconnected" from the slave
+   * (e.g., the slave is being restarted due to an upgrade).
+   */
+  virtual void disconnected(ExecutorDriver* driver) = 0;
 
   /**
    * Invoked when a task has been launched on this executor (initiated
@@ -99,7 +107,7 @@ public:
    * callback has returned.
    */
   virtual void launchTask(ExecutorDriver* driver,
-                          const TaskDescription& task) = 0;
+                          const TaskInfo& task) = 0;
 
   /**
    * Invoked when a task running within this executor has been killed
@@ -115,8 +123,8 @@ public:
    * executor. These messages are best effort; do not expect a
    * framework message to be retransmitted in any reliable fashion.
    */
-  virtual void frameworkMessage(ExecutorDriver* driver,
-				const std::string& data) = 0;
+    virtual void frameworkMessage(ExecutorDriver* driver,
+                                  const std::string& data) = 0;
 
   /**
    * Invoked when the executor should terminate all of it's currently
@@ -130,12 +138,9 @@ public:
   /**
    * Invoked when a fatal error has occured with the executor and/or
    * executor driver. The driver will be aborted BEFORE invoking this
-   * callback. This function is deprecated and will probably be
-   * removed in a subsequent release.
+   * callback.
    */
-  virtual void error(ExecutorDriver* driver,
-                     int code,
-                     const std::string& message) = 0;
+  virtual void error(ExecutorDriver* driver, const std::string& message) = 0;
 };
 
 
@@ -269,15 +274,8 @@ private:
   // Condition variable for waiting until driver terminates.
   pthread_cond_t cond;
 
-  enum State {
-    INITIALIZED,
-    RUNNING,
-    STOPPED,
-    ABORTED
-  };
-
-  // Variable to store the state of the driver.
-  State state;
+  // Current status of the driver.
+  Status status;
 };
 
 } // namespace mesos {

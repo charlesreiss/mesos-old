@@ -26,15 +26,19 @@ public class TestExecutor implements Executor {
   @Override
   public void registered(ExecutorDriver driver,
                          ExecutorInfo executorInfo,
-                         FrameworkID frameworkId,
                          FrameworkInfo frameworkInfo,
-                         SlaveID slaveId,
                          SlaveInfo slaveInfo) {
     System.out.println("Registered executor on " + slaveInfo.getHostname());
   }
 
   @Override
-  public void launchTask(final ExecutorDriver driver, final TaskDescription task) {
+  public void reregistered(ExecutorDriver driver, SlaveInfo executorInfo) {}
+
+  @Override
+  public void disconnected(ExecutorDriver driver) {}
+
+  @Override
+  public void launchTask(final ExecutorDriver driver, final TaskInfo task) {
     new Thread() { public void run() {
       try {
         TaskStatus status = TaskStatus.newBuilder()
@@ -72,10 +76,10 @@ public class TestExecutor implements Executor {
   public void shutdown(ExecutorDriver driver) {}
 
   @Override
-  public void error(ExecutorDriver driver, int code, String message) {}
+  public void error(ExecutorDriver driver, String message) {}
 
   public static void main(String[] args) throws Exception {
     MesosExecutorDriver driver = new MesosExecutorDriver(new TestExecutor());
-    System.exit(driver.run() == Status.OK ? 0 : 1);
+    System.exit(driver.run() == Status.DRIVER_STOPPED ? 0 : 1);
   }
 }

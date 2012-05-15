@@ -18,7 +18,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.61])
-AC_INIT([mesos], [0.0.1])
+AC_INIT([mesos], [0.9.0])
 
 # Have autoconf setup some variables related to the system.
 AC_CANONICAL_HOST
@@ -73,8 +73,11 @@ AC_CONFIG_COMMANDS_POST([ac_configure_args="$ac_configure_args_post"])
 AC_CONFIG_SUBDIRS([third_party/libprocess])
 
 AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([ec2/Makefile])
+AC_CONFIG_FILES([hadoop/Makefile])
 AC_CONFIG_FILES([src/Makefile])
 AC_CONFIG_FILES([third_party/Makefile])
+
 AC_CONFIG_FILES([bin/mesos-build-env.sh])
 AC_CONFIG_FILES([bin/mesos-local.sh], [chmod +x bin/mesos-local.sh])
 AC_CONFIG_FILES([bin/mesos-master.sh], [chmod +x bin/mesos-master.sh])
@@ -84,6 +87,19 @@ AC_CONFIG_FILES([bin/gdb-mesos-local.sh], [chmod +x bin/gdb-mesos-local.sh])
 AC_CONFIG_FILES([bin/gdb-mesos-master.sh], [chmod +x bin/gdb-mesos-master.sh])
 AC_CONFIG_FILES([bin/gdb-mesos-slave.sh], [chmod +x bin/gdb-mesos-slave.sh])
 AC_CONFIG_FILES([bin/gdb-mesos-tests.sh], [chmod +x bin/gdb-mesos-tests.sh])
+
+AC_CONFIG_FILES([src/deploy/mesos-daemon.sh])
+AC_CONFIG_FILES([src/deploy/mesos-start-cluster.sh])
+AC_CONFIG_FILES([src/deploy/mesos-start-masters.sh])
+AC_CONFIG_FILES([src/deploy/mesos-start-slaves.sh])
+AC_CONFIG_FILES([src/deploy/mesos-stop-cluster.sh])
+AC_CONFIG_FILES([src/deploy/mesos-stop-masters.sh])
+AC_CONFIG_FILES([src/deploy/mesos-stop-slaves.sh])
+
+AC_CONFIG_FILES([include/mesos/mesos.hpp])
+
+AC_CONFIG_FILES([src/java/generated/org/apache/mesos/MesosNativeLibrary.java])
+
 
 AC_ARG_ENABLE([java],
               AS_HELP_STRING([--disable-java],
@@ -104,6 +120,12 @@ AC_ARG_ENABLE([optimize],
               AS_HELP_STRING([--disable-optimize],
                              [don't try to compile with optimizations]),
               [], [enable_optimize=yes])
+
+AC_ARG_WITH([curl],
+            AS_HELP_STRING([--with-curl],
+                           [builds Mesos assuming libcurl
+                           (and its dependencies) are available]),
+             [], [with_curl=no])
 
 AC_ARG_WITH([included-zookeeper],
             AS_HELP_STRING([--without-included-zookeeper],
@@ -136,7 +158,7 @@ case "${target_os}" in
     echo Setting up build environment for ${target_cpu} ${target_os}
     echo ===========================================================
     OS_NAME=linux
-    LIBS="-lrt"
+    LIBS="$LIBS -lrt"
     ;;
   darwin*)
     echo ===========================================================
@@ -153,7 +175,7 @@ case "${target_os}" in
     CXX=g++-4.3.2
     CFLAGS="$CFLAGS -pthreads -march=i586"
     CXXFLAGS="$CXXFLAGS -pthreads -march=i586"
-    LIBS="-lsocket -lnsl -lproject -lproc"
+    LIBS="$LIBS -lsocket -lnsl -lproject -lproc"
     ;;
   *)
     AC_MSG_ERROR("Mesos is currently unsupported on your platform.")
@@ -162,6 +184,15 @@ case "${target_os}" in
 
 # Used for conditionally including source files.
 AM_CONDITIONAL([OS_LINUX], [test "x$OS_NAME" = "xlinux"])
+
+
+# Checks for gcc toolchain (we rely on some atomic builtins for now).
+AC_PROG_CXX([g++])
+AC_PROG_CC([gcc])
+
+
+# Check for pthreads (uses m4/acx_pthread.m4).
+ACX_PTHREAD([], [AC_MSG_ERROR([failed to find pthreads])])
 
 
 # TODO(benh): Consider using AS_IF instead of just shell 'if'
@@ -366,14 +397,21 @@ if test "x$enable_optimize" = "xyes"; then
 fi
 
 
+# Check if we should/can build with libcurl.
+if test "x$with_curl" = "xyes"; then
+  AC_CHECK_LIB([z], [gzread], [],
+               [AC_MSG_ERROR([can't find libz])])
+  AC_CHECK_LIB([crypto], [BN_init], [],
+               [AC_MSG_ERROR([can't find libcrypto])])
+  AC_CHECK_LIB([ssl], [SSL_accept], [],
+               [AC_MSG_ERROR([can't find libssl])])
+  AC_CHECK_LIB([curl], [curl_global_init], [],
+               [AC_MSG_ERROR([can't find libcurl])])
+fi
+
+
 AM_CONDITIONAL([WITH_INCLUDED_ZOOKEEPER],
                [test "x$with_included_zookeeper" = "xyes"])
 
-# Checks for gcc toolchain (we rely on some atomic builtins for now).
-AC_PROG_CXX([g++])
-AC_PROG_CC([gcc])
-
-# Check for pthreads (uses m4/acx_pthread.m4).
-ACX_PTHREAD([], [AC_MSG_ERROR([failed to find pthreads])])
 
 AC_OUTPUT

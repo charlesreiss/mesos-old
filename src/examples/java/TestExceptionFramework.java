@@ -25,14 +25,19 @@ import org.apache.mesos.Protos.*;
 
 
 public class TestExceptionFramework {
-  static class MyScheduler implements Scheduler {
-    public MyScheduler() {
+  static class TestExceptionScheduler implements Scheduler {
+    @Override
+    public void registered(SchedulerDriver driver,
+                           FrameworkID frameworkId,
+                           MasterInfo masterInfo) {
+      throw new ArrayIndexOutOfBoundsException();
     }
 
     @Override
-    public void registered(SchedulerDriver driver, FrameworkID frameworkId) {
-      throw new ArrayIndexOutOfBoundsException();
-    }
+    public void reregistered(SchedulerDriver driver, MasterInfo masterInfo) {}
+
+    @Override
+    public void disconnected(SchedulerDriver driver) {}
 
     @Override
     public void resourceOffers(SchedulerDriver driver,
@@ -45,13 +50,21 @@ public class TestExceptionFramework {
     public void statusUpdate(SchedulerDriver driver, TaskStatus status) {}
 
     @Override
-    public void frameworkMessage(SchedulerDriver driver, SlaveID slaveId, ExecutorID executorId, byte[] data) {}
+    public void frameworkMessage(SchedulerDriver driver,
+                                 ExecutorID executorId,
+                                 SlaveID slaveId,
+                                 byte[] data) {}
 
     @Override
     public void slaveLost(SchedulerDriver driver, SlaveID slaveId) {}
 
     @Override
-    public void error(SchedulerDriver driver, int code, String message) {}
+    public void executorLost(SchedulerDriver driver,
+                             ExecutorID executorId,
+                             SlaveID slaveId,
+                             int status) {}
+
+    public void error(SchedulerDriver driver, String message) {}
   }
 
   private static void usage() {
@@ -65,17 +78,16 @@ public class TestExceptionFramework {
       System.exit(1);
     }
 
-    ExecutorInfo executorInfo = ExecutorInfo.newBuilder()
-      .setExecutorId(ExecutorID.newBuilder().setValue("default").build())
-      .setUri(new File("./test-executor").getCanonicalPath())
-      .build();
+    FrameworkInfo framework = FrameworkInfo.newBuilder()
+        .setUser("") // Have Mesos fill in the current user.
+        .setName("Exception Framework (Java)")
+        .build();
 
     MesosSchedulerDriver driver = new MesosSchedulerDriver(
-        new MyScheduler(),
-        "Exception Framework",
-        executorInfo,
+        new TestExceptionScheduler(),
+        framework,
         args[0]);
 
-    System.exit(driver.run() == Status.OK ? 0 : 1);
+    System.exit(driver.run() == Status.DRIVER_STOPPED ? 0 : 1);
   }
 }

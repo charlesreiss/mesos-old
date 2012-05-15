@@ -21,6 +21,7 @@
 #include <map>
 
 #include <process/dispatch.hpp>
+#include <process/id.hpp>
 
 #include "process_based_isolation_module.hpp"
 
@@ -44,7 +45,8 @@ using process::wait; // Necessary on some OS's to disambiguate.
 
 
 ProcessBasedIsolationModule::ProcessBasedIsolationModule()
-  : initialized(false)
+  : ProcessBase(ID::generate("process-isolation-module")),
+    initialized(false)
 {
   // Spawn the reaper, note that it might send us a message before we
   // actually get spawned ourselves, but that's okay, the message will
@@ -89,7 +91,7 @@ void ProcessBasedIsolationModule::launchExecutor(
   const ExecutorID& executorId = executorInfo.executor_id();
 
   LOG(INFO) << "Launching " << executorId
-            << " (" << executorInfo.uri() << ")"
+            << " (" << executorInfo.command().value() << ")"
             << " in " << directory
             << " with resources " << resources
             << "' for framework " << frameworkId;
@@ -186,17 +188,15 @@ ExecutorLauncher* ProcessBasedIsolationModule::createExecutorLauncher(
 {
   return new ExecutorLauncher(frameworkId,
                               executorInfo.executor_id(),
-                              executorInfo.uri(),
+                              executorInfo.command(),
                               frameworkInfo.user(),
                               directory,
                               slave,
-                              conf.get("frameworks_home", ""),
-                              conf.get("home", ""),
-                              conf.get("hadoop_home", ""),
+                              conf.get<string>("frameworks_home", ""),
+                              conf.get<string>("hadoop_home", ""),
                               !local,
-                              conf.get("switch_user", true),
-                              "",
-                              executorInfo.environment());
+                              conf.get<bool>("switch_user", true),
+                              "");
 }
 
 

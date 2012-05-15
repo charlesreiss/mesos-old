@@ -30,6 +30,7 @@
 #include "common/resources.hpp"
 #include "common/hashmap.hpp"
 #include "common/type_utils.hpp"
+#include "common/utils.hpp"
 #include "common/uuid.hpp"
 
 #include "configurator/configurator.hpp"
@@ -78,7 +79,7 @@ public:
   void runTask(const FrameworkInfo& frameworkInfo,
                const FrameworkID& frameworkId,
                const std::string& pid,
-               const TaskDescription& task);
+               const TaskInfo& task);
   void killTask(const FrameworkID& frameworkId,
                 const TaskID& taskId);
   void shutdownFramework(const FrameworkID& frameworkId);
@@ -105,6 +106,12 @@ public:
 
   void statusUpdateTimeout(const FrameworkID& frameworkId, const UUID& uuid);
 
+  StatusUpdate createStatusUpdate(const TaskID& taskId,
+                                  const ExecutorID& executorId,
+                                  const FrameworkID& frameworkId,
+                                  TaskState taskState,
+                                  const std::string& message);
+
   void executorStarted(const FrameworkID& frameworkId,
                        const ExecutorID& executorId,
                        pid_t pid);
@@ -113,6 +120,11 @@ public:
                       const ExecutorID& executorId,
                       int status);
 
+  void transitionLiveTask(const TaskID& taskId,
+                          const ExecutorID& executorId,
+                          const FrameworkID& frameworkId,
+                          bool command_executor,
+                          int status);
 protected:
   virtual void initialize();
   virtual void finalize();
@@ -220,7 +232,7 @@ struct Executor
     }
   }
 
-  Task* addTask(const TaskDescription& task)
+  Task* addTask(const TaskInfo& task)
   {
     // The master should enforce unique task IDs, but just in case
     // maybe we shouldn't make this a fatal error.
@@ -228,17 +240,21 @@ struct Executor
 
     Task *t = new Task();
     t->mutable_framework_id()->MergeFrom(frameworkId);
-    t->mutable_executor_id()->MergeFrom(id);
-    t->set_state(TASK_STARTING);
+    t->set_state(TASK_STAGING);
     t->set_name(task.name());
     t->mutable_task_id()->MergeFrom(task.task_id());
     t->mutable_slave_id()->MergeFrom(task.slave_id());
     t->mutable_resources()->MergeFrom(task.resources());
     t->mutable_min_resources()->MergeFrom(task.min_resources());
 
+    if (!task.has_command()) {
+      t->mutable_executor_id()->MergeFrom(id);
+    }
+
     launchedTasks[task.task_id()] = t;
     resources += task.resources();
     minResources += task.min_resources();
+    return t;
   }
 
   void removeTask(const TaskID& taskId)
@@ -284,7 +300,7 @@ struct Executor
     return ResourceHints(resources, minResources);
   }
 
-  hashmap<TaskID, TaskDescription> queuedTasks;
+  hashmap<TaskID, TaskInfo> queuedTasks;
   hashmap<TaskID, Task*> launchedTasks;
 };
 
@@ -294,10 +310,57 @@ struct Framework
 {
   Framework(const FrameworkID& _id,
             const FrameworkInfo& _info,
-            const UPID& _pid)
-    : id(_id), info(_info), pid(_pid) {}
+            const UPID& _pid,
+            const Configuration& _conf)
+    : id(_id), info(_info), pid(_pid), conf(_conf) {}
 
   ~Framework() {}
+
+  // Returns an ExecutorInfo for a TaskInfo (possibly
+  // constructing one if the task has a CommandInfo).
+  ExecutorInfo getExecutorInfo(const TaskInfo& task)
+  {
+    CHECK(task.has_executor() != task.has_command());
+
+    if (task.has_command()) {
+      ExecutorInfo executor;
+
+      // Prepare an executor id which includes information on the
+      // command being launched.
+      std::string id = "Task " + task.task_id().value() + " (";
+      if (task.command().value().length() > 15) {
+        id += task.command().value().substr(0, 12) + "...)";
+      } else {
+        id += task.command().value() + ")";
+      }
+
+      executor.mutable_executor_id()->set_value(id);
+
+      // Now determine the path to the executor.
+      std::string directory =
+        conf.get<std::string>("launcher_dir", MESOS_LIBEXECDIR);
+
+      Try<std::string> path =
+        utils::os::realpath(directory + "/mesos-executor");
+
+      if (path.isSome()) {
+        executor.mutable_command()->set_value(path.get());
+      } else {
+        executor.mutable_command()->set_value(
+            "echo '" + path.error() + "'; exit 1");
+      }
+
+      // TODO(benh): Set some resources for the executor so that a task
+      // doesn't end up getting killed because the amount of resources of
+      // the executor went over those allocated. Note that this might mean
+      // that the number of resources on the machine will actually be
+      // slightly oversubscribed, so we'll need to reevaluate with respect
+      // to resources that can't be oversubscribed.
+      return executor;
+    }
+
+    return task.executor();
+  }
 
   Executor* createExecutor(const ExecutorInfo& executorInfo,
                            const std::string& directory)
@@ -342,6 +405,8 @@ struct Framework
   const FrameworkInfo info;
 
   UPID pid;
+
+  const Configuration conf;
 
   // Current running executors.
   hashmap<ExecutorID, Executor*> executors;

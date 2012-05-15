@@ -29,13 +29,22 @@
 #include <signal.h>
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
+
+#ifdef HAVE_LIBCURL
+#include <curl/curl.h>
+#endif
 
 #include <google/protobuf/message.h>
 
 #include <glog/logging.h>
 
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/sysinfo.h>
+#endif
 #include <sys/types.h>
 
 #include <google/protobuf/io/zero_copy_stream_impl.h>
@@ -46,6 +55,7 @@
 #include <boost/lexical_cast.hpp>
 
 #include "common/foreach.hpp"
+#include "common/logging.hpp"
 #include "common/option.hpp"
 #include "common/result.hpp"
 #include "common/strings.hpp"
@@ -193,6 +203,18 @@ inline std::string basename(const std::string& path)
 }
 
 
+inline Try<std::string> realpath(const std::string& path)
+{
+  char temp[PATH_MAX];
+  if (::realpath(path.c_str(), temp) == NULL) {
+    // TODO(benh): Include strerror(errno).
+    return Try<std::string>::error(
+        "Failed to canonicalize " + path + " into an absolute path");
+  }
+  return std::string(temp);
+}
+
+
 inline bool exists(const std::string& path, bool directory = false)
 {
   struct stat s;
@@ -239,20 +261,20 @@ inline bool mkdir(const std::string& directory)
 bool rmdir(const std::string& directory);
 
 
-// Changes the specified file's user and group ownership to that of
+// Changes the specified path's user and group ownership to that of
 // the specified user..
-inline bool chown(const std::string& user, const std::string& file)
+inline bool chown(const std::string& user, const std::string& path)
 {
-  struct passwd* passwd;
+  passwd* passwd;
   if ((passwd = ::getpwnam(user.c_str())) == NULL) {
     PLOG(ERROR) << "Failed to get user information for '"
-                << user
-                << "', getpwnam";
+                << user << "', getpwnam";
     return false;
   }
 
-  if (::chown(file.c_str(), passwd->pw_uid, passwd->pw_gid) < 0) {
-    PLOG(ERROR) << "Failed to change file user and group ownership, chown";
+  if (::chown(path.c_str(), passwd->pw_uid, passwd->pw_gid) < 0) {
+    PLOG(ERROR) << "Failed to change user and group ownership of '"
+                << path << "', chown";
     return false;
   }
 
@@ -273,11 +295,10 @@ inline bool chdir(const std::string& directory)
 
 inline bool su(const std::string& user)
 {
-  struct passwd* passwd;
+  passwd* passwd;
   if ((passwd = ::getpwnam(user.c_str())) == NULL) {
     PLOG(ERROR) << "Failed to get user information for '"
-                << user
-                << "', getpwnam";
+                << user << "', getpwnam";
     return false;
   }
 
@@ -465,6 +486,34 @@ inline Try<int> shell(std::iostream* ios, const std::string& fmt, ...)
   return status;
 }
 
+
+inline int system(const std::string& command)
+{
+  return ::system(command.c_str());
+}
+
+
+// Returns the total number of cpus (cores).
+inline Try<long> cpus()
+{
+  return sysconf(_SC_NPROCESSORS_ONLN);
+}
+
+
+// Returns the total size of main memory in bytes.
+inline Try<long> memory()
+{
+#ifdef __linux__
+  struct sysinfo info;
+  if (sysinfo(&info) != 0) {
+    return Try<long>::error(strerror(errno));
+  }
+  return info.totalram;
+#else
+  return Try<long>::error("Cannot determine the size of main memory");
+#endif
+}
+
 } // namespace os {
 
 
@@ -622,7 +671,63 @@ inline Result<bool> read(const std::string& path,
   return result;
 }
 
+
 } // namespace protobuf {
+
+// Handles http requests.
+namespace net {
+
+// Returns the return code resulting from attempting to download the
+// specified HTTP or FTP URL into a file at the specified path.
+inline Try<int> download(const std::string& url, const std::string& path)
+{
+#ifndef HAVE_LIBCURL
+  return Try<int>::error("Downloading via HTTP/FTP is not supported");
+#else
+  Result<int> fd = utils::os::open(path, O_CREAT | O_WRONLY,
+                                   S_IRUSR | S_IWUSR | S_IRGRP | S_IRWXO);
+
+  CHECK(!fd.isNone());
+
+  if (fd.isError()) {
+    return Try<int>::error(fd.error());
+  }
+
+  curl_global_init(CURL_GLOBAL_ALL);
+  CURL* curl = curl_easy_init();
+
+  if (curl == NULL) {
+    curl_easy_cleanup(curl);
+    utils::os::close(fd.get());
+    return Try<int>::error("Failed to initialize libcurl");
+  }
+
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
+
+  FILE* file = fdopen(fd.get(), "w");
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
+
+  CURLcode curlErrorCode = curl_easy_perform(curl);
+  if (curlErrorCode != 0) {
+    curl_easy_cleanup(curl);
+    fclose(file);
+    return Try<int>::error(curl_easy_strerror(curlErrorCode));
+  }
+
+  long code;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+  curl_easy_cleanup(curl);
+
+  if (!fclose(file)) {
+    return Try<int>::error("Failed to close file handle");
+  }
+
+  return Try<int>::some(code);
+#endif // HAVE_LIBCURL
+}
+
+} // namespace net {
 
 } // namespace utils {
 } // namespace internal {

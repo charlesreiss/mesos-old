@@ -85,21 +85,26 @@ void enterTestDirectory(const char* testCase, const char* testName);
 
 
 /**
- * Macros to get a "default" dummy ExecutorInfo object for testing or
- * create one out of an ExecutorID and string.
+ * Macros to get/create (default) ExecutorInfos and FrameworkInfos.
  */
 #define DEFAULT_EXECUTOR_INFO                                           \
       ({ ExecutorInfo executor;                                         \
         executor.mutable_executor_id()->set_value("default");           \
-        executor.set_uri("noexecutor");                                 \
+        executor.mutable_command()->set_value("exit 1");                \
         executor; })
 
 
-#define CREATE_EXECUTOR_INFO(executorId, uri)                           \
+#define CREATE_EXECUTOR_INFO(executorId, command)                       \
       ({ ExecutorInfo executor;                                         \
         executor.mutable_executor_id()->MergeFrom(executorId);          \
-        executor.set_uri(uri);                                          \
+        executor.mutable_command()->set_value(command);                 \
         executor; })
+
+
+#define DEFAULT_FRAMEWORK_INFO                                          \
+     ({ FrameworkInfo framework;                                        \
+        framework.set_name("default");                                  \
+        framework; })
 
 
 #define DEFAULT_EXECUTOR_ID						\
@@ -118,23 +123,31 @@ inline TaskID TASK_ID(const std::string& value) {
 class MockScheduler : public Scheduler
 {
 public:
-  MOCK_METHOD2(registered, void(SchedulerDriver*, const FrameworkID&));
+  MOCK_METHOD3(registered, void(SchedulerDriver*,
+                                const FrameworkID&,
+                                const MasterInfo&));
+  MOCK_METHOD2(reregistered, void(SchedulerDriver*, const MasterInfo&));
+  MOCK_METHOD1(disconnected, void(SchedulerDriver*));
   MOCK_METHOD2(resourceOffers, void(SchedulerDriver*,
                                     const std::vector<Offer>&));
   MOCK_METHOD2(offerRescinded, void(SchedulerDriver*, const OfferID&));
   MOCK_METHOD2(statusUpdate, void(SchedulerDriver*, const TaskStatus&));
   MOCK_METHOD4(frameworkMessage, void(SchedulerDriver*,
-                                      const SlaveID&,
                                       const ExecutorID&,
+                                      const SlaveID&,
                                       const std::string&));
   MOCK_METHOD2(slaveLost, void(SchedulerDriver*, const SlaveID&));
-  MOCK_METHOD3(error, void(SchedulerDriver*, int, const std::string&));
   MOCK_METHOD0(allocatesMin, bool());
 
   MockScheduler() {
     EXPECT_CALL(*this, allocatesMin())
       .WillRepeatedly(testing::Return(false));
   }
+  MOCK_METHOD4(executorLost, void(SchedulerDriver*,
+                                  const ExecutorID&,
+                                  const SlaveID&,
+                                  int));
+  MOCK_METHOD2(error, void(SchedulerDriver*, const std::string&));
 };
 
 
@@ -144,17 +157,17 @@ public:
 class MockExecutor : public Executor
 {
 public:
-  MOCK_METHOD6(registered, void(ExecutorDriver*,
+  MOCK_METHOD4(registered, void(ExecutorDriver*,
                                 const ExecutorInfo&,
-                                const FrameworkID&,
                                 const FrameworkInfo&,
-                                const SlaveID&,
                                 const SlaveInfo&));
-  MOCK_METHOD2(launchTask, void(ExecutorDriver*, const TaskDescription&));
+  MOCK_METHOD2(reregistered, void(ExecutorDriver*, const SlaveInfo&));
+  MOCK_METHOD1(disconnected, void(ExecutorDriver*));
+  MOCK_METHOD2(launchTask, void(ExecutorDriver*, const TaskInfo&));
   MOCK_METHOD2(killTask, void(ExecutorDriver*, const TaskID&));
   MOCK_METHOD2(frameworkMessage, void(ExecutorDriver*, const std::string&));
   MOCK_METHOD1(shutdown, void(ExecutorDriver*));
-  MOCK_METHOD3(error, void(ExecutorDriver*, int, const std::string&));
+  MOCK_METHOD2(error, void(ExecutorDriver*, const std::string&));
 };
 
 
@@ -167,7 +180,7 @@ public:
   MOCK_METHOD1(slaveAdded, void(master::Slave*));
   MOCK_METHOD1(slaveRemoved, void(master::Slave*));
   MOCK_METHOD2(resourcesRequested, void(const FrameworkID&,
-                                        const std::vector<ResourceRequest>&));
+                                        const std::vector<Request>&));
   MOCK_METHOD3(resourcesUnused, void(const FrameworkID&,
                                      const SlaveID&,
                                      const ResourceHints&));

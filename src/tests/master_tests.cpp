@@ -75,6 +75,7 @@ MATCHER_P(UpdateForTaskId, id, "") {
   return testing::Matcher<std::string>(id).Matches(arg.task_id().value());
 }
 
+
 class MasterSlaveTest : public testing::Test {
 protected:
   MasterSlaveTest() {
@@ -193,7 +194,7 @@ protected:
     vector<TaskStatus> statuses;
     statuses.resize(taskIds.size());
 
-    vector<TaskDescription> tasks;
+    vector<TaskInfo> tasks;
 
     if (expectState != TASK_LOST) {
       EXPECT_CALL(exec, launchTask(_, _))
@@ -205,7 +206,7 @@ protected:
     for (int i = 0; i < taskIds.size(); ++i) {
       const std::string& taskId = taskIds[i];
 
-      TaskDescription task;
+      TaskInfo task;
       task.set_name("");
       task.mutable_task_id()->set_value(taskId);
       task.mutable_slave_id()->MergeFrom(offer.slave_id());
@@ -382,7 +383,7 @@ TEST_F(MasterSlaveTest, ClearFilterOnEndTask)
 
   // We should get a new offer; after we get it, don't launch any tasks in it;
   // this should create a filter.
-  vector<TaskDescription> empty;
+  vector<TaskInfo> empty;
   schedDriver->launchTasks(offers[0].id(), empty);
 
   // Kill a second task. Dispite the filter, we should get more offers because
@@ -455,10 +456,10 @@ TEST_F(MasterSlaveTest, FrameworkMessage)
 TEST_F(MasterSlaveTest, MultipleExecutors)
 {
   MockExecutor exec1;
-  TaskDescription exec1Task;
+  TaskInfo exec1Task;
   trigger exec1LaunchTaskCall, exec1ShutdownCall;
 
-  EXPECT_CALL(exec1, registered(_, _, _, _, _, _))
+  EXPECT_CALL(exec1, registered(_, _, _, _))
     .Times(1);
 
   EXPECT_CALL(exec1, launchTask(_, _))
@@ -470,10 +471,10 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
     .WillOnce(Trigger(&exec1ShutdownCall));
 
   MockExecutor exec2;
-  TaskDescription exec2Task;
+  TaskInfo exec2Task;
   trigger exec2LaunchTaskCall, exec2ShutdownCall;
 
-  EXPECT_CALL(exec2, registered(_, _, _, _, _, _))
+  EXPECT_CALL(exec2, registered(_, _, _, _))
     .Times(1);
 
   EXPECT_CALL(exec2, launchTask(_, _))
@@ -508,23 +509,24 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
     .WillOnce(DoAll(SaveArg<1>(&status1), Trigger(&statusUpdateCall1)))
     .WillOnce(DoAll(SaveArg<1>(&status2), Trigger(&statusUpdateCall2)));
 
-  TaskDescription task1;
+  TaskInfo task1;
   task1.set_name("");
   task1.mutable_task_id()->set_value("1");
   task1.mutable_slave_id()->MergeFrom(offers[0].slave_id());
   task1.mutable_resources()->MergeFrom(Resources::parse("cpus:1;mem:512"));
-  task1.mutable_executor()->mutable_executor_id()->MergeFrom(executorId1);
-  task1.mutable_executor()->set_uri("noexecutor");
+  task1.mutable_executor()->MergeFrom(executor1);
 
-  TaskDescription task2;
+  ExecutorInfo executor2; // Bug in gcc 4.1.*, must assign on next line.
+  executor2 = CREATE_EXECUTOR_INFO(executorId2, "exit 1");
+
+  TaskInfo task2;
   task2.set_name("");
   task2.mutable_task_id()->set_value("2");
   task2.mutable_slave_id()->MergeFrom(offers[0].slave_id());
   task2.mutable_resources()->MergeFrom(Resources::parse("cpus:1;mem:512"));
-  task2.mutable_executor()->mutable_executor_id()->MergeFrom(executorId2);
-  task2.mutable_executor()->set_uri("noexecutor");
+  task2.mutable_executor()->MergeFrom(executor2);
 
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   tasks.push_back(task1);
   tasks.push_back(task2);
 
@@ -581,6 +583,146 @@ TEST_F(MasterSlaveTest, AccumulateUsage) {
   stopMasterAndSlave();
 }
 
+TEST(MasterTest, MasterInfo)
+{
+  ASSERT_TRUE(GTEST_IS_THREADSAFE);
+
+  MockFilter filter;
+  process::filter(&filter);
+
+  EXPECT_MESSAGE(filter, _, _, _)
+    .WillRepeatedly(Return(false));
+
+  SimpleAllocator a;
+  Master m(&a);
+  PID<Master> master = process::spawn(&m);
+
+  MockExecutor exec;
+
+  map<ExecutorID, Executor*> execs;
+  execs[DEFAULT_EXECUTOR_ID] = &exec;
+
+  TestingIsolationModule isolationModule(execs);
+
+  Resources resources = Resources::parse("cpus:2;mem:1024");
+
+  Slave s(resources, true, &isolationModule);
+  PID<Slave> slave = process::spawn(&s);
+
+  BasicMasterDetector detector(master, slave, true);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
+
+  MasterInfo masterInfo;
+
+  trigger registeredCall;
+
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(DoAll(SaveArg<2>(&masterInfo),
+                    Trigger(&registeredCall)));
+
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(Return());
+
+  driver.start();
+
+  WAIT_UNTIL(registeredCall);
+
+  EXPECT_EQ(master.port, masterInfo.port());
+  EXPECT_EQ(master.ip, masterInfo.ip());
+
+  driver.stop();
+  driver.join();
+
+  process::terminate(slave);
+  process::wait(slave);
+
+  process::terminate(master);
+  process::wait(master);
+
+  process::filter(NULL);
+}
+
+
+TEST(MasterTest, MasterInfoOnReElection)
+{
+  ASSERT_TRUE(GTEST_IS_THREADSAFE);
+
+  MockFilter filter;
+  process::filter(&filter);
+
+  EXPECT_MESSAGE(filter, _, _, _)
+    .WillRepeatedly(Return(false));
+
+  SimpleAllocator a;
+  Master m(&a);
+  PID<Master> master = process::spawn(&m);
+
+  MockExecutor exec;
+
+  map<ExecutorID, Executor*> execs;
+  execs[DEFAULT_EXECUTOR_ID] = &exec;
+
+  TestingIsolationModule isolationModule(execs);
+
+  Resources resources = Resources::parse("cpus:2;mem:1024");
+
+  Slave s(resources, true, &isolationModule);
+  PID<Slave> slave = process::spawn(&s);
+
+  BasicMasterDetector detector(master, slave, true);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
+
+  MasterInfo masterInfo;
+
+  trigger registeredCall, reregisteredCall;
+
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(Trigger(&registeredCall));
+
+  EXPECT_CALL(sched, reregistered(&driver, _))
+    .WillOnce(DoAll(SaveArg<1>(&masterInfo),Trigger(&reregisteredCall)));
+
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(Return());
+
+  process::Message message;
+
+  EXPECT_MESSAGE(filter, Eq(FrameworkRegisteredMessage().GetTypeName()), _, _)
+    .WillOnce(DoAll(SaveArgField<0>(&process::MessageEvent::message, &message),
+                    Return(false)));
+
+  driver.start();
+
+  WAIT_UNTIL(registeredCall);
+
+  // Simulate a spurious newMasterDetected event (e.g., due to ZooKeeper
+  // expiration) at the scheduler.
+  NewMasterDetectedMessage newMasterDetectedMsg;
+  newMasterDetectedMsg.set_pid(master);
+
+  process::post(message.to, newMasterDetectedMsg);
+
+  WAIT_UNTIL(reregisteredCall);
+
+  EXPECT_EQ(master.port, masterInfo.port());
+  EXPECT_EQ(master.ip, masterInfo.ip());
+
+  driver.stop();
+  driver.join();
+
+  process::terminate(slave);
+  process::wait(slave);
+
+  process::terminate(master);
+  process::wait(master);
+
+  process::filter(NULL);
+}
+
 // FrameworksManager test cases.
 
 class MockFrameworksStorage : public FrameworksStorage
@@ -595,6 +737,78 @@ public:
   MOCK_METHOD1(remove, Future<Result<bool> >(const FrameworkID&));
 };
 
+
+TEST(MasterTest, MasterLost)
+{
+  ASSERT_TRUE(GTEST_IS_THREADSAFE);
+
+  MockFilter filter;
+  process::filter(&filter);
+
+  EXPECT_MESSAGE(filter, _, _, _)
+    .WillRepeatedly(Return(false));
+
+  SimpleAllocator a;
+  Master m(&a);
+  PID<Master> master = process::spawn(&m);
+
+  MockExecutor exec;
+
+  map<ExecutorID, Executor*> execs;
+  execs[DEFAULT_EXECUTOR_ID] = &exec;
+
+  TestingIsolationModule isolationModule(execs);
+
+  Resources resources = Resources::parse("cpus:2;mem:1024");
+
+  Slave s(resources, true, &isolationModule);
+  PID<Slave> slave = process::spawn(&s);
+
+  BasicMasterDetector detector(master, slave, true);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
+
+  MasterInfo masterInfo;
+
+  trigger registeredCall, disconnectedCall;
+
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(Trigger(&registeredCall));
+
+  EXPECT_CALL(sched, disconnected(&driver))
+    .WillOnce(Trigger(&disconnectedCall));
+
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(Return());
+
+  process::Message message;
+
+  EXPECT_MESSAGE(filter, Eq(FrameworkRegisteredMessage().GetTypeName()), _, _)
+    .WillOnce(DoAll(SaveArgField<0>(&process::MessageEvent::message, &message),
+                    Return(false)));
+
+  driver.start();
+
+  WAIT_UNTIL(registeredCall);
+
+  // Simulate a spurious noMasterDetected event at the scheduler.
+  NoMasterDetectedMessage noMasterDetectedMsg;
+  process::post(message.to, noMasterDetectedMsg);
+
+  WAIT_UNTIL(disconnectedCall);
+
+  driver.stop();
+  driver.join();
+
+  process::terminate(slave);
+  process::wait(slave);
+
+  process::terminate(master);
+  process::wait(master);
+
+  process::filter(NULL);
+}
 
 // This fixture sets up expectations on the storage class
 // and spawns both storage and frameworks manager.

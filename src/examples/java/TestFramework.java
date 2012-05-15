@@ -29,36 +29,41 @@ import org.apache.mesos.Protos.*;
 
 
 public class TestFramework {
-  static class MyScheduler implements Scheduler {
-    int launchedTasks = 0;
-    int finishedTasks = 0;
-    final int totalTasks;
-
-    public MyScheduler() {
-      this(5);
+  static class TestScheduler implements Scheduler {
+    public TestScheduler(ExecutorInfo executor) {
+      this(executor, 5);
     }
 
-    public MyScheduler(int numTasks) {
-      totalTasks = numTasks;
+    public TestScheduler(ExecutorInfo executor, int totalTasks) {
+      this.executor = executor;
+      this.totalTasks = totalTasks;
     }
 
     @Override
-    public void registered(SchedulerDriver driver, FrameworkID frameworkId) {
+    public void registered(SchedulerDriver driver, 
+                           FrameworkID frameworkId, 
+                           MasterInfo masterInfo) {
       System.out.println("Registered! ID = " + frameworkId.getValue());
     }
+
+    @Override
+    public void reregistered(SchedulerDriver driver, MasterInfo masterInfo) {}
+
+    @Override
+    public void disconnected(SchedulerDriver driver) {}
 
     @Override
     public void resourceOffers(SchedulerDriver driver,
                                List<Offer> offers) {
       for (Offer offer : offers) {
-        List<TaskDescription> tasks = new ArrayList<TaskDescription>();
+        List<TaskInfo> tasks = new ArrayList<TaskInfo>();
         if (launchedTasks < totalTasks) {
           TaskID taskId = TaskID.newBuilder()
             .setValue(Integer.toString(launchedTasks++)).build();
 
           System.out.println("Launching task " + taskId.getValue());
 
-          TaskDescription task = TaskDescription.newBuilder()
+          TaskInfo task = TaskInfo.newBuilder()
             .setName("task " + taskId.getValue())
             .setTaskId(taskId)
             .setSlaveId(offer.getSlaveId())
@@ -76,6 +81,7 @@ public class TestFramework {
                                      .setValue(128)
                                      .build())
                           .build())
+            .setExecutor(executor)
             .build();
           tasks.add(task);
         }
@@ -89,26 +95,40 @@ public class TestFramework {
 
     @Override
     public void statusUpdate(SchedulerDriver driver, TaskStatus status) {
-      System.out.println("Status update: task " + status.getTaskId() +
+      System.out.println("Status update: task " + status.getTaskId().getValue() +
                          " is in state " + status.getState());
       if (status.getState() == TaskState.TASK_FINISHED) {
         finishedTasks++;
         System.out.println("Finished tasks: " + finishedTasks);
-        if (finishedTasks == totalTasks)
+        if (finishedTasks == totalTasks) {
           driver.stop();
+        }
       }
     }
 
     @Override
-    public void frameworkMessage(SchedulerDriver driver, SlaveID slaveId, ExecutorID executorId, byte[] data) {}
+    public void frameworkMessage(SchedulerDriver driver,
+                                 ExecutorID executorId,
+                                 SlaveID slaveId,
+                                 byte[] data) {}
 
     @Override
     public void slaveLost(SchedulerDriver driver, SlaveID slaveId) {}
 
     @Override
-    public void error(SchedulerDriver driver, int code, String message) {
+    public void executorLost(SchedulerDriver driver,
+                             ExecutorID executorId,
+                             SlaveID slaveId,
+                             int status) {}
+
+    public void error(SchedulerDriver driver, String message) {
       System.out.println("Error: " + message);
     }
+
+    private final ExecutorInfo executor;
+    private final int totalTasks;
+    private int launchedTasks = 0;
+    private int finishedTasks = 0;
   }
 
   private static void usage() {
@@ -122,27 +142,28 @@ public class TestFramework {
       System.exit(1);
     }
 
-    ExecutorInfo executorInfo = ExecutorInfo.newBuilder()
+    String uri = new File("./test-executor").getCanonicalPath();
+
+    ExecutorInfo executor = ExecutorInfo.newBuilder()
       .setExecutorId(ExecutorID.newBuilder().setValue("default").build())
-      .setUri(new File("./test-executor").getCanonicalPath())
+      .setCommand(CommandInfo.newBuilder().setValue(uri).build())
       .build();
 
-    MesosSchedulerDriver driver;
+    FrameworkInfo framework = FrameworkInfo.newBuilder()
+        .setUser("") // Have Mesos fill in the current user.
+        .setName("Test Framework (Java)")
+        .build();
 
-    if (args.length == 1) {
-      driver = new MesosSchedulerDriver(
-          new MyScheduler(),
-          "Java test framework",
-          executorInfo,
-          args[0]);
-    } else {
-      driver = new MesosSchedulerDriver(
-          new MyScheduler(Integer.parseInt(args[1])),
-          "Java test framework",
-          executorInfo,
-          args[0]);
-    }
+    MesosSchedulerDriver driver = args.length == 1
+      ? new MesosSchedulerDriver(
+          new TestScheduler(executor),
+          framework,
+          args[0])
+    : new MesosSchedulerDriver(
+        new TestScheduler(executor, Integer.parseInt(args[1])),
+        framework,
+        args[0]);
 
-    System.exit(driver.run() == Status.OK ? 0 : 1);
+    System.exit(driver.run() == Status.DRIVER_STOPPED ? 0 : 1);
   }
 }

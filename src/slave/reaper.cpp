@@ -19,21 +19,22 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include <process/delay.hpp>
 #include <process/dispatch.hpp>
-#include <process/timer.hpp>
-
-#include "reaper.hpp"
+#include <process/id.hpp>
 
 #include "common/foreach.hpp"
 
-using namespace process;
+#include "slave/reaper.hpp"
 
+using namespace process;
 
 namespace mesos {
 namespace internal {
 namespace slave {
 
-Reaper::Reaper() {}
+Reaper::Reaper()
+  : ProcessBase(ID::generate("reaper")) {}
 
 
 Reaper::~Reaper() {}
@@ -58,8 +59,11 @@ void Reaper::reap()
   pid_t pid;
   int status;
   if ((pid = waitpid((pid_t) -1, &status, WNOHANG)) > 0) {
-    foreach (const PID<ProcessExitedListener>& listener, listeners) {
-      dispatch(listener, &ProcessExitedListener::processExited, pid, status);
+    // Ignore this if the child process has only stopped.
+    if (!WIFSTOPPED(status)) {
+      foreach (const PID<ProcessExitedListener>& listener, listeners) {
+        dispatch(listener, &ProcessExitedListener::processExited, pid, status);
+      }
     }
   }
 

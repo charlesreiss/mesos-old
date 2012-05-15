@@ -52,47 +52,41 @@ public class MesosSchedulerDriver implements SchedulerDriver {
   }
 
   /**
-   * Creates a new scheduler driver that connects to a Mesos master
-   * through the specified URL. Optionally providing an existing
-   * framework ID can be used to failover a framework.
+   * Creates a new driver for the specified scheduler. The master
+   * should be one of:
+   *
+   *     host:port
+   *     zk://host1:port1,host2:port2,.../path
+   *     zk://username:password@host1:port1,host2:port2,.../path
+   *     file:///path/to/file (where file contains one of the above)
+   *
+   * The driver will attempt to "failover" if the specified
+   * FrameworkInfo includes a valid FrameworkID.
    *
    * Any Mesos configuration options are read from environment
    * variables, as well as any configuration files found through the
    * environment variables.
    */
-  public MesosSchedulerDriver(Scheduler sched,
-                              String frameworkName,
-                              ExecutorInfo executorInfo,
-                              String url,
-                              FrameworkID frameworkId) {
-    if (sched == null) {
-      throw new NullPointerException("Not expecting a null scheduler");
+  public MesosSchedulerDriver(Scheduler scheduler,
+                              FrameworkInfo framework,
+                              String master) {
+    if (scheduler == null) {
+      throw new NullPointerException("Not expecting a null Scheduler");
     }
 
-    if (frameworkName == null) {
-      throw new NullPointerException("Not expecting a null framework name");
+    if (framework == null) {
+      throw new NullPointerException("Not expecting a null FrameworkInfo");
     }
 
-    this.sched = sched;
-    this.url = url;
-    this.frameworkId = frameworkId;
-    this.frameworkName = frameworkName;
-    this.executorInfo = executorInfo;
+    if (master == null) {
+      throw new NullPointerException("Not expecting a null master");
+    }
+
+    this.scheduler = scheduler;
+    this.framework = framework;
+    this.master = master;
+
     initialize();
-  }
-
-  /**
-   * Creates a new scheduler driver. See above for details.
-   */
-  public MesosSchedulerDriver(Scheduler sched,
-                              String frameworkName,
-                              ExecutorInfo executorInfo,
-                              String url) {
-    this(sched,
-         frameworkName,
-         executorInfo,
-         url,
-         FrameworkID.newBuilder().setValue("").build());
   }
 
   /**
@@ -107,38 +101,42 @@ public class MesosSchedulerDriver implements SchedulerDriver {
   public native Status join();
 
   public Status run() {
-    Status ret = start();
-    return ret != Status.OK ? ret : join();
+    Status status = start();
+    return status != Status.DRIVER_RUNNING ? status : join();
   }
 
-  public native Status requestResources(Collection<ResourceRequest> requests);
+  public native Status requestResources(Collection<Request> requests);
 
   public Status launchTasks(OfferID offerId,
-                            Collection<TaskDescription> tasks) {
+                            Collection<TaskInfo> tasks) {
     return launchTasks(offerId, tasks, Filters.newBuilder().build());
   }
 
   public native Status launchTasks(OfferID offerId,
-                                   Collection<TaskDescription> tasks,
+                                   Collection<TaskInfo> tasks,
                                    Filters filters);
 
   public native Status killTask(TaskID taskId);
 
+  public Status declineOffer(OfferID offerId) {
+    return declineOffer(offerId, Filters.newBuilder().build());
+  }
+
+  public native Status declineOffer(OfferID offerId, Filters filters);
+
   public native Status reviveOffers();
 
-  public native Status sendFrameworkMessage(SlaveID slaveId,
-                                            ExecutorID executorId,
+  public native Status sendFrameworkMessage(ExecutorID executorId,
+                                            SlaveID slaveId,
                                             byte[] data);
 
   protected native void initialize();
   protected native void finalize();
 
-  private final Scheduler sched;
-  private final String url;
-  private final FrameworkID frameworkId;
-  private final String frameworkName;
-  private final ExecutorInfo executorInfo;
+  private final Scheduler scheduler;
+  private final FrameworkInfo framework;
+  private final String master;
 
-  private long __sched;
+  private long __scheduler;
   private long __driver;
 }
