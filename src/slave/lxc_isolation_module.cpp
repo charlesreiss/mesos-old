@@ -99,7 +99,7 @@ void LxcIsolationModule::initialize(
     LOG(FATAL) << "LXC isolation module requires slave to run as root";
   }
 
-  cgroupRoot = conf.get<std::string>("cgroup_root", "/sys/fs/cgroup");
+  cgroupRoot = conf.get<std::string>("cgroup_root", "/sys/fs/cgroup/");
 
   initialized = true;
 }
