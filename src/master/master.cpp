@@ -641,10 +641,10 @@ void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
           framework->addTask(task);
           // Also add the task's executor for resource accounting.
           if (task->has_executor_id()) {
-              CHECK(slave->hasExecutor(framework->id, task->executor_id()));
-              const ExecutorInfo& info = slave->executors[framework->id][
-                task->executor_id()];
-              addExecutor(framework->id, slave->id, info);
+            CHECK(slave->hasExecutor(framework->id, task->executor_id()));
+            const ExecutorInfo& info = slave->executors[framework->id][
+              task->executor_id()];
+            addExecutor(framework->id, slave->id, info);
           }
         }
       }
@@ -1078,10 +1078,7 @@ void Master::exitedExecutor(const SlaveID& slaveId,
       ExecutorInfo info = slave->executors[frameworkId][executorId];
 
       // Remove executor from slave and framework.
-      slave->removeExecutor(frameworkId, executorId);
-      framework->removeExecutor(slave->id, executorId);
-
-      allocator->executorRemoved(frameworkId, slave->id, info);
+      removeExecutor(slave, framework, info);
 
       // TODO(benh): Send the framework it's executor's exit status?
       // Or maybe at least have something like
@@ -1281,7 +1278,7 @@ struct ResourceUsageChecker : TaskInfoVisitor
       Framework* framework,
       Slave* slave)
   {
-    if (task.resources().size() == 0) {
+    if (task.resources().size() == 0 && task.min_resources().size() == 0) {
       return TaskInfoError::some("Task uses no resources");
     }
 
@@ -1534,9 +1531,9 @@ ResourceHints Master::launchTask(const TaskInfo& task,
     // TODO(benh): Refactor this code into Slave::addTask.
     if (!slave->hasExecutor(framework->id, task.executor().executor_id())) {
       CHECK(!framework->hasExecutor(slave->id, task.executor().executor_id()));
-      slave->addExecutor(framework->id, task.executor());
-      framework->addExecutor(slave->id, task.executor());
+      addExecutor(framework->id, slave->id, task.executor());
       resources += task.executor().resources();
+      minResources + task.executor().min_resources();
     }
 
     executorId = Option<ExecutorID>::some(task.executor().executor_id());
@@ -1754,18 +1751,7 @@ void Master::readdSlave(Slave* slave,
     if (t->has_executor_id()) {
       foreach (const ExecutorInfo& executorInfo, executorInfos) {
         if (executorInfo.executor_id() == task.executor_id()) {
-          if (!slave->hasExecutor(task.framework_id(), task.executor_id())) {
-            slave->addExecutor(task.framework_id(), executorInfo);
-          }
-
-          // Also try to add the executor to the framework if the
-          // framework has re-registered with this master.
-          Framework* framework = getFramework(task.framework_id());
-          if (framework != NULL) {
-            if (!framework->hasExecutor(slave->id, task.executor_id())) {
-              framework->addExecutor(slave->id, executorInfo);
-            }
-          }
+          addExecutor(task.framework_id(), slave->id, executorInfo);
           break;
         }
       }
@@ -1929,6 +1915,8 @@ void Master::addExecutor(const FrameworkID& frameworkId,
   }
   if (!hadSlave && !hadFramework) {
     allocator->executorAdded(framework->id, slave->id, info);
+  } else {
+    LOG(INFO) << "Not adding executor to allocator again";
   }
 }
 

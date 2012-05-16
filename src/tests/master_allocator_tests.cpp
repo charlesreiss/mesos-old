@@ -62,6 +62,9 @@ protected:
     EXPECT_MESSAGE(filter, _, _, _).
       WillRepeatedly(Return(false));
     process::filter(&filter);
+    EXPECT_CALL(allocator, resourcesUnused(_, _,
+          ResourceHints::parse("cpus:0;mem:0", "cpus:0;mem:0"))).
+        Times(AnyNumber());
   }
 
   void TearDown()
@@ -241,6 +244,7 @@ protected:
     task.mutable_slave_id()->MergeFrom(theOffer.slave_id());
     task.mutable_resources()->MergeFrom(resources);
     task.mutable_min_resources()->MergeFrom(minResources);
+    task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
     tasks->push_back(task);
   }
 
@@ -417,8 +421,6 @@ TEST_F(MasterAllocatorTest, ExitedExecutor) {
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
-  EXPECT_CALL(allocator, taskRemoved(_));
-  framework->expect<StatusUpdateMessage>();
   sendExecutorExited(1);
 }
 
