@@ -78,10 +78,10 @@ public:
     process::dispatch(slave.get(), &Slave::registered, getSlaveId());
   }
 
-  TaskDescription makeTaskDescription(const std::string& id,
-                                      const ResourceHints& resources)
+  TaskInfo makeTaskInfo(const std::string& id,
+                        const ResourceHints& resources)
   {
-    TaskDescription task;
+    TaskInfo task;
     task.set_name(id);
     task.mutable_task_id()->set_value(id);
     task.mutable_slave_id()->MergeFrom(getSlaveId());
@@ -115,10 +115,10 @@ public:
     trigger gotStatusUpdate;
     mockMaster->expectAndWait<StatusUpdateMessage>(slavePid, &gotStatusUpdate);
     process::dispatch(slave.get(), &Slave::runTask,
-        DEFAULT_FRAMEWORK_INFO,
+        DEFAULT_FRAMEWORK_INFO_WITH_ID,
         DEFAULT_FRAMEWORK_ID,
         mockMasterPid, // mock master acting as scheduler
-        makeTaskDescription(id, resources));
+        makeTaskInfo(id, resources));
     WAIT_UNTIL(gotRegister);
     WAIT_UNTIL(gotStatusUpdate);
   }

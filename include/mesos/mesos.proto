@@ -133,7 +133,7 @@ message ExecutorInfo {
   required CommandInfo command = 7;
   repeated Resource resources = 5;
   optional bytes data = 4;
-  repeated Resource min_resources = 7;
+  repeated Resource min_resources = 8;
 }
 
 

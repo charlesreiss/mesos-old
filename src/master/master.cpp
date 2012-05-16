@@ -123,7 +123,6 @@ struct SlaveRegistrar
     // TODO(benh): Do a reverse lookup to ensure IP maps to
     // hostname, or check credentials of this slave.
     dispatch(master, &Master::addSlave, slave, false);
-    return true;
   }
 
   static bool run(Slave* slave,
@@ -1076,6 +1075,8 @@ void Master::exitedExecutor(const SlaveID& slaveId,
                 << " (" << slave->info.hostname() << ") "
                 << "exited with status " << status;
 
+      ExecutorInfo info = slave->executors[frameworkId][executorId];
+
       // Remove executor from slave and framework.
       slave->removeExecutor(frameworkId, executorId);
       framework->removeExecutor(slave->id, executorId);
@@ -1298,68 +1299,35 @@ struct ResourceUsageChecker : TaskInfoVisitor
       }
     }
 
+    ResourceHints taskResources;
+
     // Check that the executor is using some resources.
-    const ExecutorInfo& executorInfo = task.has_executor()
-      ? task.executor()
-      : framework->info.executor();
-
-    // TODO(benh): Check that the executor uses some resources.
-
-    foreach (const Resource& resource, executorInfo.resources()) {
-      if (!Resources::isAllocatable(resource)) {
-        // TODO(benh): Send back the invalid resources?
-        return TaskDescriptionError::some(
-            "Task's executor uses invalid resources");
-        return TaskInfoError::some("Task uses invalid resources");
-      }
-    }
-
-    /* TODO(charles): add min_resources to executroInfo
-    foreach (const Resource& resource, executorInfo.resources()) {
-      if (!Resources::isAllocatable(resource)) {
-        // TODO(benh): Send back the invalid resources?
-        return TaskInfoError::some(
-            "Task's executor uses invalid resources");
-      }
-    }
-    */
-
-    // Check if this task uses more resources than offered.
-    ResourceHints taskResources = ResourceHints::forTaskDescription(task);
-
-    if (!((usedResources + taskResources) <=
-          ResourceHints::forOffer(*offer))) {
-      LOG(WARNING) << "old resources = " << usedResources
-                   << "new resources = " << taskResources
-                   << "sum resources = " << (usedResources + taskResources)
-                   << "offer resources = " << ResourceHints::forOffer(*offer);
-      return TaskInfoError::some(
-          "Task uses more resources than offered");
-    }
-
-    // Check if this task's executor is running, and if not check if
-    // the task + the executor use more resources than offered.
-    if (!executors.contains(executorInfo.executor_id())) {
-      if (!slave->hasExecutor(framework->id, executorInfo.executor_id())) {
-        taskResources += ResourceHints::forExecutorInfo(executorInfo);
-        if (!((usedResources + taskResources) <=
-            ResourceHints::forOffer(*offer))) {
-          LOG(WARNING) << "Task " << task.task_id() << " attempted to use "
-                  << taskResources << " combined with already used "
-                  << usedResources << " is greater than offered "
-                  << ResourceHints::forOffer(*offer);
-
-	  return TaskInfoError::some(
-              "Task + executor uses more resources than offered");
+    if (task.has_executor()) {
+      const ExecutorInfo& executorInfo = task.executor();
+      foreach (const Resource& resource, executorInfo.resources()) {
+        if (!Resources::isAllocatable(resource)) {
+          // TODO(benh): Send back the invalid resources?
+          return TaskInfoError::some(
+              "Task's executor uses invalid resources");
         }
       }
+
+      /* TODO(charles): add min_resources to executroInfo
+      foreach (const Resource& resource, executorInfo.resources()) {
+        if (!Resources::isAllocatable(resource)) {
+          // TODO(benh): Send back the invalid resources?
+          return TaskInfoError::some(
+              "Task's executor uses invalid resources");
+        }
+      }
+      */
 
       // Check if this task's executor is running, and if not check if
       // the task + the executor use more resources than offered.
       if (!executors.contains(task.executor().executor_id())) {
         if (!slave->hasExecutor(framework->id, task.executor().executor_id())) {
-          taskResources += task.executor().resources();
-          if (!((usedResources + taskResources) <= offer->resources())) {
+          taskResources += ResourceHints::forExecutorInfo(task.executor());
+          if (!((usedResources + taskResources) <= ResourceHints::forOffer(*offer))) {
             LOG(WARNING) << "Task " << task.task_id() << " attempted to use "
                          << taskResources << " combined with already used "
                          << usedResources << " is greater than offered "
@@ -1371,6 +1339,19 @@ struct ResourceUsageChecker : TaskInfoVisitor
         }
         executors.insert(task.executor().executor_id());
       }
+    }
+
+    // Check if this task uses more resources than offered.
+    taskResources += ResourceHints::forTaskInfo(task);
+
+    if (!((usedResources + taskResources) <=
+          ResourceHints::forOffer(*offer))) {
+      LOG(WARNING) << "old resources = " << usedResources
+                   << "new resources = " << taskResources
+                   << "sum resources = " << (usedResources + taskResources)
+                   << "offer resources = " << ResourceHints::forOffer(*offer);
+      return TaskInfoError::some(
+          "Task uses more resources than offered");
     }
 
     usedResources += taskResources;
@@ -1416,15 +1397,15 @@ struct ExecutorInfoChecker : TaskInfoVisitor
 void Master::processTasks(Offer* offer,
                           Framework* framework,
                           Slave* slave,
-                          const vector<TaskInfo>& tasks,
+                          const vector<TaskInfo>& _tasks,
                           const Filters& filters)
 {
   ResourceHints usedResources; // Accumulated resources used from this offer.
   vector<Task*> launchedTasks;
 
-  vector<TaskDescription> tasks = _tasks;
+  vector<TaskInfo> tasks = _tasks;
   if (framework->info.allocates_min()) {
-    foreach (TaskDescription& task, tasks) {
+    foreach (TaskInfo& task, tasks) {
       if (0 != task.min_resources_size()) {
         LOG(ERROR) << "Framework " << framework->id
                    << " requested min resources but it is allocates_min";
@@ -1506,7 +1487,6 @@ void Master::processTasks(Offer* offer,
     LOG(INFO) << "Filtered slave " << slave->id
               << " for framework " << framework->id
               << " (" << slave->info.hostname() << ") for framework "
-              << framework->id << " for " << timeout << " seconds";
               << " for " << timeout << " seconds "
               << " at " << unusedResources;
     double time = (timeout == -1) ? 0 : Clock::now() + timeout;
@@ -1571,16 +1551,6 @@ ResourceHints Master::launchTask(const TaskInfo& task,
   t->mutable_slave_id()->MergeFrom(task.slave_id());
   t->mutable_resources()->MergeFrom(task.resources());
   t->mutable_min_resources()->MergeFrom(task.min_resources());
-
-  framework->addTask(t);
-
-  if (!slave->hasExecutor(framework->id, executorInfo.executor_id())) {
-    addExecutor(framework->id, slave->id, executorInfo);
-    resources += executorInfo.resources();
-    minResources += executorInfo.min_resources();
-  }
-  CHECK(framework->hasExecutor(slave->id, executorInfo.executor_id()))
-    << framework->id << " " << slave->id << " " << executorInfo.executor_id();
 
   framework->addTask(t);
 

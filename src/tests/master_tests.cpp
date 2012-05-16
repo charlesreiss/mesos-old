@@ -83,7 +83,7 @@ protected:
   }
 
   void setupExecutors() {
-    EXPECT_CALL(exec, registered(_, _, _, _, _, _))
+    EXPECT_CALL(exec, registered(_, _, _, _))
       .Times(AtMost(1))
       .WillOnce(SaveArg<0>(&execDriver));
 
@@ -124,8 +124,10 @@ protected:
 
     detector.reset(new BasicMasterDetector(master, slave, true));
 
-    schedDriver.reset(new MesosSchedulerDriver(&sched, "",
-                                               DEFAULT_EXECUTOR_INFO,
+    FrameworkInfo info;
+    info.set_name("");
+
+    schedDriver.reset(new MesosSchedulerDriver(&sched, info,
                                                master));
 
     if (useMockAllocator) {
@@ -147,7 +149,7 @@ protected:
   void getOffers(vector<Offer>* offers) {
     trigger resourceOfferCall;
 
-    EXPECT_CALL(sched, registered(schedDriver.get(),_))
+    EXPECT_CALL(sched, registered(schedDriver.get(),_,_))
       .WillOnce(SaveArg<1>(&frameworkId));
 
     EXPECT_CALL(sched, resourceOffers(schedDriver.get(), _))
@@ -211,6 +213,7 @@ protected:
       task.mutable_task_id()->set_value(taskId);
       task.mutable_slave_id()->MergeFrom(offer.slave_id());
       task.mutable_resources()->MergeFrom(perTaskResources);
+      task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
       tasks.push_back(task);
 
       EXPECT_CALL(sched, statusUpdate(schedDriver.get(),
@@ -427,9 +430,9 @@ TEST_F(MasterSlaveTest, FrameworkMessage)
 
   string hello = "hello";
 
-  schedDriver->sendFrameworkMessage(offers[0].slave_id(),
-				   DEFAULT_EXECUTOR_ID,
-				   hello);
+  schedDriver->sendFrameworkMessage(DEFAULT_EXECUTOR_ID,
+                                    offers[0].slave_id(),
+				    hello);
 
   WAIT_UNTIL(execFrameworkMessageCall);
 
@@ -508,6 +511,10 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
   EXPECT_CALL(sched, statusUpdate(schedDriver.get(), _))
     .WillOnce(DoAll(SaveArg<1>(&status1), Trigger(&statusUpdateCall1)))
     .WillOnce(DoAll(SaveArg<1>(&status2), Trigger(&statusUpdateCall2)));
+
+
+  ExecutorInfo executor1; // Bug in gcc 4.1.*, must assign on next line.
+  executor1 = CREATE_EXECUTOR_INFO(executorId1, "exit 1");
 
   TaskInfo task1;
   task1.set_name("");

@@ -35,14 +35,13 @@ using namespace mesos::internal;
     id; \
   })
 
-#define DEFAULT_FRAMEWORK_INFO \
-  ({ \
-    mesos::FrameworkInfo info; \
-    info.set_user("ignored-username"); \
-    info.set_name("ignored-name"); \
-    info.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO); \
-    info; \
-  })
+
+#define DEFAULT_FRAMEWORK_INFO_WITH_ID                                  \
+     ({ FrameworkInfo framework;                                        \
+        framework.set_name("default");                                  \
+        framework.set_user("testing-user");                             \
+        framework.mutable_id()->MergeFrom(DEFAULT_FRAMEWORK_ID);        \
+        framework; })
 
 struct MockFakeTask : mesos::internal::fake::FakeTask {
   MOCK_CONST_METHOD2(getUsage, Resources(seconds, seconds));

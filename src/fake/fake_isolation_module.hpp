@@ -21,6 +21,7 @@
 
 #include <glog/logging.h>
 
+#include <process/delay.hpp>
 #include <process/timer.hpp>
 
 #include "boost/scoped_ptr.hpp"
@@ -51,11 +52,13 @@ public:
   FakeExecutor(FakeIsolationModule* module_);
 
   void registered(ExecutorDriver* driver, const ExecutorInfo& info,
-                  const FrameworkID& frameworkId,
                   const FrameworkInfo& frameworkInfo,
-                  const SlaveID& slaveId, const SlaveInfo& slaveInfo);
+                  const SlaveInfo& slaveInfo);
 
-  void launchTask(ExecutorDriver* driver, const TaskDescription& task);
+  void reregistered(ExecutorDriver* driver, const SlaveInfo& slaveInfo) {}
+  void disconnected(ExecutorDriver* driver) {}
+
+  void launchTask(ExecutorDriver* driver, const TaskInfo& task);
 
   void killTask(ExecutorDriver* driver, const TaskID& taskId);
 
@@ -63,8 +66,8 @@ public:
 
   void shutdown(ExecutorDriver* driver);
 
-  void error(ExecutorDriver* driver, int code, const std::string& message) {
-    LOG(ERROR) << "FakeExecutor; code = " << code << "; message = " << message;
+  void error(ExecutorDriver* driver, const std::string& message) {
+    LOG(ERROR) << "FakeExecutor; message = " << message;
   }
 
   virtual ~FakeExecutor() {}

@@ -559,7 +559,7 @@ TEST_F(NoRequestAllocatorTest, ExecutorAddedDoesPlaceUsageNoTasks) {
   initTwoFrameworksOneSlave();
   ExecutorInfo executorInfo;
   executorInfo.mutable_executor_id()->MergeFrom(DEFAULT_EXECUTOR_ID);
-  executorInfo.set_uri("ignored-uri");
+  executorInfo.mutable_command()->set_value("ignored-uri");
   executorInfo.mutable_resources()->MergeFrom(
       Resources::parse("cpus:0.5;mem:256"));
   executorInfo.mutable_min_resources()->MergeFrom(
@@ -580,7 +580,7 @@ TEST_F(NoRequestAllocatorTest, ExecutorAddedDoesPlaceUsageOneTask) {
       Resources::parse("cpus:0.5;mem:200"));
   ExecutorInfo executorInfo;
   executorInfo.mutable_executor_id()->MergeFrom(DEFAULT_EXECUTOR_ID);
-  executorInfo.set_uri("ignored-uri");
+  executorInfo.mutable_command()->set_value("ignored-uri");
   executorInfo.mutable_resources()->MergeFrom(
       Resources::parse("cpus:0.5;mem:256"));
   executorInfo.mutable_min_resources()->MergeFrom(
@@ -603,7 +603,7 @@ TEST_F(NoRequestAllocatorTest, ExecutorRemovedDoesForgetUsage) {
   initTwoFrameworksOneSlave();
   ExecutorInfo executorInfo;
   executorInfo.mutable_executor_id()->MergeFrom(DEFAULT_EXECUTOR_ID);
-  executorInfo.set_uri("ignored-uri");
+  executorInfo.mutable_command()->set_value("ignored-uri");
   executorInfo.mutable_resources()->MergeFrom(
       Resources::parse("cpus:0.5;mem:256"));
   executorInfo.mutable_min_resources()->MergeFrom(

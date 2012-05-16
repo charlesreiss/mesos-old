@@ -141,7 +141,7 @@ public:
   }
 
   virtual ~SchedulerProcess() {
-    LOG(INFO) << "~SchedulerProcess (" << (void*) this << " " << frameworkId << ")";
+    LOG(INFO) << "~SchedulerProcess (" << (void*) this << " " << framework.id() << ")";
   }
 
 protected:
@@ -256,8 +256,8 @@ protected:
     // Save the pid associated with each slave (one per offer) so
     // later we can send framework messages directly.
     for (int i = 0; i < offers.size(); i++) {
-      if (frameworkId.value() != "") {
-        CHECK_EQ(offers[i].framework_id(), frameworkId);
+      if (framework.id().value() != "") {
+        CHECK_EQ(offers[i].framework_id(), framework.id());
       }
       UPID pid(pids[i]);
       // Check if parse failed (e.g., due to DNS).
@@ -711,9 +711,6 @@ Status MesosSchedulerDriver::start()
   // authentication module ensure this is acceptable.
 
   // Set up framework info.
-  framework.set_user(utils::os::user());
-  framework.set_name(frameworkName);
-  framework.mutable_executor()->MergeFrom(executorInfo);
   framework.set_allocates_min(scheduler->allocatesMin());
   // If no user specified, just use the current user.
   if (framework.user() == "") {

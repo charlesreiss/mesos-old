@@ -11,6 +11,7 @@
 #include <process/dispatch.hpp>
 #include <process/process.hpp>
 #include <process/timer.hpp>
+#include <process/delay.hpp>
 
 #include "common/lock.hpp"
 #include "mesos/executor.hpp"
@@ -28,13 +29,14 @@ FakeExecutor::FakeExecutor(FakeIsolationModule* module_)
 
 void FakeExecutor::registered(
     ExecutorDriver* driver, const ExecutorInfo& info,
-    const FrameworkID& _frameworkId,
     const FrameworkInfo& frameworkInfo,
-    const SlaveID& slaveId, const SlaveInfo& slaveInfo)
+    const SlaveInfo& slaveInfo)
 {
   CHECK(!initialized);
   initialized = true;
-  frameworkId.MergeFrom(_frameworkId);
+  LOG(INFO) << "FakeExecutor::registered with "
+            << frameworkInfo.DebugString();
+  frameworkId.MergeFrom(frameworkInfo.id());
   executorId.MergeFrom(info.executor_id());
 }
 
@@ -46,7 +48,7 @@ void FakeExecutor::shutdown(ExecutorDriver* driver)
 }
 
 void FakeExecutor::launchTask(ExecutorDriver* driver,
-                              const TaskDescription& task)
+                              const TaskInfo& task)
 {
   LOG(INFO) << "Asked to launch task " << task.DebugString();
   module->registerTask(frameworkId, executorId, task.task_id());

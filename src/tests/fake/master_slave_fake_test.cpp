@@ -92,8 +92,8 @@ public:
     }
     trigger gotFramework;
     driver.reset(
-      new MesosSchedulerDriver(scheduler.get(), "", DEFAULT_EXECUTOR_INFO,
-                               masterPid));
+      new MesosSchedulerDriver(scheduler.get(), DEFAULT_FRAMEWORK_INFO_WITH_ID,
+                               std::string(masterPid)));
     EXPECT_CALL(allocator, frameworkAdded(_)).
       WillOnce(DoAll(SaveArg<0>(&masterFramework), Trigger(&gotFramework)));
     driver->start();

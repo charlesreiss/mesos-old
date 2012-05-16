@@ -19,7 +19,7 @@
 #ifndef __TRY_HPP__
 #define __TRY_HPP__
 
-#include <assert.h>
+#include <glog/logging.h>
 
 #include <string>
 
@@ -74,9 +74,9 @@ public:
   bool isSome() const { return state == SOME; }
   bool isError() const { return state == ERROR; }
 
-  T get() const { assert(state == SOME); return *t; }
+  T get() const { DCHECK(state == SOME); return *t; }
 
-  std::string error() const { assert(state == ERROR); return message; }
+  std::string error() const { DCHECK(state == ERROR); return message; }
 
 private:
   enum State {

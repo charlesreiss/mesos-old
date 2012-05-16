@@ -62,13 +62,14 @@ public:
   Status join() { UNIMPLEMENTED(); }
   Status run() { UNIMPLEMENTED(); }
 
-  MOCK_METHOD1(requestResources, Status(const std::vector<ResourceRequest>&));
+  MOCK_METHOD1(requestResources, Status(const std::vector<Request>&));
+  MOCK_METHOD2(declineOffer, Status(const OfferID&, const Filters&));
   MOCK_METHOD3(launchTasks, Status(const OfferID&,
-                                   const std::vector<TaskDescription>&,
+                                   const std::vector<TaskInfo>&,
                                    const Filters&));
   MOCK_METHOD1(killTask, Status(const TaskID&));
   MOCK_METHOD0(reviveOffers, Status());
-  MOCK_METHOD3(sendFrameworkMessage, Status(const SlaveID&, const ExecutorID&,
+  MOCK_METHOD3(sendFrameworkMessage, Status(const ExecutorID&, const SlaveID&,
                                             const std::string&));
 };
 
@@ -90,7 +91,9 @@ public:
     if (delay > 0.0) {
       scheduler->setStartTime(process::Clock::now() + delay);
     }
-    scheduler->registered(&schedulerDriver, DEFAULT_FRAMEWORK_ID);
+    MasterInfo ignoredMasterInfo;
+    scheduler->registered(&schedulerDriver, DEFAULT_FRAMEWORK_ID,
+        ignoredMasterInfo);
   }
 
   Offer createOffer(const std::string& id,
@@ -126,9 +129,9 @@ public:
       scheduler->addTask(taskId, mockTask);
     }
 
-    vector<TaskDescription> result;
+    vector<TaskInfo> result;
     EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
-      WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
+      WillOnce(DoAll(SaveArg<1>(&result), Return(DRIVER_RUNNING)));
     scheduler->resourceOffers(&schedulerDriver,
         singleOffer("offer0", "slave0", offerResources));
     ASSERT_EQ(result.size(), 1);
@@ -158,9 +161,9 @@ public:
   void rejectOffer(const std::string& id,
                    const ResourceHints& offerResources)
   {
-    vector<TaskDescription> result;
+    vector<TaskInfo> result;
     EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
-      WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
+      WillOnce(DoAll(SaveArg<1>(&result), Return(DRIVER_RUNNING)));
     scheduler->resourceOffers(&schedulerDriver,
         singleOffer("offer0", "slave0", offerResources));
     EXPECT_EQ(0, result.size());
@@ -183,9 +186,9 @@ TEST_F(FakeSchedulerTest, NoTasks)
 {
   registerScheduler();
 
-  vector<TaskDescription> result;
+  vector<TaskInfo> result;
   EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
-    WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
+    WillOnce(DoAll(SaveArg<1>(&result), Return(DRIVER_RUNNING)));
   scheduler->resourceOffers(&schedulerDriver,
       singleOffer("offer0", "slave0",
         ResourceHints(Resources::parse("cpus:8.0;mem:4096"),
@@ -208,9 +211,9 @@ TEST_F(FakeSchedulerTest, CannotFitTask)
     WillRepeatedly(Return(
           ResourceHints(Resources::parse("cpus:9.0"), Resources())));
   scheduler->addTask("task0", &mockTask);
-  vector<TaskDescription> result;
+  vector<TaskInfo> result;
   EXPECT_CALL(schedulerDriver, launchTasks(EqId("offer0"), _, _)).
-    WillOnce(DoAll(SaveArg<1>(&result), Return(OK)));
+    WillOnce(DoAll(SaveArg<1>(&result), Return(DRIVER_RUNNING)));
   scheduler->resourceOffers(&schedulerDriver,
       singleOffer("offer0", "slave0",
         ResourceHints(Resources::parse("cpus:8.0;mem:4096"),
@@ -234,7 +237,7 @@ TEST_F(FakeSchedulerTest, RespawnTask)
   MockFakeTask mockTask;
   makeAndAcceptOfferDefault("task0", &mockTask);
   EXPECT_CALL(schedulerDriver, reviveOffers()).
-    WillOnce(Return(OK));
+    WillOnce(Return(DRIVER_RUNNING));
   updateTask("task0:1", TASK_LOST);
   makeAndAcceptOfferDefault("task0", 0);
 
@@ -284,7 +287,7 @@ TEST_F(FakeSchedulerTest, DelayStart)
                                       Resources::parse("cpus:8.0;mem:1024")));
   trigger gotRevive;
   EXPECT_CALL(schedulerDriver, reviveOffers()).
-    WillOnce(testing::DoAll(Trigger(&gotRevive), Return(OK)));
+    WillOnce(testing::DoAll(Trigger(&gotRevive), Return(DRIVER_RUNNING)));
   process::Clock::advance(0.5);
   WAIT_UNTIL(gotRevive);
   makeAndAcceptOffer("task1",
@@ -320,7 +323,7 @@ TEST_F(FakeSchedulerTest, ScoreTask)
   EXPECT_CALL(mockTask2, getScore()).
     WillOnce(Return(-500.0));
   EXPECT_CALL(schedulerDriver, reviveOffers()).
-    WillOnce(Return(OK));
+    WillOnce(Return(DRIVER_RUNNING));
   updateTask("task1:2", TASK_LOST);
   EXPECT_DOUBLE_EQ(-300.0, scheduler->getScore());
 }

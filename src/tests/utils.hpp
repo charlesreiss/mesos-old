@@ -104,6 +104,7 @@ void enterTestDirectory(const char* testCase, const char* testName);
 #define DEFAULT_FRAMEWORK_INFO                                          \
      ({ FrameworkInfo framework;                                        \
         framework.set_name("default");                                  \
+        framework.set_user("testing-user");                             \
         framework; })
 
 

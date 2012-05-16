@@ -153,7 +153,7 @@ Try<MasterDetector*> MasterDetector::create(const string& master,
   }
 
   // Okay, try and parse what we got as a PID.
-  process::UPID masterPid = master.find("master@") == 0
+  process::UPID masterPid = master.find("@") != 0
     ? process::UPID(master)
     : process::UPID("master@" + master);
 

@@ -22,6 +22,7 @@
 #include <fstream>
 #include "boost/scoped_ptr.hpp"
 
+#include <process/delay.hpp>
 #include <process/process.hpp>
 #include <process/protobuf.hpp>
 

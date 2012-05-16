@@ -74,12 +74,10 @@ int main(int argc, char **argv)
 #ifdef MESOS_WEBUI
   configurator.addOption<int>("webui_port", "Web UI port", 8080);
 #endif
-<<<<<<< HEAD
   configurator.addOption<std::string>(
       "usage_log_file",
       "file to write (binary) usage log to",
       "");
-=======
   configurator.addOption<string>(
       "zk",
       "ZooKeeper URL (used for leader election amongst masters)\n"
@@ -87,7 +85,6 @@ int main(int argc, char **argv)
       "  zk://host1:port1,host2:port2,.../path\n"
       "  zk://username:password@host1:port1,host2:port2,.../path\n"
       "  file://path/to/file (where file contains one of the above)");
->>>>>>> apache/trunk
 
   if (argc == 2 && string("--help") == argv[1]) {
     usage(argv[0], configurator);
@@ -120,17 +117,12 @@ int main(int argc, char **argv)
   LOG(INFO) << "Build: " << build::DATE << " by " << build::USER;
   LOG(INFO) << "Starting Mesos master";
 
-<<<<<<< HEAD
   if (chdir(dirname(argv[0])) != 0) {
     fatalerror("Could not chdir into %s", dirname(argv[0]));
   }
 
-  string allocatorName = conf.get("allocator", "simple");
-
+  string allocatorName = conf.get<std::string>("allocator", "simple");
   Allocator* allocator = AllocatorFactory::instantiate(allocatorName, NULL);
-=======
-  Allocator* allocator = new SimpleAllocator();
->>>>>>> apache/trunk
 
   Master* master = new Master(allocator, conf);
   process::spawn(master);
@@ -143,7 +135,7 @@ int main(int argc, char **argv)
   CHECK(detector.isSome())
     << "Failed to create a master detector: " << detector.error();
 
-  string usageLog = conf.get("usage_log_file", "");
+  string usageLog = conf.get<std::string>("usage_log_file", "");
   boost::scoped_ptr<UsageRecorder> usageRecorder;
   if (usageLog != "") {
     UsageLogWriter *logWriter = new BinaryFileUsageLogWriter(usageLog);

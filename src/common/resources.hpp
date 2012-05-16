@@ -489,7 +489,7 @@ struct ResourceHints {
     return ResourceHints(task.resources(), task.min_resources());
   }
 
-  static ResourceHints forTaskDescription(const TaskDescription& task) {
+  static ResourceHints forTaskInfo(const TaskInfo& task) {
     return ResourceHints(task.resources(), task.min_resources());
   }
 
