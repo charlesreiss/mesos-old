@@ -62,6 +62,9 @@ protected:
     EXPECT_MESSAGE(filter, _, _, _).
       WillRepeatedly(Return(false));
     process::filter(&filter);
+    EXPECT_CALL(allocator, resourcesUnused(_, _,
+          ResourceHints::parse("cpus:0;mem:0", "cpus:0;mem:0"))).
+        Times(AnyNumber());
   }
 
   void TearDown()
@@ -153,7 +156,6 @@ protected:
     FrameworkInfo frameworkInfo;
     frameworkInfo.set_user("test-user");
     frameworkInfo.set_name("test-name");
-    frameworkInfo.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
     RegisterFrameworkMessage registerMessage;
     registerMessage.mutable_framework()->MergeFrom(frameworkInfo);
     trigger doneRegister;
@@ -216,12 +218,12 @@ protected:
     offer->MergeFrom(offerMessage.offers(0));
   }
 
-  void launchTasks(const Offer& offer, const vector<TaskDescription>& tasks) {
+  void launchTasks(const Offer& offer, const vector<TaskInfo>& tasks) {
     LaunchTasksMessage message;
     message.mutable_framework_id()->MergeFrom(offer.framework_id());
     message.mutable_offer_id()->MergeFrom(offer.id());
     message.mutable_filters();
-    foreach (const TaskDescription& task, tasks) {
+    foreach (const TaskInfo& task, tasks) {
       message.add_tasks()->MergeFrom(task);
     }
     trigger runningTasks;
@@ -235,17 +237,18 @@ protected:
                       const Resources& resources,
                       const Resources& minResources,
                       std::string id,
-                      vector<TaskDescription>* tasks) {
-    TaskDescription task;
+                      vector<TaskInfo>* tasks) {
+    TaskInfo task;
     task.set_name("");
     task.mutable_task_id()->set_value(id);
     task.mutable_slave_id()->MergeFrom(theOffer.slave_id());
     task.mutable_resources()->MergeFrom(resources);
     task.mutable_min_resources()->MergeFrom(minResources);
+    task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
     tasks->push_back(task);
   }
 
-  void sendTaskUpdate(const Offer& offer, const TaskDescription& task,
+  void sendTaskUpdate(const Offer& offer, const TaskInfo& task,
                       TaskState state) {
     StatusUpdateMessage message;
     StatusUpdate *update = message.mutable_update();
@@ -293,7 +296,7 @@ protected:
 
 TEST_F(MasterAllocatorTest, ReturnOffer) {
   detectMaster();
-  vector<TaskDescription> empty;
+  vector<TaskInfo> empty;
   Offer theOffer;
   registerSlave();
   registerFramework();
@@ -322,7 +325,7 @@ TEST_F(MasterAllocatorTest, ReturnOfferMinOnly) {
     WillOnce(Trigger(&gotResourcesUnused));
   EXPECT_CALL(allocator, taskAdded(_));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   addTask(theOffer, theOffer.resources(), Resources(), "taskId", &tasks);
   launchTasks(theOffer, tasks);
   WAIT_UNTIL(gotResourcesUnused);
@@ -334,7 +337,7 @@ TEST_F(MasterAllocatorTest, ReturnOfferAll) {
   registerSlave();
   registerFramework();
   makeFullOffer(&theOffer);
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
@@ -346,7 +349,7 @@ TEST_F(MasterAllocatorTest, KillTask) {
   registerSlave();
   registerFramework();
   makeFullOffer(&theOffer);
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   EXPECT_CALL(allocator, taskAdded(_));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
@@ -369,7 +372,7 @@ TEST_F(MasterAllocatorTest, UnregisterFramework) {
   registerSlave();
   registerFramework();
   makeFullOffer(&theOffer);
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   EXPECT_CALL(allocator, taskAdded(_));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
@@ -388,7 +391,7 @@ TEST_F(MasterAllocatorTest, UnregisterSlave) {
   registerSlave();
   registerFramework();
   makeFullOffer(&theOffer);
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   EXPECT_CALL(allocator, taskAdded(_));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
@@ -412,14 +415,12 @@ TEST_F(MasterAllocatorTest, ExitedExecutor) {
   registerSlave();
   registerFramework();
   makeFullOffer(&theOffer);
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   EXPECT_CALL(allocator, taskAdded(_));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
-  EXPECT_CALL(allocator, taskRemoved(_));
-  framework->expect<StatusUpdateMessage>();
   sendExecutorExited(1);
 }
 

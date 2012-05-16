@@ -28,13 +28,14 @@ TOTAL_TASKS = 5
 TASK_CPUS = 1
 TASK_MEM = 32
 
-class MyScheduler(mesos.Scheduler):
-  def __init__(self):
+class TestScheduler(mesos.Scheduler):
+  def __init__(self, executor):
+    self.executor = executor
     self.tasksLaunched = 0
     self.tasksFinished = 0
 
-  def registered(self, driver, fid):
-    print "Registered with framework ID %s" % fid.value
+  def registered(self, driver, frameworkId, masterInfo):
+    print "Registered with framework ID %s" % frameworkId.value
 
   def resourceOffers(self, driver, offers):
     print "Got %d resource offers" % len(offers)
@@ -47,10 +48,11 @@ class MyScheduler(mesos.Scheduler):
 
         print "Accepting offer on %s to start task %d" % (offer.hostname, tid)
 
-        task = mesos_pb2.TaskDescription()
+        task = mesos_pb2.TaskInfo()
         task.task_id.value = str(tid)
         task.slave_id.value = offer.slave_id.value
         task.name = "task %d" % tid
+        task.executor.MergeFrom(self.executor)
 
         cpus = task.resources.add()
         cpus.name = "cpus"
@@ -63,7 +65,7 @@ class MyScheduler(mesos.Scheduler):
         mem.scalar.value = TASK_MEM
 
         tasks.append(task)
-        driver.launchTasks(offer.id, tasks)
+      driver.launchTasks(offer.id, tasks)
 
   def statusUpdate(self, driver, update):
     print "Task %s is in state %d" % (update.task_id.value, update.state)
@@ -78,14 +80,17 @@ if __name__ == "__main__":
     print "Usage: %s master" % sys.argv[0]
     sys.exit(1)
 
-  execInfo = mesos_pb2.ExecutorInfo()
-  execInfo.executor_id.value = "default"
-  execInfo.uri = os.path.abspath("./test-executor")
+  executor = mesos_pb2.ExecutorInfo()
+  executor.executor_id.value = "default"
+  executor.command.value = os.path.abspath("./test-executor")
+
+  framework = mesos_pb2.FrameworkInfo()
+  framework.user = "" # Have Mesos fill in the current user.
+  framework.name = "Test Framework (Python)"
 
   driver = mesos.MesosSchedulerDriver(
-    MyScheduler(),
-    "Python test framework",
-    execInfo,
+    TestScheduler(executor),
+    framework,
     sys.argv[1])
 
-  sys.exit(driver.run())
+  sys.exit(0 if driver.run() == mesos_pb2.DRIVER_STOPPED else 1)

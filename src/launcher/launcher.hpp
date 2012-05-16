@@ -44,17 +44,15 @@ public:
   ExecutorLauncher(
       const FrameworkID& frameworkId,
       const ExecutorID& executorId,
-      const std::string& executorUri,
+      const CommandInfo& commandInfo,
       const std::string& user,
       const std::string& workDirectory,
       const std::string& slavePid,
       const std::string& frameworksHome,
-      const std::string& mesosHome,
       const std::string& hadoopHome,
       bool redirectIO,
       bool shouldSwitchUser,
-      const std::string& container,
-      const Environment& environment);
+      const std::string& container);
 
   virtual ~ExecutorLauncher();
 
@@ -73,10 +71,11 @@ protected:
   // Initialize executor's working director.
   virtual void initializeWorkingDirectory();
 
-  // Download the executor's binary if required and return its path.
+  // Download the required files for the executor from the given set of URIs.
+  // Optionally, it will set the executable file permissions for the files.
   // This method is expected to place files in the current directory
   // (which will be the workDirectory).
-  virtual std::string fetchExecutor();
+  virtual void fetchExecutors();
 
   // Set up environment variables for launching a framework's executor.
   virtual void setupEnvironment();
@@ -87,17 +86,15 @@ protected:
 protected:
   FrameworkID frameworkId;
   ExecutorID executorId;
-  std::string executorUri;
+  CommandInfo commandInfo;
   std::string user;
   std::string workDirectory; // Directory in which the framework should run.
   std::string slavePid;
   std::string frameworksHome;
-  std::string mesosHome;
   std::string hadoopHome;
   bool redirectIO;   // Whether to redirect stdout and stderr to files.
   bool shouldSwitchUser; // Whether to setuid to framework's user.
   std::string container;
-  Environment environment;
 };
 
 } // namespace launcher {

@@ -79,17 +79,13 @@ void Scenario::spawnScheduler(
     foreachvalue (FakeTask* task, tasks) {
       allTasks.push_back(task);
     }
-    ExecutorInfo info;
-    info.mutable_executor_id()->set_value("SHOULD-NOT-BE-RUN");
-    info.set_uri("does-not-exist");
-    FrameworkID id;
-    id.set_value(name);
+    FrameworkInfo frameworkInfo;
+    frameworkInfo.mutable_id()->set_value(name);
+    frameworkInfo.set_name(name);
     MesosSchedulerDriver* driver = new MesosSchedulerDriver(
         scheduler,
-        name,
-        info,
-        "mesos://" + std::string(masterPid),
-        id);
+        frameworkInfo,
+        std::string(masterPid));
     schedulerDrivers[name] = driver;
     if (startTime > 0.0) {
       scheduler->setStartTime(startTime);
@@ -108,7 +104,7 @@ void Scenario::finishStartScheduler(const std::string& name)
 {
   Lock l(&schedulersMutex);
   startTimers.erase(name);
-  CHECK_EQ(OK, schedulerDrivers[name]->start());
+  CHECK_EQ(DRIVER_RUNNING, schedulerDrivers[name]->start());
 }
 
 void Scenario::stopScheduler(const std::string& name)

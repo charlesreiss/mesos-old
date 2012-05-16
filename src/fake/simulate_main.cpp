@@ -196,7 +196,7 @@ int main(int argc, char **argv)
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
   Configurator configurator;
-  Logging::registerOptions(&configurator);
+  logging::registerOptions(&configurator);
   Master::registerOptions(&configurator);
   Scenario::registerOptions(&configurator);
 
@@ -217,15 +217,14 @@ int main(int argc, char **argv)
 
   Configuration conf;
   try {
-    conf = configurator.load(argc, argv, true);
+    conf = configurator.load(argc, argv);
   } catch (ConfigurationException& e) {
     std::cerr << "Configuration error: " << e.what() << std::endl;
     return EXIT_FAILURE;
   }
 
-  Logging::init(argv[0], conf);
-
-  process::initialize(false);
+  process::initialize();
+  logging::initialize(argv[0], conf);
 
   if (conf.get<std::string>("json_file", "") != "") {
     runFromFile(conf, conf.get<std::string>("json_file", ""));

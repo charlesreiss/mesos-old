@@ -32,26 +32,21 @@ GTEST = $(GMOCK)/gtest
 LEVELDB = third_party/leveldb
 ZOOKEEPER = third_party/zookeeper-$(ZOOKEEPER_VERSION)/src/c
 LIBPROCESS = third_party/libprocess
-LIBEV = $(LIBPROCESS)/third_party/libev-3.8
 
-# Unfortunatley, 'pkglibexecdir' is not set before automake 1.11, so
-# we need to do it manually (unless we in the future assume an
-# automake version).
+# Unfortunatley, 'pkglibexecdir' and 'pkglocalstatedir' are not set
+# before automake 1.11, so we need to set them manually (until we in
+# the future assume an automake version).
 pkglibexecdir = $(libexecdir)/$(PACKAGE)
+pkglocalstatedir = $(localstatedir)/$(PACKAGE)
 
-# These next definitions may not seem like, much, but they are very
-# important! They inform where things that have the webui_, pythonegg_
-# and javalib_ prefix get installed! Also note that pkg*dir contains
-# the package name in the path (in our case 'mesos') which is valuable
-# because we'd prefer /path/to/mesos/webui versus something like
-# /path/to/webui.
+# Set install directory for webui artifacts (i.e., the location where
+# anything with the webui_ prefix in this file will get
+# installed). Also note that pkg*dir contains the package name in the
+# path (in our case 'mesos') which is valuable because we'd prefer
+# /path/to/mesos/webui versus something like /path/to/webui. Note that
+# datadir (e.g., /usr/local/share) is for read-only "data" and
+# localstatedir (e.g., /usr/local/var) is for modifiable "data".
 webuidir = $(pkgdatadir)
-pythoneggdir = $(pythondir)
-javalibdir = $(libdir)/java
-
-# Used for building Python eggs.
-SETUPTOOLS = \
-  $(abs_top_srcdir)/$(DISTRIBUTE)/distribute-$(DISTRIBUTE_VERSION)-py2.6.egg
 
 # Protocol buffer compiler.
 PROTOC = ../$(PROTOBUF)/src/protoc
@@ -66,8 +61,9 @@ sbin_PROGRAMS =
 bin_PROGRAMS =
 pkglibexec_PROGRAMS =
 dist_pkglibexec_SCRIPTS =
-webui_SCRIPTS =
 nobase_dist_webui_DATA =
+nodist_sbin_SCRIPTS =
+nobase_pkglocalstate_DATA =
 check_PROGRAMS =
 dist_check_SCRIPTS =
 check_SCRIPTS =
@@ -88,14 +84,15 @@ MESOS_CPPFLAGS = $(AM_CPPFLAGS)
 MESOS_CPPFLAGS += -DMESOS_WEBUI_DIR=\"$(webuidir)/webui\"
 MESOS_CPPFLAGS += -DMESOS_LIBEXECDIR=\"$(pkglibexecdir)\"
 MESOS_CPPFLAGS += -I$(top_srcdir)/include
-MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(BOOST)
-MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(PROTOBUF)/src
-MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GLOG)/src
+MESOS_CPPFLAGS += $(DO_INCLUDE) ../include
+MESOS_CPPFLAGS += $(DO_INCLUDE) ../$(BOOST)
+MESOS_CPPFLAGS += $(DO_INCLUDE) ../$(PROTOBUF)/src
+MESOS_CPPFLAGS += $(DO_INCLUDE) ../$(GLOG)/src
 MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_srcdir)/$(LIBPROCESS)/include
 
 if WITH_INCLUDED_ZOOKEEPER
-  MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(ZOOKEEPER)/include
-  MESOS_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(ZOOKEEPER)/generated
+  MESOS_CPPFLAGS += $(DO_INCLUDE) ../$(ZOOKEEPER)/include
+  MESOS_CPPFLAGS += $(DO_INCLUDE) ../$(ZOOKEEPER)/generated
 endif
 
 
@@ -125,6 +122,11 @@ LOG_PROTOS = messages/log.pb.cc messages/log.pb.h
 
 BUILT_SOURCES += $(LOG_PROTOS)
 CLEANFILES += $(LOG_PROTOS)
+
+STATE_PROTOS = messages/state.pb.cc messages/state.pb.h
+
+BUILT_SOURCES += $(STATE_PROTOS)
+CLEANFILES += $(STATE_PROTOS)
 
 
 # Targets for generating protocol buffer code.
@@ -160,18 +162,17 @@ libmesos_no_third_party_la_SOURCES = sched/sched.cpp local/local.cpp	\
 	slave/process_based_isolation_module.cpp slave/reaper.cpp	\
 	launcher/launcher.cpp exec/exec.cpp common/fatal.cpp		\
 	common/lock.cpp detector/detector.cpp				\
-	detector/url_processor.cpp configurator/configurator.cpp	\
-	common/logging.cpp common/utils.cpp common/date_utils.cpp	\
-	common/resources.cpp common/attributes.cpp common/values.cpp	\
+	configurator/configurator.cpp common/logging.cpp		\
+	common/utils.cpp common/date_utils.cpp common/resources.cpp	\
+	common/attributes.cpp common/values.cpp				\
 	zookeeper/zookeeper.cpp zookeeper/authentication.cpp		\
-	zookeeper/group.cpp messages/log.proto messages/messages.proto
+	zookeeper/group.cpp messages/messages.proto
 
 pkginclude_HEADERS = $(top_srcdir)/include/mesos/executor.hpp	\
 		     $(top_srcdir)/include/mesos/scheduler.hpp	\
-		     $(top_srcdir)/include/mesos/mesos.hpp	\
 		     $(top_srcdir)/include/mesos/mesos.proto
 
-nodist_pkginclude_HEADERS = mesos.pb.h
+nodist_pkginclude_HEADERS = ../include/mesos/mesos.hpp mesos.pb.h
 
 if OS_LINUX
   libmesos_no_third_party_la_SOURCES += slave/lxc_isolation_module.cpp
@@ -193,13 +194,11 @@ libmesos_no_third_party_la_SOURCES += common/attributes.hpp		\
 	common/strings.hpp common/values.hpp				\
 	configurator/configuration.hpp configurator/configurator.hpp	\
 	configurator/option.hpp detector/detector.hpp			\
-	detector/url_processor.hpp launcher/launcher.hpp		\
-	local/local.hpp log/coordinator.hpp log/replica.hpp		\
-	log/log.hpp log/network.hpp master/allocator.hpp		\
+	launcher/launcher.hpp local/local.hpp master/allocator.hpp	\
 	master/allocator_factory.hpp master/constants.hpp		\
 	master/frameworks_manager.hpp master/http.hpp			\
 	master/master.hpp master/simple_allocator.hpp			\
-	master/slaves_manager.hpp master/webui.hpp messages/log.hpp	\
+	master/slaves_manager.hpp master/webui.hpp			\
 	messages/messages.hpp slave/constants.hpp slave/http.hpp	\
 	slave/isolation_module.hpp slave/isolation_module_factory.hpp	\
 	slave/lxc_isolation_module.hpp					\
@@ -209,7 +208,7 @@ libmesos_no_third_party_la_SOURCES += common/attributes.hpp		\
 	tests/base_zookeeper_test.hpp tests/utils.hpp			\
 	tests/zookeeper_server.hpp zookeeper/authentication.hpp		\
 	zookeeper/group.hpp zookeeper/watcher.hpp			\
-	zookeeper/zookeeper.hpp
+	zookeeper/zookeeper.hpp zookeeper/url.hpp
 
 libmesos_no_third_party_la_CPPFLAGS = $(MESOS_CPPFLAGS)
 
@@ -220,6 +219,7 @@ noinst_LTLIBRARIES += libbuild.la
 libbuild_la_SOURCES = common/build.cpp
 libbuild_la_CPPFLAGS = $(AM_CPPFLAGS)
 libbuild_la_CPPFLAGS += -DBUILD_DATE="\"$$(date '+%Y-%m-%d %H:%M:%S')\""
+libbuild_la_CPPFLAGS += -DBUILD_TIME="\"$$(date '+%s')\""
 libbuild_la_CPPFLAGS += -DBUILD_USER="\"$$USER\""
 
 # We need to escape the build flags properly.
@@ -231,21 +231,31 @@ BUILD_FLAGS = $(echo $(MESOS_CPPFLAGS) $(CPPFLAGS) | sed 's/\"/\\\"/g') \
 
 libbuild_la_CPPFLAGS += -DBUILD_FLAGS="\"$$BUILD_FLAGS\""
 
-# Using the FORCE target is how we make sure it always get's built!
-libbuild_la_DEPENDENCIES = # FORCE
-
 libmesos_no_third_party_la_LIBADD += libbuild.la
 
 
-# Convenience library for the log to include leveldb headers.
+# Convenience library for building the replicated log in order to
+# include the leveldb headers.
 noinst_LTLIBRARIES += liblog.la
 liblog_la_SOURCES = log/coordinator.cpp log/replica.cpp
+liblog_la_SOURCES += log/coordinator.hpp log/replica.hpp log/log.hpp	\
+  log/network.hpp messages/log.hpp messages/log.proto
 nodist_liblog_la_SOURCES = $(LOG_PROTOS)
 liblog_la_CPPFLAGS = -I../$(LEVELDB)/include $(MESOS_CPPFLAGS)
-liblog_la_LDFLAGS = -L../$(LEVELDB)
-liblog_la_LIBADD = -lleveldb
 
 libmesos_no_third_party_la_LIBADD += liblog.la
+
+
+# Convenience library for building "state" abstraction in order to
+# include the leveldb headers.
+noinst_LTLIBRARIES += libstate.la
+libstate_la_SOURCES = state/leveldb.cpp state/zookeeper.cpp
+libstate_la_SOURCES += state/state.hpp messages/state.hpp	\
+  messages/state.proto
+nodist_libstate_la_SOURCES = $(STATE_PROTOS)
+libstate_la_CPPFLAGS = -I../$(LEVELDB)/include $(MESOS_CPPFLAGS)
+
+libmesos_no_third_party_la_LIBADD += libstate.la
 
 
 # Convenience library for the webui to include Python specific flags.
@@ -255,6 +265,16 @@ libwebui_la_SOURCES = master/webui.cpp slave/webui.cpp common/webui_utils.cpp
 libwebui_la_SOURCES += master/webui.hpp slave/webui.hpp common/webui_utils.hpp
 libwebui_la_CPPFLAGS = $(MESOS_CPPFLAGS) $(WEBUI_CPPFLAGS)
 libwebui_la_LIBADD = $(WEBUI_LDFLAGS)
+
+# Also define WEBUI_LIB to include the webui so when we build the
+# binaries (e.g., mesos-master, mesos-slave) the webui will get
+# included (we don't include it by default in either
+# libmesos_no_third_party.la or libmesos.la because that would force a
+# dependency on Python, but in the future we might want to support
+# this when we want a "local" run to include support for the webui).
+WEBUI_LIB = libwebui.la
+else
+WEBUI_LIB =
 endif
 
 noinst_LTLIBRARIES += libnorequest.la
@@ -309,7 +329,7 @@ lib_LTLIBRARIES += libmesos.la
 
 libmesos_la_SOURCES = $(MESOS_PROTO) # Part of the distribution.
 
-libmesos_la_LDFLAGS = -version-info 0:0 -shared
+libmesos_la_LDFLAGS = -release $(PACKAGE_VERSION) -shared
 
 # Since we just include the convenience library (and no sources), we
 # need to tell libtool to build this as a C++ library.
@@ -322,31 +342,31 @@ libmesos_la_DEPENDNECIES = libmesos_no_third_party.la
 # For non-convenience libraries we need to link them in to make the shared
 # library each time. (Currently, we don't support platforms where this is not
 # possible.)
-libmesos_la_LIBADD += ../$(PROTOBUF)/src/.libs/libprotobuf.la
-libmesos_la_LIBADD += ../$(GLOG)/.libs/libglog.la
-libmesos_la_LIBADD += ../$(LIBPROCESS)/.libs/libprocess.la
-libmesos_la_LIBADD += ../$(LIBEV)/.libs/libev.la
+libmesos_la_LIBADD += ../$(PROTOBUF)/src/libprotobuf.la
+libmesos_la_LIBADD += ../$(GLOG)/libglog.la
+
+# We need to directly include the leveldb library in order to avoid
+# the installed libmesos.la file to include leveldb in
+# 'dependency_libs' (via '-L../third_party/leveldb -lleveldb').
+libmesos_la_LIBADD += ../$(LEVELDB)/libleveldb.a
 
 if WITH_INCLUDED_ZOOKEEPER
-  libmesos_la_LIBADD += ../$(ZOOKEEPER)/.libs/libzookeeper_mt.la
+  libmesos_la_LIBADD += ../$(ZOOKEEPER)/libzookeeper_mt.la
 endif
 
-if WEBUI
-  WEBUI_LIBS = libwebui.la
-else
-  WEBUI_LIBS =
-endif
+libmesos_la_LIBADD += ../$(LIBPROCESS)/libprocess.la
+
 
 # Binaries.
 sbin_PROGRAMS += mesos-master
 mesos_master_SOURCES = master/main.cpp
 mesos_master_CPPFLAGS = $(MESOS_CPPFLAGS)
-mesos_master_LDADD = $(WEBUI_LIBS) libmesos.la
+mesos_master_LDADD = $(WEBUI_LIB) libmesos.la
 
 sbin_PROGRAMS += mesos-slave
 mesos_slave_SOURCES = slave/main.cpp
 mesos_slave_CPPFLAGS = $(MESOS_CPPFLAGS)
-mesos_slave_LDADD = $(WEBUI_LIBS) libmesos.la
+mesos_slave_LDADD = $(WEBUI_LIB) libmesos.la
 
 bin_PROGRAMS += mesos-local
 mesos_local_SOURCES = local/main.cpp
@@ -354,9 +374,14 @@ mesos_local_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_local_LDADD = libmesos.la
 
 pkglibexec_PROGRAMS += mesos-launcher
-mesos_launcher_SOURCES = launcher/main.cpp launcher/launcher.cpp
+mesos_launcher_SOURCES = launcher/main.cpp
 mesos_launcher_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_launcher_LDADD = libmesos.la
+
+pkglibexec_PROGRAMS += mesos-executor
+mesos_executor_SOURCES = launcher/executor.cpp
+mesos_executor_CPPFLAGS = $(MESOS_CPPFLAGS)
+mesos_executor_LDADD = libmesos.la
 
 bin_PROGRAMS += mesos-log
 mesos_log_SOURCES = log/main.cpp
@@ -380,50 +405,137 @@ mesos_simulate_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_simulate_LDADD = libmesos.la
 
 
-# We need to include the webui scripts so they get installed.
-WEBUISCRIPTS = webui/bottle-0.8.3/bottle.py		\
-               webui/common/webui_lib.py		\
-               webui/master/framework.tpl		\
-               webui/master/index.tpl			\
-               webui/master/webui.py			\
-               webui/slave/framework.tpl		\
-               webui/slave/executor.tpl			\
-               webui/slave/index.tpl			\
-               webui/slave/webui.py			\
-               webui/static/stylesheet.css
+# Need to distribute/install Python webui.
+nobase_dist_webui_DATA += webui/bottle-0.8.3/bottle.py	\
+  webui/common/webui_lib.py webui/master/framework.tpl	\
+  webui/master/index.tpl webui/master/webui.py		\
+  webui/slave/framework.tpl webui/slave/executor.tpl	\
+  webui/slave/index.tpl webui/slave/webui.py		\
+  webui/static/stylesheet.css
 
-nobase_dist_webui_DATA += $(WEBUISCRIPTS)
+# Need to distribute/install webui javascript.
+nobase_dist_webui_DATA += webui/master/static/controllers.js	\
+  webui/master/static/app.js \
+  webui/master/static/dashboard.js
+
+# Need to distribute/install webui CSS.
+nobase_dist_webui_DATA += webui/master/static/graph.css	\
+  webui/master/static/mesos.css
+
+# Need to distribute/install webui HTML.
+nobase_dist_webui_DATA += webui/master/static/dashboard.html		\
+  webui/master/static/framework.html					\
+  webui/master/static/frameworks.html webui/master/static/home.html	\
+  webui/master/static/index.html webui/master/static/log.html		\
+  webui/master/static/slaves.html
+
+# Need to distribute/install third_party javascript.
+nobase_dist_webui_DATA += webui/master/static/angular-1.0.0rc8.js	\
+  webui/master/static/underscore-min.js					\
+  webui/master/static/cubism.v1.js webui/master/static/d3.v2.js
+
+# Need to distribute/install bootstrap.
+nobase_dist_webui_DATA +=							  \
+  webui/master/static/bootstrap/css/bootstrap-responsive.css			  \
+  webui/master/static/bootstrap/css/bootstrap.css				  \
+  webui/master/static/bootstrap/css/docs.css					  \
+  webui/master/static/bootstrap/ico/favicon.ico					  \
+  webui/master/static/bootstrap/img/bird.png					  \
+  webui/master/static/bootstrap/img/bootstrap-mdo-sfmoma-01.jpg			  \
+  webui/master/static/bootstrap/img/bootstrap-mdo-sfmoma-02.jpg			  \
+  webui/master/static/bootstrap/img/bootstrap-mdo-sfmoma-03.jpg			  \
+  webui/master/static/bootstrap/img/browsers.png				  \
+  webui/master/static/bootstrap/img/github-16px.png				  \
+  webui/master/static/bootstrap/img/glyphicons/glyphicons_009_magic.png		  \
+  webui/master/static/bootstrap/img/glyphicons/glyphicons_042_group.png		  \
+  webui/master/static/bootstrap/img/glyphicons/glyphicons_079_podium.png	  \
+  webui/master/static/bootstrap/img/glyphicons/glyphicons_082_roundabout.png	  \
+  webui/master/static/bootstrap/img/glyphicons/glyphicons_155_show_thumbnails.png \
+  webui/master/static/bootstrap/img/glyphicons/glyphicons_163_iphone.png	  \
+  webui/master/static/bootstrap/img/glyphicons/glyphicons_214_resize_small.png	  \
+  webui/master/static/bootstrap/img/glyphicons/glyphicons_266_book_open.png	  \
+  webui/master/static/bootstrap/img/glyphicons-halflings-white.png		  \
+  webui/master/static/bootstrap/img/glyphicons-halflings.png			  \
+  webui/master/static/bootstrap/img/grid-18px-masked.png			  \
+  webui/master/static/bootstrap/img/icon-css3.png				  \
+  webui/master/static/bootstrap/img/icon-github.png				  \
+  webui/master/static/bootstrap/img/icon-html5.png				  \
+  webui/master/static/bootstrap/img/icon-twitter.png				  \
+  webui/master/static/bootstrap/img/less-logo-large.png				  \
+  webui/master/static/bootstrap/img/less-small.png				  \
+  webui/master/static/bootstrap/img/responsive-illustrations.png		  \
+  webui/master/static/bootstrap/js/application.js				  \
+  webui/master/static/bootstrap/js/bootstrap-alert.js				  \
+  webui/master/static/bootstrap/js/bootstrap-button.js				  \
+  webui/master/static/bootstrap/js/bootstrap-carousel.js			  \
+  webui/master/static/bootstrap/js/bootstrap-collapse.js			  \
+  webui/master/static/bootstrap/js/bootstrap-dropdown.js			  \
+  webui/master/static/bootstrap/js/bootstrap-modal.js				  \
+  webui/master/static/bootstrap/js/bootstrap-popover.js				  \
+  webui/master/static/bootstrap/js/bootstrap-scrollspy.js			  \
+  webui/master/static/bootstrap/js/bootstrap-tab.js				  \
+  webui/master/static/bootstrap/js/bootstrap-tooltip.js				  \
+  webui/master/static/bootstrap/js/bootstrap-transition.js			  \
+  webui/master/static/bootstrap/js/bootstrap-typeahead.js			  \
+  webui/master/static/bootstrap/js/bootstrap.js					  \
+  webui/master/static/bootstrap/js/bootstrap.min.js				  \
+  webui/master/static/bootstrap/js/google-code-prettify/prettify.css		  \
+  webui/master/static/bootstrap/js/google-code-prettify/prettify.js		  \
+  webui/master/static/bootstrap/js/jquery.js					  \
+  webui/master/static/bootstrap/js/README.md
 
 
-# We also need to include the killtree script.
+# And need to install the killtree script.
 dist_pkglibexec_SCRIPTS += scripts/killtree.sh
+
+
+# And the deploy related stuff.
+nodist_sbin_SCRIPTS += deploy/mesos-daemon.sh			\
+  deploy/mesos-start-cluster.sh deploy/mesos-start-masters.sh	\
+  deploy/mesos-start-slaves.sh deploy/mesos-stop-cluster.sh	\
+  deploy/mesos-stop-masters.sh deploy/mesos-stop-slaves.sh
+
+nobase_pkglocalstate_DATA += deploy/mesos-deploy-env.sh.template
+
+# Need to explicitly add this because by default DATA files are not
+# included in distributions.
+EXTRA_DIST += deploy/mesos-deploy-env.sh.template
+
+
+# And the configuration file.
+nobase_pkglocalstate_DATA += conf/mesos.conf.template
+
+# Need to explicitly add this because by default DATA files are not
+# included in distributions.
+EXTRA_DIST += conf/mesos.conf.template
 
 # Java related files are listed outside if HAS_JAVA so we can add them to
 # EXTRA_DIST unconditionally.
 
 # Mesos JAR.
 MESOS_JAR = mesos-$(PACKAGE_VERSION).jar
-MESOS_JAR_SRCROOT = $(srcdir)/java/src
-MESOS_JAR_SRCDIR = $(srcdir)/java/src/org/apache/mesos
-MESOS_JAR_SRC = $(MESOS_JAR_SRCDIR)/ExecutorDriver.java		\
-		$(MESOS_JAR_SRCDIR)/Executor.java		\
-		$(MESOS_JAR_SRCDIR)/Log.java			\
-		$(MESOS_JAR_SRCDIR)/MesosExecutorDriver.java	\
-		$(MESOS_JAR_SRCDIR)/MesosNativeLibrary.java	\
-		$(MESOS_JAR_SRCDIR)/MesosSchedulerDriver.java	\
-		$(MESOS_JAR_SRCDIR)/SchedulerDriver.java	\
-		$(MESOS_JAR_SRCDIR)/Scheduler.java
-
-EXTRA_DIST += $(MESOS_JAR_SRC)
+MESOS_JAR_SOURCE =							\
+	$(srcdir)/java/src/org/apache/mesos/ExecutorDriver.java		\
+	$(srcdir)/java/src/org/apache/mesos/Executor.java		\
+	$(srcdir)/java/src/org/apache/mesos/Log.java			\
+	$(srcdir)/java/src/org/apache/mesos/MesosExecutorDriver.java	\
+	$(srcdir)/java/src/org/apache/mesos/MesosSchedulerDriver.java	\
+	$(srcdir)/java/src/org/apache/mesos/SchedulerDriver.java	\
+	$(srcdir)/java/src/org/apache/mesos/Scheduler.java
+MESOS_JAR_GENERATED = $(JAVA_PROTOS)					\
+	java/generated/org/apache/mesos/MesosNativeLibrary.java
+EXTRA_DIST += $(MESOS_JAR_SOURCE)					\
+	$(srcdir)/java/generated/org/apache/mesos/MesosNativeLibrary.java.in
 
 # We build all the Java examples into their own JAR.
 EXAMPLES_JAR = examples.jar
-JAVA_EXAMPLES_SRC = $(srcdir)/examples/java/TestExceptionFramework.java	\
+EXAMPLES_SOURCE =							\
+	$(srcdir)/examples/java/TestExceptionFramework.java		\
 	$(srcdir)/examples/java/TestExecutor.java			\
 	$(srcdir)/examples/java/TestFramework.java			\
 	$(srcdir)/examples/java/TestMultipleExecutorsFramework.java
-EXTRA_DIST += $(JAVA_EXAMPLES_SRC)
-CLEANFILES += $(EXAMPLES_JAR)
+EXTRA_DIST += $(EXAMPLES_SOURCE)
+
 
 if HAS_JAVA
 # Protocol buffers JAR.
@@ -444,25 +556,24 @@ $(PROTOBUF_JAR): # TODO(charles): Specify dependencies for the jar.
 
 CLEANFILES += $(PROTOBUF_JAR)
 
-$(MESOS_JAR): $(MESOS_JAR_SRC) $(JAVA_PROTOS) $(PROTOBUF_JAR)
+
+$(MESOS_JAR): $(MESOS_JAR_SOURCE) $(MESOS_JAR_GENERATED) $(PROTOBUF_JAR)
 	@echo "Building mesos-$(PACKAGE_VERSION).jar ..."
 	@rm -f java/classes/org/apache/mesos/*
 	@$(MKDIR_P) java/classes/org/apache/mesos
-	@$(JAVAC) \
-          -cp $(PROTOBUF_JAR) -sourcepath java/generated \
-          -d java/classes $(MESOS_JAR_SRC) $(JAVA_PROTOS)
+	@$(JAVA_HOME)/bin/javac \
+          -cp $(PROTOBUF_JAR) \
+          -d java/classes $(MESOS_JAR_SOURCE) $(MESOS_JAR_GENERATED)
 	@$(JAVA_HOME)/bin/jar cf $@ -C java/classes org
 
 CLEANFILES += $(MESOS_JAR)
 
-javalib_DATA = $(MESOS_JAR)
 
+MESOS_SOURCES_JAR = ../src/mesos-$(PACKAGE_VERSION)-sources.jar
 
-MESOS_SOURCES_JAR = ../src/mesos-sources.jar
-
-$(MESOS_SOURCES_JAR): $(MESOS_JAR_SRC)
+$(MESOS_SOURCES_JAR): $(MESOS_JAR_SOURCE)
 	@rm -f $(MESOS_SOURCES_JAR)
-	@$(JAVA_HOME)/bin/jar cf $@ -C $(MESOS_JAR_SRCROOT) org
+	@$(JAVA_HOME)/bin/jar cf $@ -C $(srcdir)/java/src org
 	@$(JAVA_HOME)/bin/jar uf $@ -C java/generated org
 
 CLEANFILES += $(MESOS_SOURCES_JAR)
@@ -529,7 +640,7 @@ java/jni/org_apache_mesos_Log.h: $(MESOS_JAR)
 	@$(JAVA_HOME)/bin/javah -d java/jni -classpath		\
           $(PROTOBUF_JAR):java/classes org.apache.mesos.Log
 
-$(EXAMPLES_JAR): $(JAVA_EXAMPLES_SRC)
+$(EXAMPLES_JAR): $(EXAMPLES_SOURCE)
 	@echo "Building examples.jar ..."
 	@$(MKDIR_P) examples/java
 	@$(JAVAC) -cp					\
@@ -538,7 +649,7 @@ $(EXAMPLES_JAR): $(JAVA_EXAMPLES_SRC)
           $(srcdir)/examples/java/*.java
 	@$(JAVA_HOME)/bin/jar cf $@ -C examples/java .
 
-CLEANFILES += $(EXMAPLES_JAR)
+CLEANFILES += $(EXAMPLES_JAR)
 
 maven-install: $(MESOS_JAR) $(MESOS_SOURCES_JAR) java/mesos.pom
 	mvn install:install-file -Dfile=$(MESOS_JAR)	\
@@ -547,10 +658,13 @@ maven-install: $(MESOS_JAR) $(MESOS_SOURCES_JAR) java/mesos.pom
 PHONY_TARGETS += maven-install
 endif # HAS_JAVA
 
+# We remove mesos-*.jar here to make sure any older versions of the
+# jar are removed.
 clean-java:
 	-rm -rf java/classes
 	-rm -f examples/java/*.class
 	-rm -f java/jni/org_apache_mesos*.h
+	-rm -f mesos-*.jar
 
 PHONY_TARGETS += clean-java
 
@@ -568,6 +682,22 @@ EXTRA_DIST += python/src/mesos.py \
 	      python/native/proxy_scheduler.hpp
 
 if HAS_PYTHON
+# Used for building Python eggs.
+DISTRIBUTE_EGG_SUFFIX = $(DISTRIBUTE_VERSION)$(PYTHON_EGG_PUREPY_POSTFIX).egg
+DISTRIBUTE_EGG = \
+  $(abs_top_builddir)/$(DISTRIBUTE)/dist/distribute-$(DISTRIBUTE_EGG_SUFFIX)
+
+# Build a protobuf Python egg.
+PROTOBUF_EGG_SUFFIX = $(PROTOBUF_VERSION)$(PYTHON_EGG_PUREPY_POSTFIX).egg
+PROTOBUF_EGG = ../$(PROTOBUF)/python/dist/protobuf-$(PROTOBUF_EGG_SUFFIX)
+
+$(PROTOBUF_EGG):
+	@echo "Building protobuf Python egg ..."
+	@cd ../$(PROTOBUF)/python && \
+	  PYTHONPATH=$(DISTRIBUTE_EGG) $(PYTHON) setup.py bdist_egg
+
+CLEANFILES += $(PROTOBUF_EGG)
+
 # This builds a Python egg against libmesos_no_third_party.a that is
 # self-contained. It currently depends on the libraries in third_party
 # being built as .a's. (If this is changed, the setup.py will need to
@@ -583,34 +713,20 @@ if HAS_PYTHON
 # system versions of our dependencies (since we won't be able to
 # create a standalone egg anyways).
 
-PROTOBUF_EGG_SUFFIX = $(PROTOBUF_VERSION)$(PYTHON_EGG_PUREPY_POSTFIX).egg
-PROTOBUF_EGG = ../$(PROTOBUF)/python/dist/protobuf-$(PROTOBUF_EGG_SUFFIX)
-
-$(PROTOBUF_EGG):
-	@echo "Building protobuf Python egg ..."
-	@cd ../$(PROTOBUF)/python && \
-	  PYTHONPATH=${PYTHONPATH}:$(SETUPTOOLS) $(PYTHON) setup.py bdist_egg
-
-CLEANFILES += $(PROTOBUF_EGG)
-
-# We need to be able to "name" the egg that gets generated via
-# setup.py so that we don't attempt to rebuild it each time, hence the
-# need for PYTHON_EGG_POSTFIX.
 MESOS_EGG = python/dist/mesos-$(PACKAGE_VERSION)$(PYTHON_EGG_POSTFIX).egg
 
 $(MESOS_EGG): python/setup.py $(srcdir)/python/src/mesos.py	\
-	      $(PYTHON_PROTOS) libmesos_no_third_party.la	\
-	      $(PROTOBUF_EGG)
+              $(PYTHON_PROTOS) libmesos_no_third_party.la	\
+              $(PROTOBUF_EGG)
 	@echo "Building Mesos Python egg ..."
 	@if test "$(top_srcdir)" != "$(top_builddir)"; then \
 	  $(MKDIR_P) python/src; \
 	  cp -pf $(srcdir)/python/src/mesos.py python/src; \
 	fi
-	@PYTHONPATH=$(SETUPTOOLS) $(PYTHON) python/setup.py bdist_egg
+	@LIBS="$(LIBS)" PYTHONPATH=$(DISTRIBUTE_EGG) \
+	  $(PYTHON) python/setup.py bdist_egg
 
 CLEANFILES += $(MESOS_EGG) python/build/temp.*/native/*.o python/build/lib.*/*
-
-pythonegg_DATA = $(MESOS_EGG)
 
 # Make sure the egg gets built via 'make all'.
 all-local: $(MESOS_EGG)
@@ -620,11 +736,15 @@ endif # HAS_PYTHON
 # python/native' because creating a distribution can eliminate write
 # permissions for the owner which are conserved even after we 'cp -p'
 # so we won't be able to delete the files until we update permissions.
+#
+# We remove mesos-*.egg here to make sure any older versions of the
+# egg or versions for different architectures are removed.
 clean-python:
 	test "$(top_srcdir)" = "$(top_builddir)" || \
 	  (chmod -R u+w python/native; \
 	   rm -rf python/src/mesos.py python/native)
 	-rm -rf python/src/mesos.egg-info python/build
+	-rm -f python/dist/mesos-*.egg
 
 PHONY_TARGETS += clean-python
 
@@ -650,25 +770,15 @@ long_lived_executor_SOURCES = examples/long_lived_executor.cpp
 long_lived_executor_CPPFLAGS = $(MESOS_CPPFLAGS)
 long_lived_executor_LDADD = libmesos.la
 
-check_PROGRAMS += memhog
-memhog_SOURCES = examples/memhog.cpp
-memhog_CPPFLAGS = $(MESOS_CPPFLAGS)
-memhog_LDADD = libmesos.la
-
-check_PROGRAMS += scheduled-memhog
-scheduled_memhog_SOURCES = examples/scheduled_memhog.cpp
-scheduled_memhog_CPPFLAGS = $(MESOS_CPPFLAGS)
-scheduled_memhog_LDADD = libmesos.la
-
-check_PROGRAMS += memhog-executor
-memhog_executor_SOURCES = examples/memhog_executor.cpp
-memhog_executor_CPPFLAGS = $(MESOS_CPPFLAGS)
-memhog_executor_LDADD = libmesos.la
+check_PROGRAMS += no-executor-framework
+no_executor_framework_SOURCES = examples/no_executor_framework.cpp
+no_executor_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
+no_executor_framework_LDADD = libmesos.la
 
 check_PROGRAMS += mesos-tests
 
 mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
-	              tests/master_tests.cpp				\
+	              tests/master_tests.cpp tests/state_tests.cpp	\
 	              tests/resource_offers_tests.cpp			\
 	              tests/fault_tolerance_tests.cpp			\
 	              tests/log_tests.cpp tests/resources_tests.cpp	\
@@ -680,7 +790,7 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 	              tests/protobuf_io_tests.cpp			\
 	              tests/lxc_isolation_tests.cpp			\
 	              tests/utils_tests.cpp				\
-	              tests/url_processor_tests.cpp			\
+	              tests/zookeeper_url_tests.cpp			\
 	              tests/killtree_tests.cpp				\
 	              tests/exception_tests.cpp				\
 		      tests/master_allocator_tests.cpp			\
@@ -694,13 +804,14 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 		      tests/usage_listener_test.cpp			\
 		      tests/usage_log_test.cpp				\
 		      tests/fake/scenario_test.cpp			\
-		      tests/attributes_test.cpp
+	              tests/attributes_tests.cpp			\
+	              tests/master_detector_tests.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
 mesos_tests_CPPFLAGS += -DBUILD_DIR=\"$(abs_top_builddir)\"
-mesos_tests_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GTEST)/include
-mesos_tests_CPPFLAGS += $(DO_INCLUDE) $(top_builddir)/$(GMOCK)/include
+mesos_tests_CPPFLAGS += $(DO_INCLUDE) ../$(GTEST)/include
+mesos_tests_CPPFLAGS += $(DO_INCLUDE) ../$(GMOCK)/include
 mesos_tests_CXXFLAGS = $(MESOS_CXXFLAGS) -ggdb -O1
 
 mesos_tests_LDADD = ../third_party/libgmock.la libmesos.la
@@ -748,6 +859,7 @@ EXTERNALSCRIPTS =						\
   tests/external/LxcIsolation/TwoSeparateTasks.sh		\
   tests/external/LxcIsolation/run_scheduled_memhog_test.sh	\
   tests/external/SampleFrameworks/CppFramework.sh		\
+  tests/external/SampleFrameworks/NoExecutorFramework.sh	\
   tests/external/SampleFrameworks/JavaExceptionFramework.sh	\
   tests/external/SampleFrameworks/JavaFramework.sh		\
   tests/external/SampleFrameworks/PythonFramework.sh		\
@@ -761,8 +873,6 @@ clean-check:
 	-rm -rf ../test_output
 
 PHONY_TARGETS += clean-check
-
-FORCE:
 
 clean-local: clean-java clean-python clean-check
 

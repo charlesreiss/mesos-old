@@ -21,6 +21,8 @@
 
 #include <glog/logging.h>
 
+#include <process/delay.hpp>
+#include <process/dispatch.hpp>
 #include <process/timer.hpp>
 
 #include "fake/fake_task.hpp"
@@ -89,7 +91,10 @@ public:
       process::wait(startTimer.get());
     }
   }
-  void registered(SchedulerDriver* driver, const FrameworkID& frameworkId);
+  void registered(SchedulerDriver* driver, const FrameworkID& frameworkId,
+                  const MasterInfo& masterInfo);
+  void reregistered(SchedulerDriver* driver, const MasterInfo& masterInfo) {}
+  void disconnected(SchedulerDriver* driver) {}
   void resourceOffers(SchedulerDriver* driver,
                       const std::vector<Offer>& offers);
   void offerRescinded(SchedulerDriver* driver,
@@ -97,15 +102,17 @@ public:
   void statusUpdate(SchedulerDriver* driver,
                     const TaskStatus& status);
   void frameworkMessage(SchedulerDriver* driver,
-                        const SlaveID& slaveId,
                         const ExecutorID& executorId,
+                        const SlaveID& slaveId,
                         const std::string& data) {
     LOG(FATAL) << "unexpected framework message " << data;
   }
+  void executorLost(SchedulerDriver* driver, const ExecutorID& executorId,
+      const SlaveID& slaveId, int code) {}
   void slaveLost(SchedulerDriver* driver,
                  const SlaveID& slaveId) {}
-  void error(SchedulerDriver* driver, int code, const std::string& message) {
-    LOG(ERROR) << "fake scheduler error: " << code << ": " << message;
+  void error(SchedulerDriver* driver, const std::string& message) {
+    LOG(ERROR) << "fake scheduler error: " << message;
   }
 
   void setStartTime(double time);

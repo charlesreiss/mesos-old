@@ -46,11 +46,14 @@
 
 #include <process/clock.hpp>
 #include <process/defer.hpp>
+#include <process/delay.hpp>
 #include <process/dispatch.hpp>
 #include <process/executor.hpp>
 #include <process/filter.hpp>
 #include <process/future.hpp>
 #include <process/gc.hpp>
+#include <process/id.hpp>
+#include <process/mime.hpp>
 #include <process/process.hpp>
 #include <process/socket.hpp>
 #include <process/timer.hpp>
@@ -125,6 +128,26 @@ public:
 
 
 namespace process {
+
+namespace ID {
+
+string generate(const string& prefix)
+{
+  static map<string, int> prefixes;
+  stringstream out;
+  out << __sync_add_and_fetch(&prefixes[prefix], 1);
+  return prefix + "(" + out.str() + ")";
+}
+
+} // namespace ID {
+
+
+namespace mime {
+
+map<string, string> types;
+
+} // namespace mime {
+
 
 // Provides reference counting semantics for a process pointer.
 class ProcessReference
@@ -413,8 +436,6 @@ static bool pending_timers = false;
 
 // Flag to indicate whether or to update the timer on async interrupt.
 static bool update_timer = false;
-
-const int NUMBER_OF_PROCESSING_THREADS = 4; // TODO(benh): Do 2x cores.
 
 
 // Thread local process pointer magic (constructed in
@@ -957,9 +978,9 @@ void send_file(struct ev_loop* loop, ev_io* watcher, int revents)
       // Socket error or closed.
       if (length < 0) {
         const char* error = strerror(errno);
-        VLOG(2) << "Socket error while sending: " << error;
+        VLOG(1) << "Socket error while sending: " << error;
       } else {
-        VLOG(2) << "Socket closed while sending";
+        VLOG(1) << "Socket closed while sending";
       }
       socket_manager->close(s);
       delete encoder;
@@ -1060,6 +1081,13 @@ void accept(struct ev_loop* loop, ev_io* watcher, int revents)
   }
 
   if (set_nbio(s) < 0) {
+    PLOG_IF(INFO, VLOG_IS_ON(1)) << "Failed to accept, set_nbio";
+    close(s);
+    return;
+  }
+
+  if (fcntl(s, F_SETFD, FD_CLOEXEC)) {
+    PLOG_IF(INFO, VLOG_IS_ON(1)) << "Failed to accept, FD_CLOEXEC";
     close(s);
     return;
   }
@@ -1132,7 +1160,7 @@ void* schedule(void* arg)
 // }
 
 
-void initialize(const string& delegate, bool initialize_glog)
+void initialize(const string& delegate)
 {
   // TODO(benh): Return an error if attempting to initialize again
   // with a different delegate then originally specified.
@@ -1154,11 +1182,6 @@ void initialize(const string& delegate, bool initialize_glog)
       while (initializing);
       return;
     }
-  }
-
-  if (initialize_glog) {
-    google::InitGoogleLogging("<<libprocess>>");
-    google::LogToStderr();
   }
 
 //   // Install signal handler.
@@ -1201,7 +1224,9 @@ void initialize(const string& delegate, bool initialize_glog)
   _process_ = new ThreadLocal<ProcessBase>(key);
 
   // Setup processing threads.
-  for (int i = 0; i < NUMBER_OF_PROCESSING_THREADS; i++) {
+  long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+
+  for (int i = 0; i < cpus; i++) {
     pthread_t thread; // For now, not saving handles on our threads.
     if (pthread_create(&thread, NULL, schedule, NULL) != 0) {
       LOG(FATAL) << "Failed to initialize, pthread_create";
@@ -1244,6 +1269,11 @@ void initialize(const string& delegate, bool initialize_glog)
     PLOG(FATAL) << "Failed to initialize, set_nbio";
   }
 
+  // Set FD_CLOEXEC flag.
+  if (fcntl(__s__, F_SETFD, FD_CLOEXEC)) {
+    PLOG(FATAL) << "Failed to initialize, FD_CLOEXEC";
+  }
+
   // Allow address reuse.
   int on = 1;
   if (setsockopt(__s__, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
@@ -1254,7 +1284,7 @@ void initialize(const string& delegate, bool initialize_glog)
   sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = PF_INET;
-  addr.sin_addr.s_addr = INADDR_ANY;
+  addr.sin_addr.s_addr = __ip__;
   addr.sin_port = htons(__port__);
 
   if (bind(__s__, (sockaddr*) &addr, sizeof(addr)) < 0) {
@@ -1338,17 +1368,22 @@ void initialize(const string& delegate, bool initialize_glog)
   // Create global garbage collector.
   gc = spawn(new GarbageCollector());
 
+  // Initialize the mime types.
+  mime::initialize();
+
   char temp[INET_ADDRSTRLEN];
   if (inet_ntop(AF_INET, (in_addr*) &__ip__, temp, INET_ADDRSTRLEN) == NULL) {
     PLOG(FATAL) << "Failed to initialize, inet_ntop";
   }
 
-  VLOG(1) << "libprocess is initialized on " << temp << ":" << __port__;
+  VLOG(1) << "libprocess is initialized on " << temp << ":" << __port__
+          << " for " << cpus << " cpus";
 }
 
 
 HttpProxy::HttpProxy(const Socket& _socket)
-  : socket(_socket) {}
+  : ProcessBase(ID::generate("__http__")),
+    socket(_socket) {}
 
 
 HttpProxy::~HttpProxy()
@@ -1490,6 +1525,13 @@ void HttpProxy::process(Future<HttpResponse>* future, bool persist)
         out << s.st_size;
         response.headers["Content-Length"] = out.str();
 
+        if (s.st_size == 0) {
+          socket_manager->send(response, socket, persist);
+          return;
+        }
+
+        VLOG(1) << "Sending file at '" << path << "' with length " << s.st_size;
+
         // TODO(benh): Consider a way to have the socket manager turn
         // on TCP_CORK for both sends and then turn it off.
         socket_manager->send(response, socket, true);
@@ -1516,7 +1558,9 @@ SocketManager::~SocketManager() {}
 
 Socket SocketManager::accepted(int s)
 {
-  return sockets[s] = Socket(s);
+  synchronized (this) {
+    return sockets[s] = Socket(s);
+  }
 }
 
 
@@ -1547,6 +1591,10 @@ void SocketManager::link(ProcessBase* process, const UPID& to)
 
       if (set_nbio(s) < 0) {
         PLOG(FATAL) << "Failed to link, set_nbio";
+      }
+
+      if (fcntl(s, F_SETFD, FD_CLOEXEC)) {
+        PLOG(FATAL) << "Failed to link, FD_CLOEXEC";
       }
 
       Socket socket = Socket(s);
@@ -1598,6 +1646,8 @@ void SocketManager::link(ProcessBase* process, const UPID& to)
 
 PID<HttpProxy> SocketManager::proxy(int s)
 {
+  HttpProxy* proxy = NULL;
+
   synchronized (this) {
     // This socket might have been asked to get closed (e.g., remote
     // side hang up) while a process is attempting to handle an HTTP
@@ -1606,12 +1656,20 @@ PID<HttpProxy> SocketManager::proxy(int s)
       if (proxies.count(s) > 0) {
         return proxies[s]->self();
       } else {
-        HttpProxy* proxy = new HttpProxy(sockets[s]);
-        spawn(proxy, true);
+        proxy = new HttpProxy(sockets[s]);
         proxies[s] = proxy;
-        return proxy->self();
       }
     }
+  }
+
+  // Now check if we need to spawn a newly created proxy. Note that we
+  // need to do this outside of the synchronized block above to avoid
+  // a possible deadlock (because spawn eventually synchronizes on
+  // ProcessManager and ProcessManager::cleanup synchronizes on
+  // ProcessManager and then SocketManager, so a deadlock results if
+  // we do spawn within the synchronized block above).
+  if (proxy != NULL) {
+    return spawn(proxy, true);
   }
 
   return PID<HttpProxy>();
@@ -1688,6 +1746,10 @@ void SocketManager::send(Message* message)
 
       if (set_nbio(s) < 0) {
         PLOG(FATAL) << "Failed to send, set_nbio";
+      }
+
+      if (fcntl(s, F_SETFD, FD_CLOEXEC)) {
+        PLOG(FATAL) << "Failed to send, FD_CLOEXEC";
       }
 
       sockets[s] = Socket(s);
@@ -1779,7 +1841,8 @@ Encoder* SocketManager::next(int s)
   }
 
   // We terminate the proxy outside the synchronized block to avoid
-  // possible deadlock between the ProcessManager and SocketManager.
+  // possible deadlock between the ProcessManager and SocketManager
+  // (see comment in SocketManager::proxy for more information).
   if (proxy != NULL) {
     terminate(proxy);
   }
@@ -1986,6 +2049,24 @@ bool ProcessManager::handle(
     // order of requests to account for HTTP/1.1 pipelining.
     dispatch(proxy, &HttpProxy::enqueue,
              HttpBadRequestResponse(), request->keepAlive);
+
+    // Cleanup request.
+    delete request;
+    return false;
+  }
+
+  // Ignore requests with relative paths (i.e., contain "/..").
+  if (request->path.find("/..") != string::npos) {
+    VLOG(1) << "Returning '404 Not Found' for '" << request->path
+            << "' (ignoring requests with relative paths)";
+
+    // Get the HttpProxy pid for this socket.
+    PID<HttpProxy> proxy = socket_manager->proxy(socket);
+
+    // Enqueue the response with the HttpProxy so that it respects the
+    // order of requests to account for HTTP/1.1 pipelining.
+    dispatch(proxy, &HttpProxy::enqueue,
+             HttpNotFoundResponse(), request->keepAlive);
 
     // Cleanup request.
     delete request;
@@ -2506,7 +2587,7 @@ bool cancel(const Timer& timer)
 } // namespace timers {
 
 
-ProcessBase::ProcessBase(const std::string& _id)
+ProcessBase::ProcessBase(const std::string& id)
 {
   process::initialize();
 
@@ -2516,15 +2597,7 @@ ProcessBase::ProcessBase(const std::string& _id)
 
   refs = 0;
 
-  if (_id != "") {
-    pid.id = _id;
-  } else {
-    // Generate string representation of unique id for process.
-    stringstream out;
-    out << __sync_add_and_fetch(&__id__, 1);
-    pid.id = out.str();
-  }
-
+  pid.id = id != "" ? id : ID::generate();
   pid.ip = __ip__;
   pid.port = __port__;
 
@@ -2665,7 +2738,7 @@ void ProcessBase::visit(const DispatchEvent& event)
 
 void ProcessBase::visit(const HttpEvent& event)
 {
-  VLOG(2) << "Handling HTTP event for process '" << pid.id << "'"
+  VLOG(1) << "Handling HTTP event for process '" << pid.id << "'"
           << " with path: '" << event.request->path << "'";
 
   CHECK(event.request->path.find('/') == 0); // See ProcessManager::deliver.
@@ -2693,16 +2766,29 @@ void ProcessBase::visit(const HttpEvent& event)
 
     // Now call the handler and associate the response with the promise.
     promise->associate(handlers.http[name](*event.request));
-  } else if (resources.count(name) > 0) {
+  } else if (assets.count(name) > 0) {
     HttpOKResponse response;
-    response.headers["Content-Type"] = resources[name].type;
     response.type = HttpResponse::PATH;
-    response.path = resources[name].path;
+    response.path = assets[name].path;
 
     // Construct the final path by appending remaining tokens.
     for (int i = 2; i < tokens.size(); i++) {
       response.path += "/" + tokens[i];
     }
+
+    // Try and determine the Content-Type.
+    size_t index = response.path.find_last_of('.');
+
+    if (index != string::npos) {
+      string extension = response.path.substr(index);
+      if (assets[name].types.count(extension) > 0) {
+        response.headers["Content-Type"] = assets[name].types[extension];
+      }
+    }
+
+    // TODO(benh): Use "text/plain" for assets that don't have an
+    // extension or we don't have a mapping for? It might be better to
+    // just let the browser guess (or do it's own default).
 
     // Get the HttpProxy pid for this socket.
     PID<HttpProxy> proxy = socket_manager->proxy(event.socket);
@@ -2782,7 +2868,10 @@ class WaitWaiter : public Process<WaitWaiter>
 {
 public:
   WaitWaiter(const UPID& _pid, double _secs, bool* _waited)
-    : pid(_pid), secs(_secs), waited(_waited) {}
+    : ProcessBase(ID::generate("__waiter__")),
+      pid(_pid),
+      secs(_secs),
+      waited(_waited) {}
 
   virtual void initialize()
   {

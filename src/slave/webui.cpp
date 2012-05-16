@@ -23,6 +23,7 @@
 #include "slave/webui.hpp"
 
 #include "common/option.hpp"
+#include "common/try.hpp"
 #include "common/utils.hpp"
 #include "common/webui_utils.hpp"
 
@@ -35,26 +36,12 @@ namespace webui {
 
 void start(const process::PID<Slave>& slave, const Configuration& conf)
 {
-  std::vector<std::string> args(4);
-  args[0] = "--slave_port=" + utils::stringify(slave.port);
-  args[1] = "--webui_port=" + conf.get("webui_port", "8081");
-  args[2] = "--log_dir=" + conf.get("log_dir", FLAGS_log_dir);
-
-  std::string workDir = "work";  // Default work directory.
-
-  // Now look for configured work directory.
-  Option<std::string> option = conf.get("work_dir");
-  if (option.isNone()) {
-    // Okay, then look for a home directory instead.
-    option = conf.get("home");
-    if (option.isSome()) {
-      workDir = option.get() + "/work";
-    }
-  } else {
-    workDir = option.get();
-  }
-
-  args[3] = "--work_dir=" + workDir;
+  std::vector<std::string> args(5);
+  args[0] = "--slave_id=" + slave.id;
+  args[1] = "--slave_port=" + utils::stringify(slave.port);
+  args[2] = "--webui_port=" + conf.get<std::string>("webui_port", "8081");
+  args[3] = "--log_dir=" + conf.get<std::string>("log_dir", FLAGS_log_dir);
+  args[4] = "--work_dir=" + conf.get<std::string>("work_dir", "/tmp/mesos");
 
   utils::webui::start(conf, "slave/webui.py", args);
 }

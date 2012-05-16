@@ -19,11 +19,6 @@
 #ifndef PROXY_EXECUTOR_HPP
 #define PROXY_EXECUTOR_HPP
 
-#ifdef __APPLE__
-// Since Python.h defines _XOPEN_SOURCE on Mac OS X, we undefine it
-// here so that we don't get warning messages during the build.
-#undef _XOPEN_SOURCE
-#endif // __APPLE__
 #include <Python.h>
 
 #include <string>
@@ -31,18 +26,16 @@
 
 #include <mesos/executor.hpp>
 
-
-namespace mesos { namespace python {
+namespace mesos {
+namespace python {
 
 struct MesosExecutorDriverImpl;
 
 /**
- * Proxy Executor implementation that will call into Python
+ * Proxy Executor implementation that will call into Python.
  */
 class ProxyExecutor : public Executor
 {
-  MesosExecutorDriverImpl *impl;
-
 public:
   ProxyExecutor(MesosExecutorDriverImpl *_impl) : impl(_impl) {}
 
@@ -50,26 +43,22 @@ public:
 
   virtual void registered(ExecutorDriver* driver,
                           const ExecutorInfo& executorInfo,
-                          const FrameworkID& frameworkId,
                           const FrameworkInfo& frameworkInfo,
-                          const SlaveID& slaveId,
                           const SlaveInfo& slaveInfo);
-
-  virtual void launchTask(ExecutorDriver* driver,
-                          const TaskDescription& task);
-
+  virtual void reregistered(ExecutorDriver* driver, const SlaveInfo& slaveInfo);
+  virtual void disconnected(ExecutorDriver* driver);
+  virtual void launchTask(ExecutorDriver* driver, const TaskInfo& task);
   virtual void killTask(ExecutorDriver* driver, const TaskID& taskId);
-
   virtual void frameworkMessage(ExecutorDriver* driver,
                                 const std::string& data);
-
   virtual void shutdown(ExecutorDriver* driver);
+  virtual void error(ExecutorDriver* driver, const std::string& message);
 
-  virtual void error(ExecutorDriver* driver,
-                     int code,
-                     const std::string& message);
+private:
+  MesosExecutorDriverImpl *impl;
 };
 
-}} /* namespace mesos { namespace python { */
+} // namespace python {
+} // namespace mesos {
 
-#endif /* PROXY_EXECUTOR_HPP */
+#endif // PROXY_EXECUTOR_HPP

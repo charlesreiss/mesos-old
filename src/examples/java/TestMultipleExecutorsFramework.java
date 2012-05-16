@@ -31,23 +31,19 @@ import org.apache.mesos.Protos.*;
 
 
 public class TestMultipleExecutorsFramework {
-  static class MyScheduler implements Scheduler {
-    int launchedTasks = 0;
-    int finishedTasks = 0;
-    final int totalTasks;
-
-    public MyScheduler() {
-      this(5);
-    }
-
-    public MyScheduler(int numTasks) {
-      totalTasks = numTasks;
+  static class TestScheduler implements Scheduler {
+    @Override
+    public void registered(SchedulerDriver driver,
+                           FrameworkID frameworkId,
+                           MasterInfo masterInfo) {
+      System.out.println("Registered! ID = " + frameworkId.getValue());
     }
 
     @Override
-    public void registered(SchedulerDriver driver, FrameworkID frameworkId) {
-      System.out.println("Registered! ID = " + frameworkId.getValue());
-    }
+    public void reregistered(SchedulerDriver driver, MasterInfo masterInfo) {}
+
+    @Override
+    public void disconnected(SchedulerDriver driver) {}
 
     @Override
     public void resourceOffers(SchedulerDriver driver,
@@ -56,7 +52,7 @@ public class TestMultipleExecutorsFramework {
         File file = new File("./test-executor");
 
         for (Offer offer : offers) {
-          List<TaskDescription> tasks = new ArrayList<TaskDescription>();
+          List<TaskInfo> tasks = new ArrayList<TaskInfo>();
           if (!fooLaunched) {
             TaskID taskId = TaskID.newBuilder()
               .setValue("foo")
@@ -64,7 +60,7 @@ public class TestMultipleExecutorsFramework {
 
             System.out.println("Launching task " + taskId.getValue());
 
-            TaskDescription task = TaskDescription.newBuilder()
+            TaskInfo task = TaskInfo.newBuilder()
               .setName("task " + taskId.getValue())
               .setTaskId(taskId)
               .setSlaveId(offer.getSlaveId())
@@ -86,8 +82,10 @@ public class TestMultipleExecutorsFramework {
                            .setExecutorId(ExecutorID.newBuilder()
                                           .setValue("executor-foo")
                                           .build())
-                               .setUri(file.getCanonicalPath())
-                               .build())
+                           .setCommand(CommandInfo.newBuilder()
+                                       .setValue(file.getCanonicalPath())
+                                       .build())
+                           .build())
               .setData(ByteString.copyFromUtf8("100000"))
               .build();
 
@@ -103,7 +101,7 @@ public class TestMultipleExecutorsFramework {
 
             System.out.println("Launching task " + taskId.getValue());
 
-            TaskDescription task = TaskDescription.newBuilder()
+            TaskInfo task = TaskInfo.newBuilder()
               .setName("task " + taskId.getValue())
               .setTaskId(taskId)
               .setSlaveId(offer.getSlaveId())
@@ -125,7 +123,9 @@ public class TestMultipleExecutorsFramework {
                            .setExecutorId(ExecutorID.newBuilder()
                                           .setValue("executor-bar")
                                           .build())
-                           .setUri(file.getCanonicalPath())
+                           .setCommand(CommandInfo.newBuilder()
+                                       .setValue(file.getCanonicalPath())
+                                       .build())
                            .build())
               .setData(ByteString.copyFrom("100000".getBytes()))
               .build();
@@ -150,26 +150,42 @@ public class TestMultipleExecutorsFramework {
       System.out.println("Status update: task " + status.getTaskId() +
                          " is in state " + status.getState());
       if (status.getState() == TaskState.TASK_FINISHED) {
-        finishedTasks++;
-        System.out.println("Finished tasks: " + finishedTasks);
-        if (finishedTasks == totalTasks)
-          driver.stop();
+        if (status.getTaskId().getValue().equals("foo")) {
+          fooFinished = true;
+        }
+        if (status.getTaskId().getValue().equals("bar")) {
+          barFinished = true;
+        }
+      }
+
+      if (fooFinished && barFinished) {
+        driver.stop();
       }
     }
 
     @Override
-    public void frameworkMessage(SchedulerDriver driver, SlaveID slaveId, ExecutorID executorId, byte[] data) {}
+    public void frameworkMessage(SchedulerDriver driver,
+                                 ExecutorID executorId,
+                                 SlaveID slaveId,
+                                 byte[] data) {}
 
     @Override
     public void slaveLost(SchedulerDriver driver, SlaveID slaveId) {}
 
     @Override
-    public void error(SchedulerDriver driver, int code, String message) {
+    public void executorLost(SchedulerDriver driver,
+                             ExecutorID executorId,
+                             SlaveID slaveId,
+                             int status) {}
+
+    public void error(SchedulerDriver driver, String message) {
       System.out.println("Error: " + message);
     }
 
     private boolean fooLaunched = false;
     private boolean barLaunched = false;
+    private boolean fooFinished = false;
+    private boolean barFinished = false;
   }
 
   private static void usage() {
@@ -183,27 +199,16 @@ public class TestMultipleExecutorsFramework {
       System.exit(1);
     }
 
-    ExecutorInfo executorInfo = ExecutorInfo.newBuilder()
-      .setExecutorId(ExecutorID.newBuilder().setValue("default").build())
-      .setUri(new File("./test-executor").getCanonicalPath())
-      .build();
+    FrameworkInfo framework = FrameworkInfo.newBuilder()
+        .setUser("") // Have Mesos fill in the current user.
+        .setName("Test Multiple Executors Framework (Java)")
+        .build();
 
-    MesosSchedulerDriver driver;
+    MesosSchedulerDriver driver = new MesosSchedulerDriver(
+        new TestScheduler(),
+        framework,
+        args[0]);
 
-    if (args.length == 1) {
-      driver = new MesosSchedulerDriver(
-          new MyScheduler(),
-          "Java test framework",
-          executorInfo,
-          args[0]);
-    } else {
-      driver = new MesosSchedulerDriver(
-          new MyScheduler(Integer.parseInt(args[1])),
-          "Java test framework",
-          executorInfo,
-          args[0]);
-    }
-
-    System.exit(driver.run() == Status.OK ? 0 : 1);
+    System.exit(driver.run() == Status.DRIVER_STOPPED ? 0 : 1);
   }
 }

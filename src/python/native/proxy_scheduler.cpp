@@ -30,15 +30,17 @@ using std::string;
 using std::vector;
 using std::map;
 
-
-namespace mesos { namespace python {
+namespace mesos {
+namespace python {
 
 void ProxyScheduler::registered(SchedulerDriver* driver,
-                                const FrameworkID& frameworkId)
+                                const FrameworkID& frameworkId,
+                                const MasterInfo& masterInfo)
 {
   InterpreterLock lock;
 
   PyObject* fid = NULL;
+  PyObject* minfo = NULL;
   PyObject* res = NULL;
 
   fid = createPythonProtobuf(frameworkId, "FrameworkID");
@@ -46,11 +48,17 @@ void ProxyScheduler::registered(SchedulerDriver* driver,
     goto cleanup; // createPythonProtobuf will have set an exception
   }
 
+  minfo = createPythonProtobuf(masterInfo, "MasterInfo");
+  if (minfo == NULL) {
+    goto cleanup; // createPythonProtobuf will have set an exception
+  }
+
   res = PyObject_CallMethod(impl->pythonScheduler,
                             (char*) "registered",
-                            (char*) "OO",
+                            (char*) "OOO",
                             impl,
-                            fid);
+                            fid,
+                            minfo);
   if (res == NULL) {
     cerr << "Failed to call scheduler's registered" << endl;
     goto cleanup;
@@ -62,6 +70,64 @@ cleanup:
     driver->abort();
   }
   Py_XDECREF(fid);
+  Py_XDECREF(minfo);
+  Py_XDECREF(res);
+}
+
+
+void ProxyScheduler::reregistered(SchedulerDriver* driver,
+                                  const MasterInfo& masterInfo)
+{
+  InterpreterLock lock;
+
+  PyObject* minfo = NULL;
+  PyObject* res = NULL;
+
+  minfo = createPythonProtobuf(masterInfo, "MasterInfo");
+  if (minfo == NULL) {
+    goto cleanup; // createPythonProtobuf will have set an exception
+  }
+
+  res = PyObject_CallMethod(impl->pythonScheduler,
+                            (char*) "reregistered",
+                            (char*) "OO",
+                            impl,
+                            minfo);
+  if (res == NULL) {
+    cerr << "Failed to call scheduler's reregistered" << endl;
+    goto cleanup;
+  }
+
+cleanup:
+  if (PyErr_Occurred()) {
+    PyErr_Print();
+    driver->abort();
+  }
+  Py_XDECREF(minfo);
+  Py_XDECREF(res);
+}
+
+
+void ProxyScheduler::disconnected(SchedulerDriver* driver)
+{
+  InterpreterLock lock;
+
+  PyObject* res = NULL;
+
+  res = PyObject_CallMethod(impl->pythonScheduler,
+                            (char*) "disconnected",
+                            (char*) "O",
+                            impl);
+  if (res == NULL) {
+    cerr << "Failed to call scheduler's disconnected" << endl;
+    goto cleanup;
+  }
+
+cleanup:
+  if (PyErr_Occurred()) {
+    PyErr_Print();
+    driver->abort();
+  }
   Py_XDECREF(res);
 }
 
@@ -78,7 +144,7 @@ void ProxyScheduler::resourceOffers(SchedulerDriver* driver,
   if (list == NULL) {
     goto cleanup;
   }
-  for (int i = 0; i < offers.size(); i++) {
+  for (size_t i = 0; i < offers.size(); i++) {
     PyObject* offer = createPythonProtobuf(offers[i], "Offer");
     if (offer == NULL) {
       goto cleanup;
@@ -174,21 +240,22 @@ cleanup:
 
 
 void ProxyScheduler::frameworkMessage(SchedulerDriver* driver,
-                                      const SlaveID& slaveId,
                                       const ExecutorID& executorId,
+                                      const SlaveID& slaveId,
                                       const string& data)
 {
   InterpreterLock lock;
 
-  PyObject* sid = NULL;
   PyObject* eid = NULL;
+  PyObject* sid = NULL;
   PyObject* res = NULL;
 
-  sid = createPythonProtobuf(slaveId, "SlaveID");
-  if (sid == NULL) {
+  eid = createPythonProtobuf(executorId, "ExecutorID");
+  if (eid == NULL) {
     goto cleanup; // createPythonProtobuf will have set an exception
   }
-  eid = createPythonProtobuf(executorId, "ExecutorID");
+
+  sid = createPythonProtobuf(slaveId, "SlaveID");
   if (sid == NULL) {
     goto cleanup; // createPythonProtobuf will have set an exception
   }
@@ -197,8 +264,8 @@ void ProxyScheduler::frameworkMessage(SchedulerDriver* driver,
                             (char*) "frameworkMessage",
                             (char*) "OOOs",
                             impl,
-                            sid,
                             eid,
+                            sid,
                             data.c_str());
   if (res == NULL) {
     cerr << "Failed to call scheduler's frameworkMessage" << endl;
@@ -210,14 +277,13 @@ cleanup:
     PyErr_Print();
     driver->abort();
   }
-  Py_XDECREF(sid);
   Py_XDECREF(eid);
+  Py_XDECREF(sid);
   Py_XDECREF(res);
 }
 
 
-void ProxyScheduler::slaveLost(SchedulerDriver* driver,
-                               const SlaveID& slaveId)
+void ProxyScheduler::slaveLost(SchedulerDriver* driver, const SlaveID& slaveId)
 {
   InterpreterLock lock;
 
@@ -249,16 +315,54 @@ cleanup:
 }
 
 
-void ProxyScheduler::error(SchedulerDriver* driver,
-                           int code,
-                           const string& message)
+void ProxyScheduler::executorLost(SchedulerDriver* driver,
+                                  const ExecutorID& executorId,
+                                  const SlaveID& slaveId,
+                                  int status)
+{
+  InterpreterLock lock;
+
+  PyObject* executorIdObj = NULL;
+  PyObject* slaveIdObj = NULL;
+  PyObject* res = NULL;
+
+  executorIdObj = createPythonProtobuf(executorId, "ExecutorID");
+  slaveIdObj = createPythonProtobuf(slaveId, "SlaveID");
+
+  if (executorIdObj == NULL || slaveIdObj == NULL) {
+    goto cleanup; // createPythonProtobuf will have set an exception
+  }
+
+  res = PyObject_CallMethod(impl->pythonScheduler,
+                            (char*) "executorLost",
+                            (char*) "OOOi",
+                            impl,
+                            executorIdObj,
+                            slaveIdObj,
+                            status);
+  if (res == NULL) {
+    cerr << "Failed to call scheduler's executorLost" << endl;
+    goto cleanup;
+  }
+
+cleanup:
+  if (PyErr_Occurred()) {
+    PyErr_Print();
+    driver->abort();
+  }
+  Py_XDECREF(executorIdObj);
+  Py_XDECREF(slaveIdObj);
+  Py_XDECREF(res);
+}
+
+
+void ProxyScheduler::error(SchedulerDriver* driver, const string& message)
 {
   InterpreterLock lock;
   PyObject* res = PyObject_CallMethod(impl->pythonScheduler,
                                       (char*) "error",
-                                      (char*) "Ois",
+                                      (char*) "Os",
                                       impl,
-                                      code,
                                       message.c_str());
   if (res == NULL) {
     cerr << "Failed to call scheduler's error" << endl;
@@ -272,4 +376,5 @@ cleanup:
   Py_XDECREF(res);
 }
 
-}} /* namespace mesos { namespace python { */
+} // namespace python {
+} // namespace mesos {

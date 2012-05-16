@@ -23,7 +23,11 @@
 
 #include <mesos/mesos.hpp>
 
+#include "construct.hpp"
 #include "convert.hpp"
+
+#include "common/logging.hpp"
+#include "common/strings.hpp"
 
 using namespace mesos;
 
@@ -45,7 +49,6 @@ using std::string;
 namespace {
 
 jweak mesosClassLoader = NULL; // Initialized in JNI_OnLoad later in this file.
-
 
 jclass FindMesosClass(JNIEnv* env, const char* className)
 {
@@ -134,12 +137,29 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* jvm, void* reserved)
     mesosClassLoader = env->NewWeakGlobalRef(classLoader);
   }
 
+  // Check that we are loading the correct version of the native library.
+  jclass clazz = FindMesosClass(env, "org/apache/mesos/MesosNativeLibrary");
+  jobject jVERSION = env->GetStaticObjectField(
+      clazz, env->GetStaticFieldID(clazz, "VERSION", "Ljava/lang/String;"));
+
+  const string& expected = construct<string>(env, jVERSION);
+
+  if (MESOS_VERSION != expected) {
+    env->DeleteWeakGlobalRef(mesosClassLoader);
+    mesosClassLoader = NULL;
+    const string& error =
+      "Java expecting version " + expected + ", found version " + MESOS_VERSION;
+    clazz = env->FindClass("java/lang/UnsatisfiedLinkError");
+    env->ThrowNew(clazz, error.c_str());
+    return JNI_ERR;
+  }
+
   // Set the 'loaded' property so we don't try and load it again. This
   // is necessary because a native library can be loaded either with
   // 'System.load' or 'System.loadLibrary' and while redundant calls
   // to 'System.loadLibrary' will be ignored one call of each could
   // cause an error.
-  jclass clazz = env->FindClass("org/apache/mesos/MesosNativeLibrary");
+  clazz = FindMesosClass(env, "org/apache/mesos/MesosNativeLibrary");
   jfieldID loaded = env->GetStaticFieldID(clazz, "loaded", "Z");
   env->SetStaticBooleanField(clazz, loaded, (jboolean) true);
 
@@ -214,6 +234,29 @@ jobject convert(JNIEnv* env, const FrameworkInfo& frameworkInfo)
   jobject jframeworkInfo = env->CallStaticObjectMethod(clazz, parseFrom, jdata);
 
   return jframeworkInfo;
+}
+
+
+template <>
+jobject convert(JNIEnv* env, const MasterInfo& masterInfo)
+{
+  string data;
+  masterInfo.SerializeToString(&data);
+
+  // byte[] data = ..;
+  jbyteArray jdata = env->NewByteArray(data.size());
+  env->SetByteArrayRegion(jdata, 0, data.size(), (jbyte*) data.data());
+
+  // MasterInfo masterInfo = MasterInfo.parseFrom(data);
+  jclass clazz = FindMesosClass(env, "org/apache/mesos/Protos$MasterInfo");
+
+  jmethodID parseFrom =
+    env->GetStaticMethodID(clazz, "parseFrom",
+                           "([B)Lorg/apache/mesos/Protos$MasterInfo;");
+
+  jobject jmasterInfo = env->CallStaticObjectMethod(clazz, parseFrom, jdata);
+
+  return jmasterInfo;
 }
 
 
@@ -351,7 +394,7 @@ jobject convert(JNIEnv* env, const TaskState& state)
 
 
 template <>
-jobject convert(JNIEnv* env, const TaskDescription& task)
+jobject convert(JNIEnv* env, const TaskInfo& task)
 {
   string data;
   task.SerializeToString(&data);
@@ -360,12 +403,12 @@ jobject convert(JNIEnv* env, const TaskDescription& task)
   jbyteArray jdata = env->NewByteArray(data.size());
   env->SetByteArrayRegion(jdata, 0, data.size(), (jbyte*) data.data());
 
-  // TaskDescription task = TaskDescription.parseFrom(data);
-  jclass clazz = FindMesosClass(env, "org/apache/mesos/Protos$TaskDescription");
+  // TaskInfo task = TaskInfo.parseFrom(data);
+  jclass clazz = FindMesosClass(env, "org/apache/mesos/Protos$TaskInfo");
 
   jmethodID parseFrom =
     env->GetStaticMethodID(clazz, "parseFrom",
-                           "([B)Lorg/apache/mesos/Protos$TaskDescription;");
+                           "([B)Lorg/apache/mesos/Protos$TaskInfo;");
 
   jobject jtask = env->CallStaticObjectMethod(clazz, parseFrom, jdata);
 

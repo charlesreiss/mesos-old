@@ -44,10 +44,19 @@ public interface Executor {
    */
   void registered(ExecutorDriver driver,
                   ExecutorInfo executorInfo,
-                  FrameworkID frameworkId,
                   FrameworkInfo frameworkInfo,
-                  SlaveID slaveId,
                   SlaveInfo slaveInfo);
+
+  /**
+   * Invoked when the executor re-registers with a restarted slave.
+   */
+  void reregistered(ExecutorDriver driver, SlaveInfo slaveInfo);
+
+  /**
+   * Invoked when the executor becomes "disconnected" from the slave
+   * (e.g., the slave is being restarted due to an upgrade).
+   */
+  void disconnected(ExecutorDriver driver);
 
   /**
    * Invoked when a task has been launched on this executor (initiated
@@ -56,7 +65,7 @@ public interface Executor {
    * however, no other callbacks will be invoked on this executor
    * until this callback has returned.
    */
-  void launchTask(ExecutorDriver driver, TaskDescription task);
+  void launchTask(ExecutorDriver driver, TaskInfo task);
 
   /**
    * Invoked when a task running within this executor has been killed
@@ -87,8 +96,7 @@ public interface Executor {
   /**
    * Invoked when a fatal error has occured with the executor and/or
    * executor driver. The driver will be aborted BEFORE invoking this
-   * callback. This function is deprecated and will probably be
-   * removed in a subsequent release.
+   * callback.
    */
-  void error(ExecutorDriver driver, int code, String message);
+  void error(ExecutorDriver driver, String message);
 }

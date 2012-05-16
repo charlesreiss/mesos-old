@@ -30,6 +30,7 @@
 
 #include "common/foreach.hpp"
 #include "common/strings.hpp"
+#include "common/utils.hpp"
 
 using namespace mesos::internal;
 
@@ -66,8 +67,7 @@ Configurator::Configurator()
 {
   addOption<string>("conf",
                     "Specifies a config directory from which to\n"
-                    "read Mesos config files. The Mesos binaries\n"
-                    "use <install location>/conf by default");
+                    "read Mesos config files.");
 }
 
 
@@ -83,10 +83,10 @@ void Configurator::validate()
 }
 
 
-Configuration& Configurator::load(int argc, char** argv, bool inferMesosHomeFromArg0)
+Configuration& Configurator::load(int argc, char** argv)
 {
   loadEnv();
-  loadCommandLine(argc, argv, inferMesosHomeFromArg0);
+  loadCommandLine(argc, argv);
   loadConfigFileIfGiven();
   loadDefaults();
   validate();
@@ -117,16 +117,14 @@ Configuration& Configurator::load(const map<string, string>& _params)
 
 void Configurator::loadConfigFileIfGiven(bool overwrite) {
   if (conf.contains("conf")) {
-    // If conf param is given, always look for a config file in that directory
-    string confDir = conf["conf"];
-    loadConfigFile(confDir + "/" + CONFIG_FILE_NAME, overwrite);
-  } else if (conf.contains("home")) {
-    // Grab config file in MESOS_HOME/conf, if it exists
-    string confDir = conf["home"] + "/" + DEFAULT_CONFIG_DIR;
-    string confFile = confDir + "/" + CONFIG_FILE_NAME;
-    struct stat st;
-    if (stat(confFile.c_str(), &st) == 0) {
-      loadConfigFile(confFile, overwrite);
+    // If conf param is given, always look for a config file in that directory.
+    Try<string> path =
+      utils::os::realpath(conf["conf"] + "/" + CONFIG_FILE_NAME);
+
+    if (path.isError()) {
+      LOG(WARNING) << "Cannot load config file: " << path.error();
+    } else {
+      loadConfigFile(path.get(), overwrite);
     }
   }
 }
@@ -148,7 +146,7 @@ void Configurator::loadEnv(bool overwrite)
       val = line.substr(eq + 1);
       // Disallow setting home through the environment, because it should
       // always be resolved from the running Mesos binary (if any)
-      if ((overwrite || !conf.contains(key)) && key != "home") {
+      if ((overwrite || !conf.contains(key))) {
         conf[key] = val;
       }
     }
@@ -159,28 +157,8 @@ void Configurator::loadEnv(bool overwrite)
 
 void Configurator::loadCommandLine(int argc,
                                    char** argv,
-                                   bool inferMesosHomeFromArg0,
                                    bool overwrite)
 {
-  // Set home based on argument 0 if asked to do so
-  if (inferMesosHomeFromArg0) {
-    // Copy argv[0] because dirname can modify it
-    int lengthOfArg0 = strlen(argv[0]);
-    char* copyOfArg0 = new char[lengthOfArg0 + 1];
-    strncpy(copyOfArg0, argv[0], lengthOfArg0 + 1);
-    // Get its directory, and then the parent of that directory
-    string myDir = string(dirname(copyOfArg0));
-    string parentDir = myDir + "/..";
-    // Get the real name of this parent directory
-    char path[PATH_MAX];
-    if (realpath(parentDir.c_str(), path) == 0) {
-      throw ConfigurationException(
-        "Could not resolve MESOS_HOME from argv[0] -- realpath failed");
-    }
-    conf["home"] = path;
-    delete[] copyOfArg0;
-  }
-
   // Convert args 1 and above to STL strings
   vector<string> args;
   for (int i=1; i < argc; i++) {
@@ -250,10 +228,7 @@ void Configurator::loadCommandLine(int argc,
       LOG(WARNING) << "\"" << key << "\" option appears multiple times in "
                    << "command line; only the first value will be used";
     }
-    // Disallow setting "home" since it should only be inferred from
-    // the location of the running Mesos binary (if any)
-    if (set && (overwrite || !conf.contains(key)) && key != "home"
-        && timesSeen[key] == 1) {
+    if (set && (overwrite || !conf.contains(key)) && timesSeen[key] == 1) {
       conf[key] = val;
     }
   }
@@ -302,10 +277,7 @@ void Configurator::loadConfigFile(const string& fname, bool overwrite)
       LOG(WARNING) << "\"" << key << "\" option appears multiple times in "
                    << fname << "; only the first value will be used";
     }
-    // Disallow setting "home" since it should only be inferred from
-    // the location of the running Mesos binary (if any)
-    if ((overwrite || !conf.contains(key)) && key != "home"
-        && timesSeen[key] == 1) {
+    if ((overwrite || !conf.contains(key)) && timesSeen[key] == 1) {
       conf[key] = value;
     }
   }

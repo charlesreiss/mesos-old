@@ -21,13 +21,12 @@
 #include <list>
 #include <sstream>
 
-#include <glog/logging.h>
-
+#include <process/delay.hpp>
 #include <process/run.hpp>
-#include <process/timer.hpp>
 
 #include "common/build.hpp"
 #include "common/date_utils.hpp"
+#include "common/logging.hpp"
 #include "common/utils.hpp"
 #include "common/uuid.hpp"
 
@@ -134,8 +133,8 @@ struct SlaveRegistrar
                                   slave->info.hostname(), slave->pid.port);
     added.await();
     if (!added.isReady() || !added.get()) {
-      LOG(WARNING) << "Could not register slave because failed"
-                   << " to add it to the slaves maanger";
+      LOG(WARNING) << "Could not register slave on "<< slave->info.hostname()
+                   << " because failed to add it to the slaves maanger";
       // TODO(benh): This could be because our acknowledgement to the
       // slave was dropped, so they retried, and now we should
       // probably send another acknowledgement.
@@ -160,6 +159,7 @@ struct SlaveReregistrar
     // TODO(benh): Do a reverse lookup to ensure IP maps to
     // hostname, or check credentials of this slave.
     dispatch(master, &Master::readdSlave, slave, executorInfos, tasks);
+    return true;
   }
 
   static bool run(Slave* slave,
@@ -172,8 +172,8 @@ struct SlaveReregistrar
                                   slave->info.hostname(), slave->pid.port);
     added.await();
     if (!added.isReady() || !added.get()) {
-      LOG(WARNING) << "Could not register slave because failed"
-                   << " to add it to the slaves maanger";
+      LOG(WARNING) << "Could not register slave on " << slave->info.hostname()
+                   << " because failed to add it to the slaves manager";
       // TODO(benh): This could be because our acknowledgement to the
       // slave was dropped, so they retried, and now we should
       // probably send another acknowledgement.
@@ -228,11 +228,6 @@ void Master::registerOptions(Configurator* configurator)
       "root_submissions",
       "Can root submit frameworks?",
       true);
-
-  configurator->addOption<int>(
-      "failover_timeout",
-      "Framework failover timeout in seconds",
-      FRAMEWORK_FAILOVER_TIMEOUT);
 }
 
 
@@ -264,7 +259,7 @@ vector<Slave*> Master::getActiveSlaves() const
 
 void Master::initialize()
 {
-  LOG(INFO) << "Master started at mesos://" << self();
+  LOG(INFO) << "Master started on " << string(self()).substr(7);
 
   // The master ID is currently comprised of the current date, the IP
   // address and port from self() and the OS PID.
@@ -293,11 +288,8 @@ void Master::initialize()
   nextSlaveId = 0;
   nextOfferId = 0;
 
-  failoverTimeout = conf.get<int>("failover_timeout", FRAMEWORK_FAILOVER_TIMEOUT);
-
   // Start all the statistics at 0.
-  CHECK(TASK_STARTING == TaskState_MIN);
-  CHECK(TASK_LOST == TaskState_MAX);
+  stats.tasks[TASK_STAGING] = 0;
   stats.tasks[TASK_STARTING] = 0;
   stats.tasks[TASK_RUNNING] = 0;
   stats.tasks[TASK_FINISHED] = 0;
@@ -333,7 +325,6 @@ void Master::initialize()
 
   install<ReregisterFrameworkMessage>(
       &Master::reregisterFramework,
-      &ReregisterFrameworkMessage::framework_id,
       &ReregisterFrameworkMessage::framework,
       &ReregisterFrameworkMessage::failover);
 
@@ -417,6 +408,19 @@ void Master::initialize()
   route("vars", bind(&http::vars, cref(*this), params::_1));
   route("stats.json", bind(&http::json::stats, cref(*this), params::_1));
   route("state.json", bind(&http::json::state, cref(*this), params::_1));
+  route("log.json", bind(&http::json::log, cref(*this), params::_1));
+
+  // Use either a directory specified via configuration options (which
+  // is necessary for running out of the build directory before 'make
+  // install') or the directory determined at build time via the
+  // preprocessor macro '-DMESOS_WEBUI_DIR' set in the Makefile.
+  std::string directory = conf.get<std::string>("webui_dir", MESOS_WEBUI_DIR);
+
+  // Remove any trailing '/' in directory.
+  directory = strings::remove(directory, "/", strings::SUFFIX);
+
+  provide("", directory + "/master/static/index.html");
+  provide("static", directory + "/master/static");
 }
 
 
@@ -443,6 +447,11 @@ void Master::exited(const UPID& pid)
 
       // Stop sending offers here for now.
       framework->active = false;
+
+      double failoverTimeout = framework->info.failover_timeout();
+
+      LOG(INFO) << "Giving framework " << framework->id << " "
+                << failoverTimeout << " seconds to failover";
 
       // Delay dispatching a message to ourselves for the timeout.
       delay(failoverTimeout, self(),
@@ -520,9 +529,15 @@ void Master::registerFramework(const FrameworkInfo& frameworkInfo)
     return;
   }
 
-  foreachvalue (Framework* oldFramework, frameworks) {
-    if (from == oldFramework->pid) {
-      LOG(WARNING) << "Ignoring register framework message since reply must be in flight for previous?";
+  // Check if this framework is already registered (because it retries).
+  foreachvalue (Framework* framework, frameworks) {
+    if (framework->pid == from) {
+      LOG(INFO) << "Framework " << framework->id << " (" << framework->pid
+                << ") already registered, resending acknowledgement";
+      FrameworkRegisteredMessage message;
+      message.mutable_framework_id()->MergeFrom(framework->id);
+      message.mutable_master_info()->MergeFrom(info);
+      reply(message);
       return;
     }
   }
@@ -532,23 +547,12 @@ void Master::registerFramework(const FrameworkInfo& frameworkInfo)
 
   LOG(INFO) << "Registering framework " << framework->id << " at " << from;
 
-  if (framework->info.executor().uri() == "") {
-    LOG(INFO) << framework << " registering without an executor URI";
-    FrameworkErrorMessage message;
-    message.set_code(1);
-    message.set_message("No executor URI given");
-    reply(message);
-    delete framework;
-    return;
-  }
-
   bool rootSubmissions = conf.get<bool>("root_submissions", true);
 
   if (framework->info.user() == "root" && rootSubmissions == false) {
     LOG(INFO) << framework << " registering as root, but "
-      << "root submissions are disabled on this cluster";
+              << "root submissions are disabled on this cluster";
     FrameworkErrorMessage message;
-    message.set_code(1);
     message.set_message("User 'root' is not allowed to run frameworks");
     reply(message);
     delete framework;
@@ -559,8 +563,7 @@ void Master::registerFramework(const FrameworkInfo& frameworkInfo)
 }
 
 
-void Master::reregisterFramework(const FrameworkID& frameworkId,
-                                 const FrameworkInfo& frameworkInfo,
+void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
                                  bool failover)
 {
   if (!elected) {
@@ -569,29 +572,18 @@ void Master::reregisterFramework(const FrameworkID& frameworkId,
     return;
   }
 
-  if (frameworkId == "") {
+  if (!frameworkInfo.has_id() || frameworkInfo.id() == "") {
     LOG(ERROR) << "Framework re-registering without an id!";
     FrameworkErrorMessage message;
-    message.set_code(1);
-    message.set_message("Missing framework id");
+    message.set_message("Framework reregistered without a framework id");
     reply(message);
     return;
   }
 
-  if (frameworkInfo.executor().uri() == "") {
-    LOG(INFO) << "Framework " << frameworkId << " re-registering "
-              << "without an executor URI";
-    FrameworkErrorMessage message;
-    message.set_code(1);
-    message.set_message("No executor URI given");
-    reply(message);
-    return;
-  }
-
-  LOG(INFO) << "Re-registering framework " << frameworkId
+  LOG(INFO) << "Re-registering framework " << frameworkInfo.id()
             << " at " << from;
 
-  if (frameworks.count(frameworkId) > 0) {
+  if (frameworks.count(frameworkInfo.id()) > 0) {
     // Using the "failover" of the scheduler allows us to keep a
     // scheduler that got partitioned but didn't die (in ZooKeeper
     // speak this means didn't lose their session) and then
@@ -602,15 +594,15 @@ void Master::reregisterFramework(const FrameworkID& frameworkId,
     // (if necessary) by the master and the master will always
     // know which scheduler is the correct one.
 
-    Framework* framework = frameworks[frameworkId];
+    Framework* framework = frameworks[frameworkInfo.id()];
 
     if (failover) {
       // TODO: Should we check whether the new scheduler has given
       // us a different framework name, user name or executor info?
-      LOG(INFO) << "Framework " << frameworkId << " failed over";
+      LOG(INFO) << "Framework " << frameworkInfo.id() << " failed over";
       failoverFramework(framework, from);
     } else {
-      LOG(INFO) << "Allowing the Framework " << frameworkId
+      LOG(INFO) << "Allowing the Framework " << frameworkInfo.id()
                 << " to re-register with an already used id";
 
       // Remove any offers sent to this framework.
@@ -625,7 +617,8 @@ void Master::reregisterFramework(const FrameworkID& frameworkId,
       }
 
       FrameworkReregisteredMessage message;
-      message.mutable_framework_id()->MergeFrom(frameworkId);
+      message.mutable_framework_id()->MergeFrom(frameworkInfo.id());
+      message.mutable_master_info()->MergeFrom(info);
       reply(message);
       return;
     }
@@ -635,7 +628,7 @@ void Master::reregisterFramework(const FrameworkID& frameworkId,
     // failed-over one is connecting. Create a Framework object and add
     // any tasks it has that have been reported by reconnecting slaves.
     Framework* framework =
-      new Framework(frameworkInfo, frameworkId, from, Clock::now());
+      new Framework(frameworkInfo, frameworkInfo.id(), from, Clock::now());
 
     // TODO(benh): Check for root submissions like above!
 
@@ -647,16 +640,18 @@ void Master::reregisterFramework(const FrameworkID& frameworkId,
         if (framework->id == task->framework_id()) {
           framework->addTask(task);
           // Also add the task's executor for resource accounting.
-          CHECK(slave->hasExecutor(framework->id, task->executor_id()));
-          const ExecutorInfo& info = slave->executors[framework->id][
-            task->executor_id()];
-          addExecutor(framework->id, slave->id, info);
+          if (task->has_executor_id()) {
+            CHECK(slave->hasExecutor(framework->id, task->executor_id()));
+            const ExecutorInfo& info = slave->executors[framework->id][
+              task->executor_id()];
+            addExecutor(framework->id, slave->id, info);
+          }
         }
       }
     }
   }
 
-  CHECK(frameworks.count(frameworkId) > 0);
+  CHECK(frameworks.count(frameworkInfo.id()) > 0);
 
   // Broadcast the new framework pid to all the slaves. We have to
   // broadcast because an executor might be running on a slave but
@@ -664,7 +659,7 @@ void Master::reregisterFramework(const FrameworkID& frameworkId,
   // potential scalability issue ...
   foreachvalue (Slave* slave, slaves) {
     UpdateFrameworkMessage message;
-    message.mutable_framework_id()->MergeFrom(frameworkId);
+    message.mutable_framework_id()->MergeFrom(frameworkInfo.id());
     message.set_pid(from);
     send(slave->pid, message);
   }
@@ -689,22 +684,23 @@ void Master::unregisterFramework(const FrameworkID& frameworkId)
 
 void Master::deactivateFramework(const FrameworkID& frameworkId)
 {
-  LOG(INFO) << "Asked to deactivate framework " << frameworkId;
   Framework* framework = getFramework(frameworkId);
 
   if (framework != NULL) {
     if (framework->pid == from) {
+      LOG(INFO) << "Deactivating framework " << frameworkId
+                << " as requested by " << from;
       framework->active = false;
     } else {
       LOG(WARNING) << from << " tried to deactivate framework; "
-        << "expecting " << framework->pid;
+                   << "expecting " << framework->pid;
     }
   }
 }
 
 
 void Master::resourceRequest(const FrameworkID& frameworkId,
-                             const vector<ResourceRequest>& requests)
+                             const vector<Request>& requests)
 {
   allocator->resourcesRequested(frameworkId, requests);
 }
@@ -712,7 +708,7 @@ void Master::resourceRequest(const FrameworkID& frameworkId,
 
 void Master::launchTasks(const FrameworkID& frameworkId,
                          const OfferID& offerId,
-                         const vector<TaskDescription>& tasks,
+                         const vector<TaskInfo>& tasks,
                          const Filters& filters)
 {
   LOG(INFO) << "Received reply for offer " << offerId
@@ -724,7 +720,7 @@ void Master::launchTasks(const FrameworkID& frameworkId,
     // *from the same slave* to be used to launch tasks. This can be
     // accomplished rather easily by collecting and merging all offers
     // into a mega-offer and passing that offer to
-    // Master::processOfferReply.
+    // Master::processTasks.
     Offer* offer = getOffer(offerId);
     if (offer != NULL) {
       CHECK_EQ(offer->framework_id(), frameworkId);
@@ -737,7 +733,7 @@ void Master::launchTasks(const FrameworkID& frameworkId,
       // TODO: Consider adding a new task state TASK_INVALID for
       // situations like these.
       LOG(WARNING) << "Offer " << offerId << " is no longer valid";
-      foreach (const TaskDescription& task, tasks) {
+      foreach (const TaskInfo& task, tasks) {
         StatusUpdateMessage message;
         StatusUpdate* update = message.mutable_update();
         update->mutable_framework_id()->MergeFrom(frameworkId);
@@ -778,7 +774,8 @@ void Master::killTask(const FrameworkID& frameworkId,
       Slave* slave = getSlave(task->slave_id());
       CHECK(slave != NULL);
 
-      LOG(INFO) << "Telling slave " << slave->id
+      LOG(INFO) << "Telling slave " << slave->id << " ("
+                << slave->info.hostname() << ")"
                 << " to kill task " << taskId
                 << " of framework " << frameworkId;
 
@@ -812,8 +809,8 @@ void Master::killTask(const FrameworkID& frameworkId,
 
 
 void Master::schedulerMessage(const SlaveID& slaveId,
-			      const FrameworkID& frameworkId,
-			      const ExecutorID& executorId,
+                              const FrameworkID& frameworkId,
+                              const ExecutorID& executorId,
                               const string& data)
 {
   Framework* framework = getFramework(frameworkId);
@@ -821,7 +818,8 @@ void Master::schedulerMessage(const SlaveID& slaveId,
     Slave* slave = getSlave(slaveId);
     if (slave != NULL) {
       LOG(INFO) << "Sending framework message for framework "
-                << frameworkId << " to slave " << slaveId;
+                << frameworkId << " to slave " << slaveId
+                << " (" << slave->info.hostname() << ")";
 
       FrameworkToExecutorMessage message;
       message.mutable_slave_id()->MergeFrom(slaveId);
@@ -849,25 +847,26 @@ void Master::schedulerMessage(const SlaveID& slaveId,
 void Master::registerSlave(const SlaveInfo& slaveInfo)
 {
   if (!elected) {
-    LOG(WARNING) << "Ignoring register slave message since not elected yet";
+    LOG(WARNING) << "Ignoring register slave message from "
+                 << slaveInfo.hostname() << " since not elected yet";
     return;
   }
 
-  // Check if this slave has already registered (because it's retrying).
+  // Check if this slave is already registered (because it retries).
   foreachvalue (Slave* slave, slaves) {
     if (slave->pid == from) {
       LOG(INFO) << "Slave " << slave->id << " (" << slave->info.hostname()
-                << ") already registered, re-sending acknowledgement";
+                << ") already registered, resending acknowledgement";
       SlaveRegisteredMessage message;
       message.mutable_slave_id()->MergeFrom(slave->id);
-      send(slave->pid, message);
+      reply(message);
       return;
     }
   }
 
   Slave* slave = new Slave(slaveInfo, newSlaveId(), from, Clock::now());
 
-  LOG(INFO) << "Attempting to register slave " << slave->id
+  LOG(INFO) << "Attempting to register slave on " << slave->info.hostname()
             << " at " << slave->pid;
 
   // TODO(benh): We assume all slaves can register for now.
@@ -895,7 +894,8 @@ void Master::reregisterSlave(const SlaveID& slaveId,
                              const vector<Task>& tasks)
 {
   if (!elected) {
-    LOG(WARNING) << "Ignoring re-register slave message since not elected yet";
+    LOG(WARNING) << "Ignoring re-register slave message from "
+                 << slaveInfo.hostname() << " since not elected yet";
     return;
   }
 
@@ -912,19 +912,18 @@ void Master::reregisterSlave(const SlaveID& slaveId,
       // this will be handled by orthogonal security measures like key
       // based authentication).
 
-      LOG(WARNING) << "Slave at " << from
-                   << " is being allowed to re-register with an already"
+      LOG(WARNING) << "Slave at " << from << " (" << slave->info.hostname()
+                   << ") is being allowed to re-register with an already"
                    << " in use id (" << slaveId << ")";
 
       SlaveReregisteredMessage message;
       message.mutable_slave_id()->MergeFrom(slave->id);
-      send(slave->pid, message);
-
+      reply(message);
     } else {
       Slave* slave = new Slave(slaveInfo, slaveId, from, Clock::now());
 
-      LOG(INFO) << "Attempting to re-register slave " << slave->id
-                << " at " << slave->pid;
+      LOG(INFO) << "Attempting to re-register slave " << slave->id << " at "
+                << slave->pid << " (" << slave->info.hostname() << ")";
 
       // TODO(benh): We assume all slaves can register for now.
       CHECK(conf.get<string>("slaves", "*") == "*");
@@ -1003,14 +1002,14 @@ void Master::statusUpdate(const StatusUpdate& update, const UPID& pid)
 
         stats.validStatusUpdates++;
       } else {
-        LOG(WARNING) << "Status update from " << from
-                     << ": error, couldn't lookup "
+        LOG(WARNING) << "Status update from " << from << " ("
+                     << slave->info.hostname() << "): error, couldn't lookup "
                      << "task " << status.task_id();
-	stats.invalidStatusUpdates++;
+        stats.invalidStatusUpdates++;
       }
     } else {
-      LOG(WARNING) << "Status update from " << from
-                   << ": error, couldn't lookup "
+      LOG(WARNING) << "Status update from " << from << " ("
+                   << slave->info.hostname() << "): error, couldn't lookup "
                    << "framework " << update.framework_id();
       stats.invalidStatusUpdates++;
     }
@@ -1024,15 +1023,16 @@ void Master::statusUpdate(const StatusUpdate& update, const UPID& pid)
 
 
 void Master::executorMessage(const SlaveID& slaveId,
-			     const FrameworkID& frameworkId,
-			     const ExecutorID& executorId,
+                             const FrameworkID& frameworkId,
+                             const ExecutorID& executorId,
                              const string& data)
 {
   Slave* slave = getSlave(slaveId);
   if (slave != NULL) {
     Framework* framework = getFramework(frameworkId);
     if (framework != NULL) {
-      LOG(INFO) << "Sending framework message from slave " << slaveId
+      LOG(INFO) << "Sending framework message from slave " << slaveId << " ("
+                << slave->info.hostname() << ")"
                 << " to framework " << frameworkId;
       ExecutorToFrameworkMessage message;
       message.mutable_slave_id()->MergeFrom(slaveId);
@@ -1044,7 +1044,8 @@ void Master::executorMessage(const SlaveID& slaveId,
       stats.validFrameworkMessages++;
     } else {
       LOG(WARNING) << "Cannot send framework message from slave "
-                   << slaveId << " to framework " << frameworkId
+                   << slaveId << " (" << slave->info.hostname()
+                   << ") to framework " << frameworkId
                    << " because framework does not exist";
       stats.invalidFrameworkMessages++;
     }
@@ -1062,10 +1063,8 @@ void Master::exitedExecutor(const SlaveID& slaveId,
                             const ExecutorID& executorId,
                             int32_t status)
 {
-  // TODO(benh): Send status updates for the tasks running under this
-  // executor from the slave! Maybe requires adding an extra "reason"
-  // so that people can see that the tasks were lost because of
-
+  // Only update master's internal data structures here for properly accounting.
+  // The TASK_LOST updates are handled by the slave.
   Slave* slave = getSlave(slaveId);
   if (slave != NULL) {
     Framework* framework = getFramework(frameworkId);
@@ -1076,50 +1075,10 @@ void Master::exitedExecutor(const SlaveID& slaveId,
                 << " (" << slave->info.hostname() << ") "
                 << "exited with status " << status;
 
-      // TODO(benh): What about a status update that is on it's way
-      // from the slave but got re-ordered on the wire? By sending
-      // this status updates here we are not allowing possibly
-      // finished tasks to reach the scheduler appropriately. In
-      // stead, it seems like perhaps the right thing to do is to have
-      // the slave be responsible for sending those status updates,
-      // and have the master (or better yet ... and soon ... the
-      // scheduler) decide that a task is dead only when a slave lost
-      // has occured.
-
-      // Tell the framework which tasks have been lost.
-      foreachvalue (Task* task, utils::copy(framework->tasks)) {
-        if (task->slave_id() == slave->id &&
-            task->executor_id() == executorId) {
-          StatusUpdateMessage message;
-          StatusUpdate* update = message.mutable_update();
-          update->mutable_framework_id()->MergeFrom(task->framework_id());
-          update->mutable_executor_id()->MergeFrom(task->executor_id());
-          update->mutable_slave_id()->MergeFrom(task->slave_id());
-          TaskStatus* status = update->mutable_status();
-          status->mutable_task_id()->MergeFrom(task->task_id());
-          status->set_state(TASK_LOST);
-          status->set_message("Lost executor");
-          update->set_timestamp(Clock::now());
-          update->set_uuid(UUID::random().toBytes());
-          send(framework->pid, message);
-
-          LOG(INFO) << "Removing task " << task->task_id()
-                    << " of framework " << frameworkId
-                    << " because of lost executor";
-
-          stats.tasks[TASK_LOST]++;
-
-          removeTask(task);
-        }
-      }
-
-      ExecutorInfo info = slave->executors[framework->id][executorId];
+      ExecutorInfo info = slave->executors[frameworkId][executorId];
 
       // Remove executor from slave and framework.
-      slave->removeExecutor(frameworkId, executorId);
-      framework->removeExecutor(slave->id, executorId);
-
-      allocator->executorRemoved(frameworkId, slave->id, info);
+      removeExecutor(slave, framework, info);
 
       // TODO(benh): Send the framework it's executor's exit status?
       // Or maybe at least have something like
@@ -1145,8 +1104,8 @@ void Master::deactivatedSlaveHostnamePort(const string& hostname,
     foreachvalue (Slave* slave, slaves) {
       if (slave->info.hostname() == hostname && slave->pid.port == port) {
         LOG(WARNING) << "Removing slave " << slave->id << " at "
-          << hostname << ":" << port
-          << " because it has been deactivated";
+                     << hostname << ":" << port
+                     << " because it has been deactivated";
         send(slave->pid, ShutdownMessage());
         removeSlave(slave);
         break;
@@ -1247,35 +1206,35 @@ void Master::makeOffers(Framework* framework,
 // back to the framework for only that task description. An instance
 // will be reused for each task description from same offer, but not
 // for task descriptions from different offers.
-typedef Option<string> TaskDescriptionError;
+typedef Option<string> TaskInfoError;
 
-struct TaskDescriptionVisitor
+struct TaskInfoVisitor
 {
-  virtual TaskDescriptionError operator () (
-      const TaskDescription& task,
+  virtual TaskInfoError operator () (
+      const TaskInfo& task,
       Offer* offer,
       Framework* framework,
       Slave* slave) = 0;
 
-  virtual ~TaskDescriptionVisitor() {}
+  virtual ~TaskInfoVisitor() {}
 };
 
 
 // Checks that the slave ID used by a task is correct.
-struct SlaveIDChecker : TaskDescriptionVisitor
+struct SlaveIDChecker : TaskInfoVisitor
 {
-  virtual TaskDescriptionError operator () (
-      const TaskDescription& task,
+  virtual TaskInfoError operator () (
+      const TaskInfo& task,
       Offer* offer,
       Framework* framework,
       Slave* slave)
   {
     if (!(task.slave_id() == slave->id)) {
-      return TaskDescriptionError::some(
+      return TaskInfoError::some(
           "Task uses invalid slave: " + task.slave_id().value());
     }
 
-    return TaskDescriptionError::none();
+    return TaskInfoError::none();
   }
 };
 
@@ -1284,10 +1243,10 @@ struct SlaveIDChecker : TaskDescriptionVisitor
 // task actually gets launched (for example, another checker may
 // return an error for a task), we always consider it an error when a
 // task tries to re-use an ID.
-struct UniqueTaskIDChecker : TaskDescriptionVisitor
+struct UniqueTaskIDChecker : TaskInfoVisitor
 {
-  virtual TaskDescriptionError operator () (
-      const TaskDescription& task,
+  virtual TaskInfoError operator () (
+      const TaskInfo& task,
       Offer* offer,
       Framework* framework,
       Slave* slave)
@@ -1295,13 +1254,13 @@ struct UniqueTaskIDChecker : TaskDescriptionVisitor
     const TaskID& taskId = task.task_id();
 
     if (ids.contains(taskId) || framework->tasks.contains(taskId)) {
-      return TaskDescriptionError::some(
+      return TaskInfoError::some(
           "Task has duplicate ID: " + taskId.value());
     }
 
     ids.insert(taskId);
 
-    return TaskDescriptionError::none();
+    return TaskInfoError::none();
   }
 
   hashset<TaskID> ids;
@@ -1311,59 +1270,76 @@ struct UniqueTaskIDChecker : TaskDescriptionVisitor
 // Checks that the used resources by a task (and executor if
 // necessary) on each slave does not exceed the total resources
 // offered on that slave
-struct ResourceUsageChecker : TaskDescriptionVisitor
+struct ResourceUsageChecker : TaskInfoVisitor
 {
-  virtual TaskDescriptionError operator () (
-      const TaskDescription& task,
+  virtual TaskInfoError operator () (
+      const TaskInfo& task,
       Offer* offer,
       Framework* framework,
       Slave* slave)
   {
     if (task.resources().size() == 0 && task.min_resources().size() == 0) {
-      return TaskDescriptionError::some("Task uses no resources");
+      return TaskInfoError::some("Task uses no resources");
     }
 
     foreach (const Resource& resource, task.resources()) {
       if (!Resources::isAllocatable(resource)) {
         // TODO(benh): Send back the invalid resources?
-        return TaskDescriptionError::some("Task uses invalid resources");
+        return TaskInfoError::some("Task uses invalid resources");
       }
     }
 
     foreach (const Resource& resource, task.min_resources()) {
       if (!Resources::isAllocatable(resource)) {
         // TODO(benh): Send back the invalid resources?
-        return TaskDescriptionError::some("Task uses invalid resources");
+        return TaskInfoError::some("Task uses invalid resources");
       }
     }
+
+    ResourceHints taskResources;
 
     // Check that the executor is using some resources.
-    const ExecutorInfo& executorInfo = task.has_executor()
-      ? task.executor()
-      : framework->info.executor();
+    if (task.has_executor()) {
+      const ExecutorInfo& executorInfo = task.executor();
+      foreach (const Resource& resource, executorInfo.resources()) {
+        if (!Resources::isAllocatable(resource)) {
+          // TODO(benh): Send back the invalid resources?
+          return TaskInfoError::some(
+              "Task's executor uses invalid resources");
+        }
+      }
 
-    // TODO(benh): Check that the executor uses some resources.
+      /* TODO(charles): add min_resources to executroInfo
+      foreach (const Resource& resource, executorInfo.resources()) {
+        if (!Resources::isAllocatable(resource)) {
+          // TODO(benh): Send back the invalid resources?
+          return TaskInfoError::some(
+              "Task's executor uses invalid resources");
+        }
+      }
+      */
 
-    foreach (const Resource& resource, executorInfo.resources()) {
-      if (!Resources::isAllocatable(resource)) {
-        // TODO(benh): Send back the invalid resources?
-        return TaskDescriptionError::some(
-            "Task's executor uses invalid resources");
+      // Check if this task's executor is running, and if not check if
+      // the task + the executor use more resources than offered.
+      if (!executors.contains(task.executor().executor_id())) {
+        if (!slave->hasExecutor(framework->id, task.executor().executor_id())) {
+          taskResources += ResourceHints::forExecutorInfo(task.executor());
+          if (!((usedResources + taskResources) <= ResourceHints::forOffer(*offer))) {
+            LOG(WARNING) << "Task " << task.task_id() << " attempted to use "
+                         << taskResources << " combined with already used "
+                         << usedResources << " is greater than offered "
+                         << offer->resources();
+
+            return TaskInfoError::some(
+                "Task + executor uses more resources than offered");
+          }
+        }
+        executors.insert(task.executor().executor_id());
       }
     }
-
-    /* TODO(charles): add min_resources to executroInfo
-    foreach (const Resource& resource, executorInfo.resources()) {
-      if (!Resources::isAllocatable(resource)) {
-        // TODO(benh): Send back the invalid resources?
-        return TaskDescriptionError::some(
-            "Task's executor uses invalid resources");
-      }
-    }
-    */
 
     // Check if this task uses more resources than offered.
-    ResourceHints taskResources = ResourceHints::forTaskDescription(task);
+    taskResources += ResourceHints::forTaskInfo(task);
 
     if (!((usedResources + taskResources) <=
           ResourceHints::forOffer(*offer))) {
@@ -1371,36 +1347,44 @@ struct ResourceUsageChecker : TaskDescriptionVisitor
                    << "new resources = " << taskResources
                    << "sum resources = " << (usedResources + taskResources)
                    << "offer resources = " << ResourceHints::forOffer(*offer);
-      return TaskDescriptionError::some(
+      return TaskInfoError::some(
           "Task uses more resources than offered");
-    }
-
-    // Check if this task's executor is running, and if not check if
-    // the task + the executor use more resources than offered.
-    if (!executors.contains(executorInfo.executor_id())) {
-      if (!slave->hasExecutor(framework->id, executorInfo.executor_id())) {
-        taskResources += ResourceHints::forExecutorInfo(executorInfo);
-        if (!((usedResources + taskResources) <=
-            ResourceHints::forOffer(*offer))) {
-          LOG(WARNING) << "Task " << task.task_id() << " attempted to use "
-                  << taskResources << " combined with already used "
-                  << usedResources << " is greater than offered "
-                  << ResourceHints::forOffer(*offer);
-
-	  return TaskDescriptionError::some(
-              "Task + executor uses more resources than offered");
-        }
-      }
-      executors.insert(executorInfo.executor_id());
     }
 
     usedResources += taskResources;
 
-    return TaskDescriptionError::none();
+    return TaskInfoError::none();
   }
 
   ResourceHints usedResources;
   hashset<ExecutorID> executors;
+};
+
+
+// Checks that tasks that use the "same" executor (i.e., same
+// ExecutorID) have an identical ExecutorInfo.
+struct ExecutorInfoChecker : TaskInfoVisitor
+{
+  virtual TaskInfoError operator () (
+      const TaskInfo& task,
+      Offer* offer,
+      Framework* framework,
+      Slave* slave)
+  {
+    if (task.has_executor()) {
+      if (slave->hasExecutor(framework->id, task.executor().executor_id())) {
+        const ExecutorInfo& executorInfo =
+          slave->executors[framework->id][task.executor().executor_id()];
+        if (!(task.executor() == executorInfo)) {
+          return TaskInfoError::some(
+              "Task has invalid ExecutorInfo (existing ExecutorInfo"
+              " with same ExecutorID is not compatible)");
+        }
+      }
+    }
+
+    return TaskInfoError::none();
+  }
 };
 
 
@@ -1410,15 +1394,15 @@ struct ResourceUsageChecker : TaskDescriptionVisitor
 void Master::processTasks(Offer* offer,
                           Framework* framework,
                           Slave* slave,
-                          const vector<TaskDescription>& _tasks,
+                          const vector<TaskInfo>& _tasks,
                           const Filters& filters)
 {
   ResourceHints usedResources; // Accumulated resources used from this offer.
   vector<Task*> launchedTasks;
 
-  vector<TaskDescription> tasks = _tasks;
+  vector<TaskInfo> tasks = _tasks;
   if (framework->info.allocates_min()) {
-    foreach (TaskDescription& task, tasks) {
+    foreach (TaskInfo& task, tasks) {
       if (0 != task.min_resources_size()) {
         LOG(ERROR) << "Framework " << framework->id
                    << " requested min resources but it is allocates_min";
@@ -1431,18 +1415,19 @@ void Master::processTasks(Offer* offer,
   LOG(INFO) << "processing " << tasks.size() << " tasks";
 
   // Create task visitors.
-  list<TaskDescriptionVisitor*> visitors;
+  list<TaskInfoVisitor*> visitors;
   visitors.push_back(new SlaveIDChecker());
   visitors.push_back(new UniqueTaskIDChecker());
   visitors.push_back(new ResourceUsageChecker());
+  visitors.push_back(new ExecutorInfoChecker());
 
   // Loop through each task and check it's validity.
-  foreach (const TaskDescription& task, tasks) {
+  foreach (const TaskInfo& task, tasks) {
     // Possible error found while checking task's validity.
-    TaskDescriptionError error = TaskDescriptionError::none();
+    TaskInfoError error = TaskInfoError::none();
 
     // Invoke each visitor.
-    foreach (TaskDescriptionVisitor* visitor, visitors) {
+    foreach (TaskInfoVisitor* visitor, visitors) {
       error = (*visitor)(task, offer, framework, slave);
       if (error.isSome()) {
         break;
@@ -1472,7 +1457,7 @@ void Master::processTasks(Offer* offer,
 
   // Cleanup visitors.
   do {
-    TaskDescriptionVisitor* visitor = visitors.front();
+    TaskInfoVisitor* visitor = visitors.front();
     visitors.pop_front();
     delete visitor;
   } while (!visitors.empty());
@@ -1498,6 +1483,7 @@ void Master::processTasks(Offer* offer,
   if (timeout != 0 && usedResources.empty()) {
     LOG(INFO) << "Filtered slave " << slave->id
               << " for framework " << framework->id
+              << " (" << slave->info.hostname() << ") for framework "
               << " for " << timeout << " seconds "
               << " at " << unusedResources;
     double time = (timeout == -1) ? 0 : Clock::now() + timeout;
@@ -1524,8 +1510,7 @@ void Master::processTasks(Offer* offer,
   }
 }
 
-
-ResourceHints Master::launchTask(const TaskDescription& task,
+ResourceHints Master::launchTask(const TaskInfo& task,
                                  Framework* framework,
                                  Slave* slave,
                                  Task** pTask)
@@ -1538,15 +1523,26 @@ ResourceHints Master::launchTask(const TaskDescription& task,
   Resources resources;
   Resources minResources;
 
-  // Determine the executor for this task.
-  const ExecutorInfo& executorInfo = task.has_executor()
-    ? task.executor()
-    : framework->info.executor();
+  // Determine if this task launches an executor, and if so make sure
+  // the slave and framework state has been updated accordingly.
+  Option<ExecutorID> executorId;
 
+  if (task.has_executor()) {
+    // TODO(benh): Refactor this code into Slave::addTask.
+    if (!slave->hasExecutor(framework->id, task.executor().executor_id())) {
+      CHECK(!framework->hasExecutor(slave->id, task.executor().executor_id()));
+      addExecutor(framework->id, slave->id, task.executor());
+      resources += task.executor().resources();
+      minResources + task.executor().min_resources();
+    }
+
+    executorId = Option<ExecutorID>::some(task.executor().executor_id());
+  }
+
+  // Add the task to the framework and slave.
   Task* t = new Task();
   t->mutable_framework_id()->MergeFrom(framework->id);
-  t->mutable_executor_id()->MergeFrom(executorInfo.executor_id());
-  t->set_state(TASK_STARTING);
+  t->set_state(TASK_STAGING);
   t->set_name(task.name());
   t->mutable_task_id()->MergeFrom(task.task_id());
   t->mutable_slave_id()->MergeFrom(task.slave_id());
@@ -1555,23 +1551,15 @@ ResourceHints Master::launchTask(const TaskDescription& task,
 
   framework->addTask(t);
 
-  // TODO(benh): Refactor this code into Slave::addTask.
-  if (!slave->hasExecutor(framework->id, executorInfo.executor_id())) {
-    addExecutor(framework->id, slave->id, executorInfo);
-    resources += executorInfo.resources();
-    minResources += executorInfo.min_resources();
-  }
-  CHECK(framework->hasExecutor(slave->id, executorInfo.executor_id()))
-    << framework->id << " " << slave->id << " " << executorInfo.executor_id();
-
   slave->addTask(t);
 
   resources += task.resources();
   minResources += task.min_resources();
 
+  // Tell the slave to launch the task!
   LOG(INFO) << "Launching task " << task.task_id()
-            << " with resources " << task.resources()
-            << " on slave " << slave->id;
+            << " with resources " << task.resources() << " on slave "
+            << slave->id << " (" << slave->info.hostname() << ")";
 
   RunTaskMessage message;
   message.mutable_framework()->MergeFrom(framework->info);
@@ -1580,11 +1568,7 @@ ResourceHints Master::launchTask(const TaskDescription& task,
   message.mutable_task()->MergeFrom(task);
   send(slave->pid, message);
 
-  // TODO(benh): This is a double count if the executor decides to
-  // send a status update for TASK_STARTING itself. Currently we don't
-  // disallow this although we really should have a state machine that
-  // makes sure transitions are valid.
-  stats.tasks[TASK_STARTING]++;
+  stats.tasks[TASK_STAGING]++;
 
   *pTask = t;
 
@@ -1602,6 +1586,7 @@ void Master::addFramework(Framework* framework)
 
   FrameworkRegisteredMessage message;
   message.mutable_framework_id()->MergeFrom(framework->id);
+  message.mutable_master_info()->MergeFrom(info);
   send(framework->pid, message);
 
   allocator->frameworkAdded(framework);
@@ -1616,8 +1601,7 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
 
   {
     FrameworkErrorMessage message;
-    message.set_code(1);
-    message.set_message("Framework failover");
+    message.set_message("Framework failed over");
     send(oldPid, message);
   }
 
@@ -1634,6 +1618,7 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
   {
     FrameworkRegisteredMessage message;
     message.mutable_framework_id()->MergeFrom(framework->id);
+    message.mutable_master_info()->MergeFrom(info);
     send(newPid, message);
   }
 
@@ -1757,23 +1742,18 @@ void Master::readdSlave(Slave* slave,
   foreach (const Task& task, tasks) {
     Task* t = new Task(task);
 
-    // Find the executor running this task and add the executor to the
-    // slave (unless it has already been added).
-    foreach (const ExecutorInfo& executorInfo, executorInfos) {
-      if (executorInfo.executor_id() == task.executor_id()) {
-        if (!slave->hasExecutor(task.framework_id(), task.executor_id())) {
-          slave->addExecutor(task.framework_id(), executorInfo);
+    // If this task has an executor then add it to the slave's state
+    // (unless it has already been added). TODO(benh): There is
+    // actually an accounting bug here because we won't end up adding
+    // all running executors (because some might not be running tasks)
+    // which means that more resources will be available on that slave
+    // than are actually available.
+    if (t->has_executor_id()) {
+      foreach (const ExecutorInfo& executorInfo, executorInfos) {
+        if (executorInfo.executor_id() == task.executor_id()) {
+          addExecutor(task.framework_id(), slave->id, executorInfo);
+          break;
         }
-
-        // Also try to add the executor to the framework if the
-        // framework has re-registered with this master.
-        Framework* framework = getFramework(task.framework_id());
-        if (framework != NULL) {
-          if (!framework->hasExecutor(slave->id, task.executor_id())) {
-	    framework->addExecutor(slave->id, executorInfo);
-	  }
-        }
-        break;
       }
     }
 
@@ -1799,7 +1779,8 @@ void Master::readdSlave(Slave* slave,
       // reregister and claim them.
       LOG(WARNING) << "Possibly orphaned task " << task.task_id()
                    << " of framework " << task.framework_id()
-                   << " running on slave " << slave->id;
+                   << " running on slave " << slave->id << " ("
+                   << slave->info.hostname() << ")";
     }
   }
 }
@@ -1934,6 +1915,8 @@ void Master::addExecutor(const FrameworkID& frameworkId,
   }
   if (!hadSlave && !hadFramework) {
     allocator->executorAdded(framework->id, slave->id, info);
+  } else {
+    LOG(INFO) << "Not adding executor to allocator again";
   }
 }
 

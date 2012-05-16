@@ -4,8 +4,9 @@
 #include <utility>
 #include <vector>
 
+#include <process/delay.hpp>
+#include <process/dispatch.hpp>
 #include <process/process.hpp>
-#include <process/timer.hpp>
 
 #include "common/result.hpp"
 #include "common/strings.hpp"
@@ -41,15 +42,15 @@ public:
   GroupProcess(const string& servers,
                const seconds& timeout,
                const string& znode,
-               const Option<Authentication>& auth = Option<Authentication>());
-  ~GroupProcess();
+               const Option<Authentication>& auth);
+  virtual ~GroupProcess();
 
-  void initialize();
+  virtual void initialize();
 
   // Group implementation.
-  Future<Group::Membership> join(const string& info);
+  Future<Group::Membership> join(const string& data);
   Future<bool> cancel(const Group::Membership& membership);
-  Future<string> info(const Group::Membership& membership);
+  Future<string> data(const Group::Membership& membership);
   Future<set<Group::Membership> > watch(
       const set<Group::Membership>& expected);
   Future<Option<int64_t> > session();
@@ -63,9 +64,9 @@ public:
   void deleted(const string& path);
 
 private:
-  Result<Group::Membership> doJoin(const string& info);
+  Result<Group::Membership> doJoin(const string& data);
   Result<bool> doCancel(const Group::Membership& membership);
-  Result<string> doInfo(const Group::Membership& membership);
+  Result<string> doData(const Group::Membership& membership);
 
   // Attempts to cache the current set of memberships.
   bool cache();
@@ -107,8 +108,8 @@ private:
 
   struct Join
   {
-    Join(const string& _info) : info(_info) {}
-    string info;
+    Join(const string& _data) : data(_data) {}
+    string data;
     Promise<Group::Membership> promise;
   };
 
@@ -120,9 +121,9 @@ private:
     Promise<bool> promise;
   };
 
-  struct Info
+  struct Data
   {
-    Info(const Group::Membership& _membership)
+    Data(const Group::Membership& _membership)
       : membership(_membership) {}
     Group::Membership membership;
     Promise<string> promise;
@@ -139,16 +140,35 @@ private:
   struct {
     queue<Join*> joins;
     queue<Cancel*> cancels;
-    queue<Info*> infos;
+    queue<Data*> datas;
     queue<Watch*> watches;
   } pending;
 
   bool retrying;
 
-  map<Group::Membership, string> owned;
+  // Expected ZooKeeper sequence numbers (either owned/created by this
+  // group instance or not) and the promise we associate with their
+  // "cancellation" (i.e., no longer part of the group).
+  map<uint64_t, Promise<bool>*> owned;
+  map<uint64_t, Promise<bool>*> unowned;
 
-  Option<set<Group::Membership> > memberships; // The cache.
+  // Cache of owned + unowned, where 'None' represents an invalid
+  // cache and 'Some' represents a valid cache.
+  Option<set<Group::Membership> > memberships;
 };
+
+
+// Helper for failing a queue of promises.
+template <typename T>
+void fail(queue<T*>* queue, const string& message)
+{
+  while (!queue->empty()) {
+    T* t = queue->front();
+    queue->pop();
+    t->promise.fail(message);
+    delete t;
+  }
+}
 
 
 GroupProcess::GroupProcess(
@@ -163,6 +183,8 @@ GroupProcess::GroupProcess(
     acl(_auth.isSome()
         ? EVERYONE_READ_CREATOR_ALL
         : ZOO_OPEN_ACL_UNSAFE),
+    watcher(NULL),
+    zk(NULL),
     state(DISCONNECTED),
     retrying(false)
 {}
@@ -170,6 +192,11 @@ GroupProcess::GroupProcess(
 
 GroupProcess::~GroupProcess()
 {
+  fail(&pending.joins, "No longer watching group");
+  fail(&pending.cancels, "No longer watching group");
+  fail(&pending.datas, "No longer watching group");
+  fail(&pending.watches, "No longer watching group");
+
   delete zk;
   delete watcher;
 }
@@ -185,14 +212,12 @@ void GroupProcess::initialize()
 }
 
 
-Future<Group::Membership> GroupProcess::join(const string& info)
+Future<Group::Membership> GroupProcess::join(const string& data)
 {
   if (error.isSome()) {
-    Promise<Group::Membership> promise;
-    promise.fail(error.get());
-    return promise.future();
+    return Future<Group::Membership>::failed(error.get());
   } else if (state != CONNECTED) {
-    Join* join = new Join(info);
+    Join* join = new Join(data);
     pending.joins.push(join);
     return join->promise.future();
   }
@@ -205,23 +230,19 @@ Future<Group::Membership> GroupProcess::join(const string& info)
   // client can assume a happens-before ordering of operations (i.e.,
   // the first request will happen before the second, etc).
 
-  Result<Group::Membership> membership = doJoin(info);
+  Result<Group::Membership> membership = doJoin(data);
 
   if (membership.isNone()) { // Try again later.
     if (!retrying) {
       delay(RETRY_SECONDS, self(), &GroupProcess::retry, RETRY_SECONDS);
       retrying = true;
     }
-    Join* join = new Join(info);
+    Join* join = new Join(data);
     pending.joins.push(join);
     return join->promise.future();
   } else if (membership.isError()) {
-    Promise<Group::Membership> promise;
-    promise.fail(membership.error());
-    return promise.future();
+    return Future<Group::Membership>::failed(membership.error());
   }
-
-  owned.insert(make_pair(membership.get(), info));
 
   return membership.get();
 }
@@ -230,11 +251,14 @@ Future<Group::Membership> GroupProcess::join(const string& info)
 Future<bool> GroupProcess::cancel(const Group::Membership& membership)
 {
   if (error.isSome()) {
-    Promise<bool> promise;
-    promise.fail(error.get());
-    return promise.future();
-  } else if (owned.count(membership) == 0) {
-    return false; // TODO(benh): Should this be an error?
+    return Future<bool>::failed(error.get());
+  } else if (owned.count(membership.id()) == 0) {
+    // TODO(benh): Should this be an error? Right now a user can't
+    // differentiate when 'false' means they can't cancel because it's
+    // not owned or because it's already been cancelled (explicitly by
+    // them or implicitly due to session expiration or operator
+    // error).
+    return false;
   }
 
   if (state != CONNECTED) {
@@ -258,41 +282,35 @@ Future<bool> GroupProcess::cancel(const Group::Membership& membership)
     pending.cancels.push(cancel);
     return cancel->promise.future();
   } else if (cancellation.isError()) {
-    Promise<bool> promise;
-    promise.fail(cancellation.error());
-    return promise.future();
+    return Future<bool>::failed(cancellation.error());
   }
 
   return cancellation.get();
 }
 
 
-Future<string> GroupProcess::info(const Group::Membership& membership)
+Future<string> GroupProcess::data(const Group::Membership& membership)
 {
   if (error.isSome()) {
-    Promise<string> promise;
-    promise.fail(error.get());
-    return promise.future();
+    return Future<string>::failed(error.get());
   } else if (state != CONNECTED) {
-    Info* info = new Info(membership);
-    pending.infos.push(info);
-    return info->promise.future();
+    Data* data = new Data(membership);
+    pending.datas.push(data);
+    return data->promise.future();
   }
 
   // TODO(benh): Only attempt if the pending queue is empty so that a
   // client can assume a happens-before ordering of operations (i.e.,
   // the first request will happen before the second, etc).
 
-  Result<string> result = doInfo(membership);
+  Result<string> result = doData(membership);
 
   if (result.isNone()) { // Try again later.
-    Info* info = new Info(membership);
-    pending.infos.push(info);
-    return info->promise.future();
+    Data* data = new Data(membership);
+    pending.datas.push(data);
+    return data->promise.future();
   } else if (result.isError()) {
-    Promise<string> promise;
-    promise.fail(result.error());
-    return promise.future();
+    return Future<string>::failed(result.error());
   }
 
   return result.get();
@@ -303,9 +321,7 @@ Future<set<Group::Membership> > GroupProcess::watch(
     const set<Group::Membership>& expected)
 {
   if (error.isSome()) {
-    Promise<set<Group::Membership> > promise;
-    promise.fail(error.get());
-    return promise.future();
+    return Future<set<Group::Membership> >::failed(error.get());
   } else if (state != CONNECTED) {
     Watch* watch = new Watch(expected);
     pending.watches.push(watch);
@@ -360,7 +376,8 @@ Future<Option<int64_t> > GroupProcess::session()
 void GroupProcess::connected(bool reconnect)
 {
   if (!reconnect) {
-    // Authenticate if necessary.
+    // Authenticate if necessary (and we are connected for the first
+    // time, or after a session expiration).
     if (auth.isSome()) {
       LOG(INFO) << "Authenticating with ZooKeeper using " << auth.get().scheme;
 
@@ -377,9 +394,8 @@ void GroupProcess::connected(bool reconnect)
       }
     }
 
-    CHECK(znode.size() == 0 || znode.at(znode.size() - 1) != '/');
-
     // Create directory path znodes as necessary.
+    CHECK(znode.size() == 0 || znode.at(znode.size() - 1) != '/');
     size_t index = znode.find("/", 0);
 
     while (index < string::npos) {
@@ -422,11 +438,28 @@ void GroupProcess::reconnecting()
 
 void GroupProcess::expired()
 {
+  // Invalidate the cache.
   memberships = Option<set<Group::Membership> >::none();
-  owned.clear();
+
+  // Set all owned memberships as cancelled.
+  foreachpair (uint64_t sequence, Promise<bool>* cancelled, utils::copy(owned)) {
+    cancelled->set(false); // Since this was not requested.
+    owned.erase(sequence); // Okay since iterating over a copy.
+    delete cancelled;
+  }
+
+  CHECK(owned.empty());
+
+  // Note that we DO NOT clear unowned. The next time we try and cache
+  // the memberships we'll trigger any cancelled unowned memberships
+  // then. We could imagine doing this for owned memberships too, but
+  // for now we proactively cancel them above.
+
   state = DISCONNECTED;
+
   delete zk;
   zk = new ZooKeeper(servers, timeout, watcher);
+
   state = CONNECTING;
 }
 
@@ -460,16 +493,16 @@ void GroupProcess::deleted(const string& path)
 }
 
 
-Result<Group::Membership> GroupProcess::doJoin(const string& info)
+Result<Group::Membership> GroupProcess::doJoin(const string& data)
 {
   CHECK(error.isNone()) << ": " << error.get();
   CHECK(state == CONNECTED);
 
   // Create a new ephemeral node to represent a new member and use the
-  // the specified info as it's contents.
+  // the specified data as it's contents.
   string result;
 
-  int code = zk->create(znode + "/", info, acl,
+  int code = zk->create(znode + "/", data, acl,
                         ZOO_SEQUENCE | ZOO_EPHEMERAL, &result);
 
   if (code == ZINVALIDSTATE || (code != ZOK && zk->retryable(code))) {
@@ -484,7 +517,8 @@ Result<Group::Membership> GroupProcess::doJoin(const string& info)
         : "Failed to create ephemeral node in ZooKeeper");
   }
 
-  // Invalidate the cache.
+  // Invalidate the cache (it will/should get immediately populated
+  // via the 'updated' callback of our ZooKeeper watcher).
   memberships = Option<set<Group::Membership> >::none();
 
   // Save the sequence number but only grab the basename. Example:
@@ -494,9 +528,10 @@ Result<Group::Membership> GroupProcess::doJoin(const string& info)
   Try<uint64_t> sequence = utils::numify<uint64_t>(result);
   CHECK(sequence.isSome()) << sequence.error();
 
-  Group::Membership membership(sequence.get());
+  Promise<bool>* cancelled = new Promise<bool>();
+  owned[sequence.get()] = cancelled;
 
-  return membership;
+  return Group::Membership(sequence.get(), cancelled->future());
 }
 
 
@@ -528,16 +563,22 @@ Result<bool> GroupProcess::doCancel(const Group::Membership& membership)
         : "Failed to remove ephemeral node in ZooKeeper");
   }
 
-  // Invalidate the cache.
+  // Invalidate the cache (it will/should get immediately populated
+  // via the 'updated' callback of our ZooKeeper watcher).
   memberships = Option<set<Group::Membership> >::none();
 
-  owned.erase(membership);
+  // Let anyone waiting know the membership has been cancelled.
+  CHECK(owned.count(membership.id()) == 1);
+  Promise<bool>* cancelled = owned[membership.id()];
+  cancelled->set(true);
+  owned.erase(membership.id());
+  delete cancelled;
 
   return true;
 }
 
 
-Result<string> GroupProcess::doInfo(const Group::Membership& membership)
+Result<string> GroupProcess::doData(const Group::Membership& membership)
 {
   CHECK(error.isNone()) << ": " << error.get();
   CHECK(state == CONNECTED);
@@ -573,7 +614,7 @@ Result<string> GroupProcess::doInfo(const Group::Membership& membership)
 
 bool GroupProcess::cache()
 {
-  // Invalidate first.
+  // Invalidate first (if it's not already).
   memberships = Option<set<Group::Membership> >::none();
 
   // Get all children to determine current memberships.
@@ -595,8 +636,8 @@ bool GroupProcess::cache()
     return false;
   }
 
-  // Convert results to memberships.
-  set<Group::Membership> current;
+  // Convert results to sequence numbers.
+  set<uint64_t> sequences;
 
   foreach (const string& result, results) {
     Try<uint64_t> sequence = utils::numify<uint64_t>(result);
@@ -608,7 +649,40 @@ bool GroupProcess::cache()
       continue;
     }
 
-    current.insert(Group::Membership(sequence.get()));
+    sequences.insert(sequence.get());
+  }
+
+  // Cache current memberships, cancelling those that are now missing.
+  set<Group::Membership> current;
+
+  foreachpair (uint64_t sequence, Promise<bool>* cancelled, utils::copy(owned)) {
+    if (sequences.count(sequence) == 0) {
+      cancelled->set(false);
+      owned.erase(sequence); // Okay since iterating over a copy.
+      delete cancelled;
+    } else {
+      current.insert(Group::Membership(sequence, cancelled->future()));
+      sequences.erase(sequence);
+    }
+  }
+
+  foreachpair (uint64_t sequence, Promise<bool>* cancelled, utils::copy(unowned)) {
+    Promise<bool>* cancelled = unowned[sequence];
+    if (sequences.count(sequence) == 0) {
+      cancelled->set(false);
+      unowned.erase(sequence); // Okay since iterating over a copy.
+      delete cancelled;
+    } else {
+      current.insert(Group::Membership(sequence, cancelled->future()));
+      sequences.erase(sequence);
+    }
+  }
+
+  // Add any remaining (i.e., unexpected) sequences.
+  foreach (uint64_t sequence, sequences) {
+    Promise<bool>* cancelled = new Promise<bool>();
+    unowned[sequence] = cancelled;
+    current.insert(Group::Membership(sequence, cancelled->future()));
   }
 
   memberships = current;
@@ -620,16 +694,18 @@ bool GroupProcess::cache()
 void GroupProcess::update()
 {
   CHECK(memberships.isSome());
-  size_t size = pending.watches.size();
-  for (int i = 0; i < size; i++) {
-    if (memberships.get() != pending.watches.front()->expected) {
-      pending.watches.front()->promise.set(memberships.get());
-    } else {
-      pending.watches.push(pending.watches.front());
-    }
+  const size_t size = pending.watches.size();
+  for (size_t i = 0; i < size; i++) {
     Watch* watch = pending.watches.front();
-    pending.watches.pop();
-    delete watch;
+    if (memberships.get() != watch->expected) {
+      watch->promise.set(memberships.get());
+      pending.watches.pop();
+      delete watch;
+    } else {
+      // Don't delete the watch, but push it to the back of the queue.
+      pending.watches.push(watch);
+      pending.watches.pop();
+    }
   }
 }
 
@@ -641,52 +717,56 @@ bool GroupProcess::sync()
 
   // Do joins.
   while (!pending.joins.empty()) {
-    Result<Group::Membership> membership = doJoin(pending.joins.front()->info);
+    Join* join = pending.joins.front();
+    Result<Group::Membership> membership = doJoin(join->data);
     if (membership.isNone()) {
       return false; // Try again later.
     } else if (membership.isError()) {
-      pending.joins.front()->promise.fail(membership.error());
+      join->promise.fail(membership.error());
     } else {
-      owned.insert(make_pair(membership.get(), pending.joins.front()->info));
-      pending.joins.front()->promise.set(membership.get());
+      join->promise.set(membership.get());
     }
-    Join* join = pending.joins.front();
     pending.joins.pop();
     delete join;
   }
 
   // Do cancels.
   while (!pending.cancels.empty()) {
-    Result<bool> cancellation = doCancel(pending.cancels.front()->membership);
+    Cancel* cancel = pending.cancels.front();
+    Result<bool> cancellation = doCancel(cancel->membership);
     if (cancellation.isNone()) {
       return false; // Try again later.
     } else if (cancellation.isError()) {
-      pending.cancels.front()->promise.fail(cancellation.error());
+      cancel->promise.fail(cancellation.error());
     } else {
-      pending.cancels.front()->promise.set(cancellation.get());
+      cancel->promise.set(cancellation.get());
     }
-    Cancel* cancel = pending.cancels.front();
     pending.cancels.pop();
     delete cancel;
   }
 
-  // Do infos.
-  while (!pending.infos.empty()) {
+  // Do datas.
+  while (!pending.datas.empty()) {
+    Data* data = pending.datas.front();
     // TODO(benh): Ignore if future has been discarded?
-    Result<string> result = doInfo(pending.infos.front()->membership);
+    Result<string> result = doData(data->membership);
     if (result.isNone()) {
       return false; // Try again later.
     } else if (result.isError()) {
-      pending.infos.front()->promise.fail(result.error());
+      data->promise.fail(result.error());
     } else {
-      pending.infos.front()->promise.set(result.get());
+      data->promise.set(result.get());
     }
-    Info* info = pending.infos.front();
-    pending.infos.pop();
-    delete info;
+    pending.datas.pop();
+    delete data;
   }
 
-  // Get cache of memberships if we don't have one.
+  // Get cache of memberships if we don't have one. Note that we do
+  // this last because any joins or cancels above will invalidate our
+  // cache, so it would be nice to get it validated again at the
+  // end. The side-effect here is that users will learn of joins and
+  // cancels first through any explicit futures for them rather than
+  // watches.
   if (memberships.isNone()) {
     if (!cache()) {
       return false; // Try again later (if no error).
@@ -715,25 +795,13 @@ void GroupProcess::retry(double seconds)
 }
 
 
-template <typename T>
-void fail(queue<T*>* queue, const string& message)
-{
-  while (!queue->empty()) {
-    T* t = queue->front();
-    queue->pop();
-    t->promise.fail(message);
-    delete t;
-  }
-}
-
-
 void GroupProcess::abort()
 {
   CHECK(error.isSome());
 
   fail(&pending.joins, error.get());
   fail(&pending.cancels, error.get());
-  fail(&pending.infos, error.get());
+  fail(&pending.datas, error.get());
   fail(&pending.watches, error.get());
 }
 
@@ -745,7 +813,6 @@ Group::Group(const string& servers,
 {
   process = new GroupProcess(servers, timeout, znode, auth);
   spawn(process);
-  dispatch(process, &GroupProcess::initialize);
 }
 
 
@@ -757,9 +824,9 @@ Group::~Group()
 }
 
 
-Future<Group::Membership> Group::join(const string& info)
+Future<Group::Membership> Group::join(const string& data)
 {
-  return dispatch(process, &GroupProcess::join, info);
+  return dispatch(process, &GroupProcess::join, data);
 }
 
 
@@ -769,9 +836,9 @@ Future<bool> Group::cancel(const Group::Membership& membership)
 }
 
 
-Future<string> Group::info(const Group::Membership& membership)
+Future<string> Group::data(const Group::Membership& membership)
 {
-  return dispatch(process, &GroupProcess::info, membership);
+  return dispatch(process, &GroupProcess::data, membership);
 }
 
 

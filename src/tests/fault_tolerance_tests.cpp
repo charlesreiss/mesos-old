@@ -18,6 +18,10 @@
 
 #include <gmock/gmock.h>
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include <mesos/executor.hpp>
 #include <mesos/scheduler.hpp>
 
@@ -80,13 +84,13 @@ TEST(FaultToleranceTest, SlaveLost)
   BasicMasterDetector detector(master, slave, true);
 
   MockScheduler sched;
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
   vector<Offer> offers;
 
   trigger resourceOffersCall;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .Times(1);
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))
@@ -135,17 +139,29 @@ TEST(FaultToleranceTest, SlavePartitioned)
   EXPECT_MESSAGE(filter, _, _, _)
     .WillRepeatedly(Return(false));
 
+  trigger pingMsg;
+
+  // Set these expectations up before we spawn the slave (in
+  // local::launch) so that we don't miss the first PING.
+  EXPECT_MESSAGE(filter, Eq("PING"), _, _)
+    .WillRepeatedly(DoAll(Trigger(&pingMsg),
+                          Return(false)));
+
+  EXPECT_MESSAGE(filter, Eq("PONG"), _, _)
+    .WillRepeatedly(Return(true));
+
   PID<Master> master = local::launch(1, 2, 1 * Gigabyte, false);
 
   MockScheduler sched;
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
-  trigger slaveLostCall, pingMsg;
+  trigger resourceOffersCall, slaveLostCall;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .Times(1);
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(Trigger(&resourceOffersCall))
     .WillRepeatedly(Return());
 
   EXPECT_CALL(sched, offerRescinded(&driver, _))
@@ -154,20 +170,16 @@ TEST(FaultToleranceTest, SlavePartitioned)
   EXPECT_CALL(sched, slaveLost(&driver, _))
     .WillOnce(Trigger(&slaveLostCall));
 
-  EXPECT_MESSAGE(filter, Eq("PING"), _, _)
-    .WillRepeatedly(DoAll(Trigger(&pingMsg),
-                          Return(false)));
-
-  EXPECT_MESSAGE(filter, Eq("PONG"), _, _)
-    .WillRepeatedly(Return(true));
-
   driver.start();
 
+  // Need to make sure the framework AND slave have registered with
+  // master, waiting for resource offers should accomplish both.
+  WAIT_UNTIL(resourceOffersCall);
+
+  // We expect at least one PING by now.
   WAIT_UNTIL(pingMsg);
 
-  double secs = master::SLAVE_PONG_TIMEOUT * master::MAX_SLAVE_TIMEOUTS;
-
-  Clock::advance(secs);
+  Clock::advance(master::SLAVE_PONG_TIMEOUT * master::MAX_SLAVE_TIMEOUTS);
 
   WAIT_UNTIL(slaveLostCall);
 
@@ -193,13 +205,13 @@ TEST(FaultToleranceTest, SchedulerFailover)
   // scheduler.
 
   MockScheduler sched1;
-  MesosSchedulerDriver driver1(&sched1, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver1(&sched1, DEFAULT_FRAMEWORK_INFO, master);
 
   FrameworkID frameworkId;
 
   trigger sched1RegisteredCall;
 
-  EXPECT_CALL(sched1, registered(&driver1, _))
+  EXPECT_CALL(sched1, registered(&driver1, _, _))
     .WillOnce(DoAll(SaveArg<1>(&frameworkId), Trigger(&sched1RegisteredCall)));
 
   EXPECT_CALL(sched1, resourceOffers(&driver1, _))
@@ -208,7 +220,7 @@ TEST(FaultToleranceTest, SchedulerFailover)
   EXPECT_CALL(sched1, offerRescinded(&driver1, _))
     .Times(AtMost(1));
 
-  EXPECT_CALL(sched1, error(&driver1, _, "Framework failover"))
+  EXPECT_CALL(sched1, error(&driver1, "Framework failed over"))
     .Times(1);
 
   driver1.start();
@@ -220,12 +232,16 @@ TEST(FaultToleranceTest, SchedulerFailover)
   // gets a registered callback..
 
   MockScheduler sched2;
-  MesosSchedulerDriver driver2(&sched2, "", DEFAULT_EXECUTOR_INFO,
-                               master, frameworkId);
+
+  FrameworkInfo framework2; // Bug in gcc 4.1.*, must assign on next line.
+  framework2 = DEFAULT_FRAMEWORK_INFO;
+  framework2.mutable_id()->MergeFrom(frameworkId);
+
+  MesosSchedulerDriver driver2(&sched2, framework2, master);
 
   trigger sched2RegisteredCall;
 
-  EXPECT_CALL(sched2, registered(&driver2, frameworkId))
+  EXPECT_CALL(sched2, registered(&driver2, frameworkId, _))
     .WillOnce(Trigger(&sched2RegisteredCall));
 
   EXPECT_CALL(sched2, resourceOffers(&driver2, _))
@@ -238,11 +254,11 @@ TEST(FaultToleranceTest, SchedulerFailover)
 
   WAIT_UNTIL(sched2RegisteredCall);
 
-  driver1.stop();
-  driver2.stop();
+  EXPECT_EQ(DRIVER_STOPPED, driver2.stop());
+  EXPECT_EQ(DRIVER_STOPPED, driver2.join());
 
-  driver1.join();
-  driver2.join();
+  EXPECT_EQ(DRIVER_ABORTED, driver1.stop());
+  EXPECT_EQ(DRIVER_STOPPED, driver1.join());
 
   local::shutdown();
 }
@@ -252,7 +268,7 @@ TEST(FaultToleranceTest, FrameworkReliableRegistration)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
-  return;
+  Clock::pause();
 
   MockFilter filter;
   process::filter(&filter);
@@ -263,11 +279,11 @@ TEST(FaultToleranceTest, FrameworkReliableRegistration)
   PID<Master> master = local::launch(1, 2, 1 * Gigabyte, false);
 
   MockScheduler sched;
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
   trigger schedRegisteredCall;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .WillOnce(Trigger(&schedRegisteredCall));
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))
@@ -276,13 +292,19 @@ TEST(FaultToleranceTest, FrameworkReliableRegistration)
   EXPECT_CALL(sched, offerRescinded(&driver, _))
     .Times(AtMost(1));
 
-  // Drop the registered message, in the first attempt, but allow subsequent
-  // tries.
+  trigger frameworkRegisteredMsg;
+
+  // Drop the first framework registered message, allow subsequent messages.
   EXPECT_MESSAGE(filter, Eq(FrameworkRegisteredMessage().GetTypeName()), _, _)
-    .WillOnce(Return(true))
+    .WillOnce(DoAll(Trigger(&frameworkRegisteredMsg),
+                    Return(true)))
     .WillRepeatedly(Return(false));
 
   driver.start();
+
+  WAIT_UNTIL(frameworkRegisteredMsg);
+
+  Clock::advance(1.0); // TODO(benh): Pull out constant from SchedulerProcess.
 
   WAIT_UNTIL(schedRegisteredCall); // Ensures registered message is received.
 
@@ -292,6 +314,8 @@ TEST(FaultToleranceTest, FrameworkReliableRegistration)
   local::shutdown();
 
   process::filter(NULL);
+
+  Clock::resume();
 }
 
 
@@ -308,12 +332,15 @@ TEST(FaultToleranceTest, FrameworkReregister)
   PID<Master> master = local::launch(1, 2, 1 * Gigabyte, false);
 
   MockScheduler sched;
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
-  trigger schedRegisteredCall;
+  trigger schedRegisteredCall, schedReregisteredCall;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .WillOnce(Trigger(&schedRegisteredCall));
+
+  EXPECT_CALL(sched, reregistered(&driver, _))
+    .WillOnce(Trigger(&schedReregisteredCall));
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))
     .WillRepeatedly(Return());
@@ -322,14 +349,9 @@ TEST(FaultToleranceTest, FrameworkReregister)
     .Times(AtMost(1));
 
   process::Message message;
-  trigger schedReregisteredMsg;
 
   EXPECT_MESSAGE(filter, Eq(FrameworkRegisteredMessage().GetTypeName()), _, _)
     .WillOnce(DoAll(SaveArgField<0>(&process::MessageEvent::message, &message),
-                    Return(false)));
-
-  EXPECT_MESSAGE(filter, Eq(FrameworkReregisteredMessage().GetTypeName()), _, _)
-    .WillOnce(DoAll(Trigger(&schedReregisteredMsg),
                     Return(false)));
 
   driver.start();
@@ -343,7 +365,7 @@ TEST(FaultToleranceTest, FrameworkReregister)
 
   process::post(message.to, newMasterDetectedMsg);
 
-  WAIT_UNTIL(schedReregisteredMsg);
+  WAIT_UNTIL(schedReregisteredCall);
 
   driver.stop();
   driver.join();
@@ -352,6 +374,7 @@ TEST(FaultToleranceTest, FrameworkReregister)
 
   process::filter(NULL);
 }
+
 
 // TOOD(vinod): Disabling this test for now because
 // of the following race condition breaking this test:
@@ -374,7 +397,7 @@ TEST(FaultToleranceTest, DISABLED_TaskLost)
   PID<Master> master = process::spawn(&m);
 
   MockExecutor exec;
-  EXPECT_CALL(exec, registered(_, _, _, _, _, _))
+  EXPECT_CALL(exec, registered(_, _, _, _))
     .Times(0);
 
   EXPECT_CALL(exec, launchTask(_, _))
@@ -396,12 +419,12 @@ TEST(FaultToleranceTest, DISABLED_TaskLost)
   BasicMasterDetector detector(master, slave, true);
 
   MockScheduler sched;
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
   vector<Offer> offers;
   trigger statusUpdateCall, resourceOffersCall;
   TaskStatus status;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .Times(1);
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))
@@ -432,13 +455,14 @@ TEST(FaultToleranceTest, DISABLED_TaskLost)
 
   EXPECT_NE(0, offers.size());
 
-  TaskDescription task;
+  TaskInfo task;
   task.set_name("test task");
   task.mutable_task_id()->set_value("1");
   task.mutable_slave_id()->MergeFrom(offers[0].slave_id());
   task.mutable_resources()->MergeFrom(offers[0].resources());
+  task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
 
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   tasks.push_back(task);
 
   driver.launchTasks(offers[0].id(), tasks);
@@ -478,13 +502,14 @@ TEST(FaultToleranceTest, SchedulerFailoverStatusUpdate)
 
   MockExecutor exec;
 
-  EXPECT_CALL(exec, registered(_, _, _, _, _, _))
+  trigger shutdownCall;
+
+  EXPECT_CALL(exec, registered(_, _, _, _))
     .Times(1);
 
   EXPECT_CALL(exec, launchTask(_, _))
     .WillOnce(SendStatusUpdate(TASK_RUNNING));
 
-  trigger shutdownCall;
   EXPECT_CALL(exec, shutdown(_))
     .WillOnce(Trigger(&shutdownCall));
 
@@ -504,14 +529,14 @@ TEST(FaultToleranceTest, SchedulerFailoverStatusUpdate)
   // first status update message is sent to it (drop the message).
 
   MockScheduler sched1;
-  MesosSchedulerDriver driver1(&sched1, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver1(&sched1, DEFAULT_FRAMEWORK_INFO, master);
 
   FrameworkID frameworkId;
   vector<Offer> offers;
 
   trigger resourceOffersCall, statusUpdateMsg;
 
-  EXPECT_CALL(sched1, registered(&driver1, _))
+  EXPECT_CALL(sched1, registered(&driver1, _, _))
     .WillOnce(SaveArg<1>(&frameworkId));
 
   EXPECT_CALL(sched1, resourceOffers(&driver1, _))
@@ -522,7 +547,7 @@ TEST(FaultToleranceTest, SchedulerFailoverStatusUpdate)
   EXPECT_CALL(sched1, statusUpdate(&driver1, _))
     .Times(0);
 
-  EXPECT_CALL(sched1, error(&driver1, _, "Framework failover"))
+  EXPECT_CALL(sched1, error(&driver1, "Framework failed over"))
     .Times(1);
 
   EXPECT_MESSAGE(filter, Eq(StatusUpdateMessage().GetTypeName()), _,
@@ -536,13 +561,14 @@ TEST(FaultToleranceTest, SchedulerFailoverStatusUpdate)
 
   EXPECT_NE(0, offers.size());
 
-  TaskDescription task;
+  TaskInfo task;
   task.set_name("");
   task.mutable_task_id()->set_value("1");
   task.mutable_slave_id()->MergeFrom(offers[0].slave_id());
   task.mutable_resources()->MergeFrom(offers[0].resources());
+  task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
 
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   tasks.push_back(task);
 
   driver1.launchTasks(offers[0].id(), tasks);
@@ -555,12 +581,16 @@ TEST(FaultToleranceTest, SchedulerFailoverStatusUpdate)
   // timeout to kick in and another status update message is sent.
 
   MockScheduler sched2;
-  MesosSchedulerDriver driver2(&sched2, "", DEFAULT_EXECUTOR_INFO,
-                               master, frameworkId);
+
+  FrameworkInfo framework2; // Bug in gcc 4.1.*, must assign on next line.
+  framework2 = DEFAULT_FRAMEWORK_INFO;
+  framework2.mutable_id()->MergeFrom(frameworkId);
+
+  MesosSchedulerDriver driver2(&sched2, framework2, master);
 
   trigger registeredCall, statusUpdateCall;
 
-  EXPECT_CALL(sched2, registered(&driver2, frameworkId))
+  EXPECT_CALL(sched2, registered(&driver2, frameworkId, _))
     .WillOnce(Trigger(&registeredCall));
 
   EXPECT_CALL(sched2, statusUpdate(&driver2, _))
@@ -580,14 +610,13 @@ TEST(FaultToleranceTest, SchedulerFailoverStatusUpdate)
   driver1.join();
   driver2.join();
 
+  WAIT_UNTIL(shutdownCall); // Ensures MockExecutor can be deallocated.
+
   process::terminate(slave);
   process::wait(slave);
 
   process::terminate(master);
   process::wait(master);
-
-  // Ensures MockExecutor no longer being used by MesosExecutorDriver.
-  WAIT_UNTIL(shutdownCall);
 
   process::filter(NULL);
 
@@ -607,7 +636,7 @@ TEST(FaultToleranceTest, SchedulerFailoverFrameworkMessage)
 
   ExecutorDriver* execDriver;
 
-  EXPECT_CALL(exec, registered(_, _, _, _, _, _))
+  EXPECT_CALL(exec, registered(_, _, _, _))
     .WillOnce(SaveArg<0>(&execDriver));
 
   EXPECT_CALL(exec, launchTask(_, _))
@@ -630,7 +659,7 @@ TEST(FaultToleranceTest, SchedulerFailoverFrameworkMessage)
 
   MockScheduler sched1;
 
-  MesosSchedulerDriver driver1(&sched1, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver1(&sched1, DEFAULT_FRAMEWORK_INFO, master);
 
   FrameworkID frameworkId;
 
@@ -638,7 +667,7 @@ TEST(FaultToleranceTest, SchedulerFailoverFrameworkMessage)
   TaskStatus status;
   trigger sched1ResourceOfferCall, sched1StatusUpdateCall;
 
-  EXPECT_CALL(sched1, registered(&driver1, _))
+  EXPECT_CALL(sched1, registered(&driver1, _, _))
     .WillOnce(SaveArg<1>(&frameworkId));
   EXPECT_CALL(sched1, statusUpdate(&driver1, _))
     .WillOnce(DoAll(SaveArg<1>(&status), Trigger(&sched1StatusUpdateCall)));
@@ -648,7 +677,7 @@ TEST(FaultToleranceTest, SchedulerFailoverFrameworkMessage)
                     Trigger(&sched1ResourceOfferCall)))
     .WillRepeatedly(Return());
 
-  EXPECT_CALL(sched1, error(&driver1, _, "Framework failover"))
+  EXPECT_CALL(sched1, error(&driver1, "Framework failed over"))
     .Times(1);
 
   driver1.start();
@@ -657,13 +686,14 @@ TEST(FaultToleranceTest, SchedulerFailoverFrameworkMessage)
 
   EXPECT_NE(0, offers.size());
 
-  TaskDescription task;
+  TaskInfo task;
   task.set_name("");
   task.mutable_task_id()->set_value("1");
   task.mutable_slave_id()->MergeFrom(offers[0].slave_id());
   task.mutable_resources()->MergeFrom(offers[0].resources());
+  task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
 
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   tasks.push_back(task);
 
   driver1.launchTasks(offers[0].id(), tasks);
@@ -673,12 +703,16 @@ TEST(FaultToleranceTest, SchedulerFailoverFrameworkMessage)
   EXPECT_EQ(TASK_RUNNING, status.state());
 
   MockScheduler sched2;
-  MesosSchedulerDriver driver2(&sched2, "", DEFAULT_EXECUTOR_INFO,
-                               master, frameworkId);
+
+  FrameworkInfo framework2; // Bug in gcc 4.1.*, must assign on next line.
+  framework2 = DEFAULT_FRAMEWORK_INFO;
+  framework2.mutable_id()->MergeFrom(frameworkId);
+
+  MesosSchedulerDriver driver2(&sched2, framework2, master);
 
   trigger sched2RegisteredCall, sched2FrameworkMessageCall;
 
-  EXPECT_CALL(sched2, registered(&driver2, frameworkId))
+  EXPECT_CALL(sched2, registered(&driver2, frameworkId, _))
     .WillOnce(Trigger(&sched2RegisteredCall));
 
   EXPECT_CALL(sched2, frameworkMessage(&driver2, _, _, _))
@@ -706,7 +740,7 @@ TEST(FaultToleranceTest, SchedulerFailoverFrameworkMessage)
 }
 
 
-TEST(FaultToleranceTest, SlaveReliableRegistration)
+TEST(FaultToleranceTest, SchedulerExit)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -714,6 +748,131 @@ TEST(FaultToleranceTest, SlaveReliableRegistration)
   process::filter(&filter);
 
   EXPECT_MESSAGE(filter, _, _, _)
+    .WillRepeatedly(Return(false));
+
+  SimpleAllocator a;
+  Master m(&a);
+  PID<Master> master = process::spawn(&m);
+
+  trigger statusUpdateMsg;
+  process::Message message;
+
+  // Trigger on the second status update received.
+  EXPECT_MESSAGE(filter, Eq(StatusUpdateMessage().GetTypeName()), _, Eq(master))
+    .WillOnce(Return(false))
+    .WillOnce(DoAll(SaveArgField<0>(&process::MessageEvent::message, &message),
+                    Trigger(&statusUpdateMsg),Return(false)));
+
+  MockExecutor exec;
+
+  EXPECT_CALL(exec, registered(_, _, _, _))
+    .Times(1);
+
+  EXPECT_CALL(exec, launchTask(_, _))
+    .WillOnce(SendStatusUpdate(TASK_RUNNING));
+
+  trigger shutdownCall;
+  EXPECT_CALL(exec, shutdown(_))
+    .WillOnce(Trigger(&shutdownCall));
+
+  map<ExecutorID, Executor*> execs;
+  execs[DEFAULT_EXECUTOR_ID] = &exec;
+
+  TestingIsolationModule isolationModule(execs);
+
+  Resources resources = Resources::parse("cpus:2;mem:1024");
+
+  Slave s(resources, true, &isolationModule);
+  PID<Slave> slave = process::spawn(&s);
+
+  BasicMasterDetector detector(master, slave, true);
+
+  MockScheduler sched;
+
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
+
+  FrameworkID frameworkId;
+
+  vector<Offer> offers;
+  TaskStatus status;
+  trigger schedResourceOfferCall, schedStatusUpdateCall;
+
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(SaveArg<1>(&frameworkId));
+
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(DoAll(SaveArg<1>(&status), Trigger(&schedStatusUpdateCall)));
+
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(DoAll(SaveArg<1>(&offers),
+                    Trigger(&schedResourceOfferCall)))
+    .WillRepeatedly(Return());
+
+  driver.start();
+
+  WAIT_UNTIL(schedResourceOfferCall);
+
+  EXPECT_NE(0, offers.size());
+
+  TaskInfo task;
+  task.set_name("");
+  task.mutable_task_id()->set_value("1");
+  task.mutable_slave_id()->MergeFrom(offers[0].slave_id());
+  task.mutable_resources()->MergeFrom(offers[0].resources());
+  task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
+
+  vector<TaskInfo> tasks;
+  tasks.push_back(task);
+
+  driver.launchTasks(offers[0].id(), tasks);
+
+  WAIT_UNTIL(schedStatusUpdateCall);
+
+  EXPECT_EQ(TASK_RUNNING, status.state());
+
+  driver.stop();
+  driver.join();
+
+  WAIT_UNTIL(shutdownCall);
+
+  // Simulate a executorExited message from isolation module to the slave.
+  process::dispatch(slave, &Slave::executorExited,
+                    frameworkId, DEFAULT_EXECUTOR_ID, 0);
+
+  WAIT_UNTIL(statusUpdateMsg);
+
+  StatusUpdateMessage statusUpdate;
+  statusUpdate.ParseFromString(message.body);
+
+  EXPECT_EQ(TASK_LOST, statusUpdate.update().status().state());
+
+  process::terminate(slave);
+  process::wait(slave);
+
+  process::terminate(master);
+  process::wait(master);
+
+  process::filter(NULL);
+}
+
+
+TEST(FaultToleranceTest, SlaveReliableRegistration)
+{
+  ASSERT_TRUE(GTEST_IS_THREADSAFE);
+
+  Clock::pause();
+
+  MockFilter filter;
+  process::filter(&filter);
+
+  EXPECT_MESSAGE(filter, _, _, _)
+    .WillRepeatedly(Return(false));
+
+  trigger slaveRegisteredMsg;
+
+  // Drop the first slave registered message, allow subsequent messages.
+  EXPECT_MESSAGE(filter, Eq(SlaveRegisteredMessage().GetTypeName()), _, _)
+    .WillOnce(DoAll(Trigger(&slaveRegisteredMsg), Return(true)))
     .WillRepeatedly(Return(false));
 
   SimpleAllocator a;
@@ -730,27 +889,24 @@ TEST(FaultToleranceTest, SlaveReliableRegistration)
   BasicMasterDetector detector(master, slave, true);
 
   MockScheduler sched;
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
   trigger resourceOffersCall;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .Times(1);
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))
     .WillOnce(Trigger(&resourceOffersCall))
     .WillRepeatedly(Return());
 
-  trigger slaveRegisterMsg;
-
-  // Drop the first registered message, but allow subsequent messages.
-  EXPECT_MESSAGE(filter, Eq(SlaveRegisteredMessage().GetTypeName()), _, _)
-    .WillOnce(Return(true))
-    .WillRepeatedly(DoAll(Trigger(&slaveRegisterMsg), Return(false)));
-
   driver.start();
 
-  WAIT_UNTIL(slaveRegisterMsg);
+  WAIT_UNTIL(slaveRegisteredMsg);
+
+  Clock::advance(1.0); // TODO(benh): Pull out constant from Slave.
+
+  WAIT_UNTIL(resourceOffersCall);
 
   driver.stop();
   driver.join();
@@ -762,6 +918,8 @@ TEST(FaultToleranceTest, SlaveReliableRegistration)
   process::wait(master);
 
   process::filter(NULL);
+
+  Clock::resume();
 }
 
 
@@ -789,11 +947,11 @@ TEST(FaultToleranceTest, SlaveReregister)
   BasicMasterDetector detector(master, slave, true);
 
   MockScheduler sched;
-  MesosSchedulerDriver driver(&sched, "", DEFAULT_EXECUTOR_INFO, master);
+  MesosSchedulerDriver driver(&sched, DEFAULT_FRAMEWORK_INFO, master);
 
   trigger resourceOffersCall;
 
-  EXPECT_CALL(sched, registered(&driver, _))
+  EXPECT_CALL(sched, registered(&driver, _, _))
     .Times(1);
 
   EXPECT_CALL(sched, resourceOffers(&driver, _))

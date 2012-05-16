@@ -14,13 +14,13 @@ test ! -z "${PYTHON}" && \
 
 PYTHON=@PYTHON@
 
-DISTRIBUTE_EGG=`echo ${MESOS_SOURCE_DIR}/third_party/distribute-*/*.egg`
+DISTRIBUTE_EGG=`echo ${MESOS_BUILD_DIR}/third_party/distribute-*/dist/*.egg`
 
 test ! -e ${DISTRIBUTE_EGG} && \
   echo "${RED}Failed to find ${DISTRIBUTE_EGG}${NORMAL}" && \
   exit 1
 
-PROTOBUF=${MESOS_BUILD_DIR}/third_party/protobuf-2.3.0
+PROTOBUF=${MESOS_BUILD_DIR}/third_party/protobuf-2.4.1
 PROTOBUF_EGG=`echo ${PROTOBUF}/python/dist/protobuf*.egg`
 
 test ! -e ${PROTOBUF_EGG} && \

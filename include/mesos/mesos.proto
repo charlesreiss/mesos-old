@@ -27,10 +27,8 @@ option java_outer_classname = "Protos";
  * driver after function calls.
  */
 enum Status {
-  OK = 0;
-
-  DRIVER_NOT_RUNNING = 1;
-  DRIVER_ALREADY_RUNNING = 2;
+  DRIVER_NOT_STARTED = 1;
+  DRIVER_RUNNING = 2;
   DRIVER_ABORTED = 3;
   DRIVER_STOPPED = 4;
 }
@@ -85,14 +83,43 @@ message ExecutorID {
 
 
 /**
- * Describes a framework, including its default executor.
+ * Describes a framework. If the user field is set to an empty string
+ * Mesos will automagically set it to the current user. Note that the
+ * ID is only available after a framework has registered, however, it
+ * is included here in order to facilitate scheduler failover (i.e.,
+ * if it is set then the MesosSchedulerDriver expects the scheduler is
+ * performing failover). The amount of time that the master will wait
+ * for the scheduler to failover before removing the framework is
+ * specified by failover_timeout.
  */
 message FrameworkInfo {
   required string user = 1;
   required string name = 2;
-  required ExecutorInfo executor = 3;
+  optional FrameworkID id = 3;
+  optional double failover_timeout = 4 [default = 0.0];
+  
+  optional bool allocates_min = 5 [default = false];
+}
 
-  optional bool allocates_min = 4 [default = false];
+
+/**
+ * Describes a command, executed via: '/bin/sh -c value'. Any uri's
+ * specified are fetched before executing the command.
+ * If executable field for an uri is set, executable file permission 
+ * is set on the downloaded file. Also, if the downloaded file has ".tgz" 
+ * extension it is extracted into the executor's working directory.
+ * In addition, any environment variables are set before executing 
+ * the command (so they can be used to "parameterize" your command).
+ */
+message CommandInfo {
+  message URI {
+    required string value = 1;
+    optional bool executable = 2;
+  }
+
+  repeated URI uris = 1;
+  optional Environment environment = 2;
+  required string value = 3;
 }
 
 
@@ -103,12 +130,10 @@ message FrameworkInfo {
  */
 message ExecutorInfo {
   required ExecutorID executor_id = 1;
-  required string uri = 2;
+  required CommandInfo command = 7;
   repeated Resource resources = 5;
   optional bytes data = 4;
-  optional Environment environment = 6;
-  
-  repeated Resource min_resources = 7;
+  repeated Resource min_resources = 8;
 }
 
 
@@ -127,7 +152,9 @@ message MasterInfo {
 /**
  * Describes a slave. The 'webui_hostname' and 'webui_port' are
  * provided in the event a host has different private and public
- * hostnames (e.g., Amazon EC2).
+ * hostnames (e.g., Amazon EC2). Note that the 'id' field is only
+ * available after a slave is registered with the master, and is made
+ * available here to facilitate re-registration.
  */
 message SlaveInfo {
   required string hostname = 1;
@@ -136,6 +163,7 @@ message SlaveInfo {
   optional int32 webui_port = 4 [default = 8081];
   repeated Resource resources = 3;
   repeated Attribute attributes = 5;
+  optional SlaveID id = 6;
 }
 
 
@@ -190,6 +218,7 @@ message Attribute {
   required Value.Type type = 2;
   optional Value.Scalar scalar = 3;
   optional Value.Ranges ranges = 4;
+  optional Value.Set set = 6;
   optional Value.Text text = 5;
 }
 
@@ -218,7 +247,7 @@ message Resource {
  * then this request is assumed to only apply to resources on that
  * slave.
  */
-message ResourceRequest {
+message Request {
   optional SlaveID slave_id = 1;
   repeated Resource resources = 2;
   repeated Resource min_resources = 3;
@@ -249,14 +278,15 @@ message Offer {
  * executor can be used to launch this task, and subsequent tasks
  * meant for the same executor can reuse the same ExecutorInfo struct.
  */
-message TaskDescription {
+message TaskInfo {
   required string name = 1;
   required TaskID task_id = 2;
   required SlaveID slave_id = 3;
   repeated Resource resources = 4;
-  repeated Resource min_resources = 5;
-  optional ExecutorInfo executor = 6;
-  optional bytes data = 7;
+  optional ExecutorInfo executor = 5;
+  optional CommandInfo command = 7;
+  optional bytes data = 6;
+  repeated Resource min_resources = 8;
 }
 
 
@@ -268,6 +298,7 @@ message TaskDescription {
  * another task).
  */
 enum TaskState {
+  TASK_STAGING = 6; // Initial state. Framework status updates should not use.
   TASK_STARTING = 0;
   TASK_RUNNING = 1;
   TASK_FINISHED = 2; // TERMINAL.
@@ -301,8 +332,8 @@ message Filters {
 
 /**
 * Describes a collection of environment variables. This is used with
-* the ExecutorInfo in order to set environment variables before
-* launching the executor.
+* CommandInfo in order to set environment variables before running a
+* command.
 */
 message Environment {
   message Variable {

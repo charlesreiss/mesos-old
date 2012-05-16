@@ -28,7 +28,8 @@ namespace fake {
 using std::vector;
 
 void FakeScheduler::registered(SchedulerDriver* driver_,
-                               const FrameworkID& frameworkId_)
+                               const FrameworkID& frameworkId_,
+                               const MasterInfo& masterInfo)
 {
   CHECK(!driver) << "excess registration for " << frameworkId_
                  << "; new driver = " << (void*) driver_
@@ -64,7 +65,7 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
 
   if (tasksPending.size() == 0) {
     foreach (const Offer& offer, offers) {
-      vector<TaskDescription> toLaunch;
+      vector<TaskInfo> toLaunch;
       driver->launchTasks(offer.id(), toLaunch);
     }
     return;
@@ -75,7 +76,7 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
     DLOG(INFO) << attributes << ": tasksPending has "
               << tasksPending.size() << " entries.";
     DCHECK_EQ(offer.framework_id(), frameworkId);
-    vector<TaskDescription> toLaunch;
+    vector<TaskInfo> toLaunch;
     ResourceHints bucket = ResourceHints::forOffer(offer);
     DLOG(INFO) << "minRequest = " << minRequest << "; bucket = " << bucket
                << "; beforeStartTime = " << beforeStartTime
@@ -87,7 +88,7 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
           TaskID taskId;
           ++taskCount;
           taskId.set_value(baseTaskId + ":" + boost::lexical_cast<std::string>(taskCount));
-          TaskDescription newTask;
+          TaskInfo newTask;
           newTask.set_name(baseTaskId);
           newTask.mutable_task_id()->MergeFrom(taskId);
           newTask.mutable_slave_id()->MergeFrom(offer.slave_id());
@@ -95,7 +96,7 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
           newTask.mutable_min_resources()->MergeFrom(curRequest.minResources);
           newTask.mutable_executor()->mutable_executor_id()->set_value(
               taskId.value());
-          newTask.mutable_executor()->set_uri("no-executor");
+          newTask.mutable_executor()->mutable_command()->set_value("no-executor");
           toLaunch.push_back(newTask);
           bucket -= curRequest;
           taskTracker->registerTask(frameworkId,
@@ -111,7 +112,7 @@ void FakeScheduler::resourceOffers(SchedulerDriver* driver,
                      << curRequest;
         }
       }
-      foreach (const TaskDescription& task, toLaunch) {
+      foreach (const TaskInfo& task, toLaunch) {
         tasksPending.erase(task.name());
       }
     }

@@ -14,6 +14,7 @@
 #include <process/filter.hpp>
 #include <process/http.hpp>
 #include <process/message.hpp>
+#include <process/mime.hpp>
 #include <process/pid.hpp>
 
 namespace process {
@@ -141,25 +142,26 @@ protected:
     route(name, handler);
   }
 
-  // Provide the static resource(s) at the specified _absolute_ path
-  // for the specified name. For example, assuming the process named
+  // Provide the static asset(s) at the specified _absolute_ path for
+  // the specified name. For example, assuming the process named
   // "server" invoked 'provide("name", "path")' then an HTTP request
-  // for '/server/name' would return the file found at 'path'. If the
+  // for '/server/name' would return the asset found at 'path'. If the
   // specified path is a directory then an HTTP request for
-  // '/server/name/file' would return the file found at
+  // '/server/name/file' would return the asset found at
   // '/path/file'. The 'Content-Type' header of the HTTP response will
-  // be set to the specified type.
+  // be set to the specified type given the file extension (you can
+  // manipulate this via the optional 'types' parameter).
   void provide(
       const std::string& name,
       const std::string& path,
-      const std::string& type)
+      const std::map<std::string, std::string>& types = mime::types)
   {
     // TODO(benh): Check that name is only alphanumeric (i.e., has no
     // '/') and that path is absolute.
-    Resource resource;
-    resource.path = path;
-    resource.type = type;
-    resources[name] = resource;
+    Asset asset;
+    asset.path = path;
+    asset.types = types;
+    assets[name] = asset;
   }
 
 private:
@@ -195,15 +197,15 @@ private:
     std::map<std::string, HttpRequestHandler> http;
   } handlers;
 
-  // Definition of a static resource.
-  struct Resource
+  // Definition of a static asset.
+  struct Asset
   {
     std::string path;
-    std::string type;
+    std::map<std::string, std::string> types;
   };
 
-  // Static resource(s) to provide.
-  std::map<std::string, Resource> resources;
+  // Static assets(s) to provide.
+  std::map<std::string, Asset> assets;
 
   // Active references.
   int refs;
@@ -216,27 +218,27 @@ private:
 template <typename T>
 class Process : public virtual ProcessBase {
 public:
-  Process(const std::string& id = "") : ProcessBase(id) {}
+  virtual ~Process() {}
 
   // Returns pid of process; valid even before calling spawn.
   PID<T> self() const { return PID<T>(dynamic_cast<const T*>(this)); }
+
+protected:
+  // Useful typedefs for dispatch/delay/defer to self()/this.
+  typedef T Self;
+  typedef T This;
 };
 
 
 /**
- * Initialize the library.
+ * Initialize the library. Note that libprocess uses Google's glog and
+ * you can specify options for it (e.g., a logging directory) via
+ * environment variables (see the glog documentation for more
+ * information).
  *
  * @param delegate process to receive root HTTP requests
- * @param initialize_glog whether or not to initialize the
- *        Google Logging library (glog). If the application is also
- *        using glog, this should be set to false.
  */
-void initialize(const std::string& delegate = "", bool initialize_glog = true);
-
-inline void initialize(bool initialize_glog)
-{
-  initialize("", initialize_glog);
-}
+void initialize(const std::string& delegate = "");
 
 
 /**

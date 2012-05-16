@@ -16,11 +16,6 @@
  * limitations under the License.
  */
 
-#ifdef __APPLE__
-// Since Python.h defines _XOPEN_SOURCE on Mac OS X, we undefine it
-// here so that we don't get warning messages during the build.
-#undef _XOPEN_SOURCE
-#endif // __APPLE__
 #include <Python.h>
 
 #include "mesos_scheduler_driver_impl.hpp"
@@ -36,8 +31,8 @@ using std::string;
 using std::vector;
 using std::map;
 
-
-namespace mesos { namespace python {
+namespace mesos {
+namespace python {
 
 /**
  * Python type object for MesosSchedulerDriverImpl.
@@ -111,6 +106,10 @@ PyMethodDef MesosSchedulerDriverImpl_methods[] = {
    (PyCFunction) MesosSchedulerDriverImpl_killTask,
    METH_VARARGS,
    "Kill the task with the given ID"},
+  {"declineOffer",
+   (PyCFunction) MesosSchedulerDriverImpl_declineOffer,
+   METH_VARARGS,
+   "Decline a Mesos offer"},
   {"reviveOffers",
    (PyCFunction) MesosSchedulerDriverImpl_reviveOffers,
    METH_NOARGS,
@@ -149,22 +148,27 @@ int MesosSchedulerDriverImpl_init(MesosSchedulerDriverImpl* self,
                                   PyObject* args,
                                   PyObject* kwds)
 {
-  PyObject *pythonSchedulerObj = NULL;
-  const char* url;
-  PyObject *frameworkIdObj = NULL;
-  const char* frameworkName;
-  PyObject *executorInfoObj = NULL;
+  PyObject* schedulerObj = NULL;
+  PyObject* frameworkObj = NULL;
+  const char* master;
 
-  if (!PyArg_ParseTuple(args, "OsOs|O", &pythonSchedulerObj, &frameworkName,
-                        &executorInfoObj, &url, &frameworkIdObj)) {
+  if (!PyArg_ParseTuple(args, "OOs", &schedulerObj, &frameworkObj, &master)) {
     return -1;
   }
 
-  if (pythonSchedulerObj != NULL) {
+  if (schedulerObj != NULL) {
     PyObject* tmp = self->pythonScheduler;
-    Py_INCREF(pythonSchedulerObj);
-    self->pythonScheduler = pythonSchedulerObj;
+    Py_INCREF(schedulerObj);
+    self->pythonScheduler = schedulerObj;
     Py_XDECREF(tmp);
+  }
+
+  FrameworkInfo framework;
+  if (frameworkObj != NULL) {
+    if (!readPythonProtobuf(frameworkObj, &framework)) {
+      PyErr_Format(PyExc_Exception, "Could not deserialize Python FrameworkInfo");
+      return -1;
+    }
   }
 
   if (self->driver != NULL) {
@@ -178,31 +182,10 @@ int MesosSchedulerDriverImpl_init(MesosSchedulerDriverImpl* self,
     self->proxyScheduler = NULL;
   }
 
-  FrameworkID frameworkId;
-  if (frameworkIdObj != NULL) {
-    if (!readPythonProtobuf(frameworkIdObj, &frameworkId)) {
-      PyErr_Format(PyExc_Exception, "Could not deserialize Python FrameworkId");
-      return -1;
-    }
-  }
-
-  ExecutorInfo executorInfo;
-  if (executorInfoObj != NULL) {
-    if (!readPythonProtobuf(executorInfoObj, &executorInfo)) {
-      PyErr_Format(PyExc_Exception, "Could not deserialize Python ExecutorInfo");
-      return -1;
-    }
-  }
-
   self->proxyScheduler = new ProxyScheduler(self);
 
-  if (frameworkIdObj != NULL) {
-    self->driver = new MesosSchedulerDriver(self->proxyScheduler, frameworkName,
-                                            executorInfo, url, frameworkId);
-  } else {
-    self->driver = new MesosSchedulerDriver(self->proxyScheduler, frameworkName,
-                                            executorInfo, url);
-  }
+  self->driver =
+    new MesosSchedulerDriver(self->proxyScheduler, framework, master);
 
   return 0;
 }
@@ -269,7 +252,7 @@ PyObject* MesosSchedulerDriverImpl_start(MesosSchedulerDriverImpl* self)
   }
 
   Status status = self->driver->start();
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -288,7 +271,7 @@ PyObject* MesosSchedulerDriverImpl_stop(MesosSchedulerDriverImpl* self,
   }
 
   Status status = self->driver->stop(failover);
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -300,7 +283,7 @@ PyObject* MesosSchedulerDriverImpl_abort(MesosSchedulerDriverImpl* self)
   }
 
   Status status = self->driver->abort();
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -315,7 +298,7 @@ PyObject* MesosSchedulerDriverImpl_join(MesosSchedulerDriverImpl* self)
   Py_BEGIN_ALLOW_THREADS
   status = self->driver->join();
   Py_END_ALLOW_THREADS
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -330,7 +313,7 @@ PyObject* MesosSchedulerDriverImpl_run(MesosSchedulerDriverImpl* self)
   Py_BEGIN_ALLOW_THREADS
   status = self->driver->run();
   Py_END_ALLOW_THREADS
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -343,7 +326,7 @@ PyObject* MesosSchedulerDriverImpl_requestResources(MesosSchedulerDriverImpl* se
   }
 
   PyObject* requestsObj = NULL;
-  vector<ResourceRequest> requests;
+  vector<Request> requests;
 
   if (!PyArg_ParseTuple(args, "O", &requestsObj)) {
     return NULL;
@@ -359,17 +342,16 @@ PyObject* MesosSchedulerDriverImpl_requestResources(MesosSchedulerDriverImpl* se
     if (requestObj == NULL) {
       return NULL; // Exception will have been set by PyList_GetItem
     }
-    ResourceRequest request;
+    Request request;
     if (!readPythonProtobuf(requestObj, &request)) {
-      PyErr_Format(PyExc_Exception,
-                   "Could not deserialize Python ResourceRequest");
+      PyErr_Format(PyExc_Exception, "Could not deserialize Python Request");
       return NULL;
     }
     requests.push_back(request);
   }
 
   Status status = self->driver->requestResources(requests);
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -385,7 +367,7 @@ PyObject* MesosSchedulerDriverImpl_launchTasks(MesosSchedulerDriverImpl* self,
   PyObject* tasksObj = NULL;
   PyObject* filtersObj = NULL;
   OfferID offerId;
-  vector<TaskDescription> tasks;
+  vector<TaskInfo> tasks;
   Filters filters;
 
   if (!PyArg_ParseTuple(args, "OO|O", &offerIdObj, &tasksObj, &filtersObj)) {
@@ -407,10 +389,10 @@ PyObject* MesosSchedulerDriverImpl_launchTasks(MesosSchedulerDriverImpl* self,
     if (taskObj == NULL) {
       return NULL; // Exception will have been set by PyList_GetItem
     }
-    TaskDescription task;
+    TaskInfo task;
     if (!readPythonProtobuf(taskObj, &task)) {
       PyErr_Format(PyExc_Exception,
-                   "Could not deserialize Python TaskDescription");
+                   "Could not deserialize Python TaskInfo");
       return NULL;
     }
     tasks.push_back(task);
@@ -425,7 +407,7 @@ PyObject* MesosSchedulerDriverImpl_launchTasks(MesosSchedulerDriverImpl* self,
   }
 
   Status status = self->driver->launchTasks(offerId, tasks, filters);
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -448,7 +430,42 @@ PyObject* MesosSchedulerDriverImpl_killTask(MesosSchedulerDriverImpl* self,
   }
 
   Status status = self->driver->killTask(tid);
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
+}
+
+
+PyObject* MesosSchedulerDriverImpl_declineOffer(MesosSchedulerDriverImpl* self,
+                                                PyObject* args)
+{
+  if (self->driver == NULL) {
+    PyErr_Format(PyExc_Exception, "MesosSchedulerDriverImpl.driver is NULL");
+    return NULL;
+  }
+
+  PyObject* offerIdObj = NULL;
+  PyObject* filtersObj = NULL;
+  OfferID offerId;
+  Filters filters;
+
+  if (!PyArg_ParseTuple(args, "O|O", &offerIdObj, &filtersObj)) {
+    return NULL;
+  }
+
+  if (!readPythonProtobuf(offerIdObj, &offerId)) {
+    PyErr_Format(PyExc_Exception, "Could not deserialize Python OfferID");
+    return NULL;
+  }
+
+  if (filtersObj != NULL) {
+    if (!readPythonProtobuf(filtersObj, &filters)) {
+      PyErr_Format(PyExc_Exception,
+                   "Could not deserialize Python Filters");
+      return NULL;
+    }
+  }
+
+  Status status = self->driver->declineOffer(offerId, filters);
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -460,7 +477,7 @@ PyObject* MesosSchedulerDriverImpl_reviveOffers(MesosSchedulerDriverImpl* self)
   }
 
   Status status = self->driver->reviveOffers();
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
 
@@ -474,25 +491,25 @@ PyObject* MesosSchedulerDriverImpl_sendFrameworkMessage(
   }
 
 
-  PyObject* sidObj = NULL;
-  PyObject* eidObj = NULL;
-  SlaveID sid;
-  ExecutorID eid;
+  PyObject* slaveIdObj = NULL;
+  PyObject* executorIdObj = NULL;
+  SlaveID slaveId;
+  ExecutorID executorId;
   const char* data;
-  if (!PyArg_ParseTuple(args, "OOs", &sidObj, &eidObj, &data)) {
+  if (!PyArg_ParseTuple(args, "OOs", &executorIdObj, &slaveIdObj, &data)) {
     return NULL;
   }
-  if (!readPythonProtobuf(sidObj, &sid)) {
-    PyErr_Format(PyExc_Exception, "Could not deserialize Python SlaveID");
-    return NULL;
-  }
-  if (!readPythonProtobuf(eidObj, &eid)) {
+  if (!readPythonProtobuf(executorIdObj, &executorId)) {
     PyErr_Format(PyExc_Exception, "Could not deserialize Python ExecutorID");
     return NULL;
   }
-
-  Status status = self->driver->sendFrameworkMessage(sid, eid, data);
-  return PyInt_FromLong(status); // Sets an exception if creating the int fails
+  if (!readPythonProtobuf(slaveIdObj, &slaveId)) {
+    PyErr_Format(PyExc_Exception, "Could not deserialize Python SlaveID");
+    return NULL;
+  }
+  Status status = self->driver->sendFrameworkMessage(executorId, slaveId, data);
+  return PyInt_FromLong(status); // Sets exception if creating long fails.
 }
 
-}} /* namespace mesos { namespace python { */
+} // namespace python {
+} // namespace mesos {

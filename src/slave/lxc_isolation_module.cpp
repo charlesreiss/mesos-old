@@ -1,17 +1,17 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* Licensed to the Apache Software Foundation (ASF) under one
+* or more contributor license agreements.  See the NOTICE file
+* distributed with this work for additional information
+* regarding copyright ownership.  The ASF licenses this file
+* to you under the Apache License, Version 2.0 (the
+* "License"); you may not use this file except in compliance
+* with the License.  You may obtain a copy of the License at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
@@ -22,8 +22,7 @@
 #include <map>
 
 #include <process/dispatch.hpp>
-
-#include "lxc_isolation_module.hpp"
+#include <process/id.hpp>
 
 #include "common/foreach.hpp"
 #include "common/type_utils.hpp"
@@ -32,12 +31,13 @@
 
 #include "launcher/launcher.hpp"
 
-using namespace process;
+#include "slave/lxc_isolation_module.hpp"
 
 using namespace mesos;
 using namespace mesos::internal;
 using namespace mesos::internal::slave;
 
+using namespace process;
 using launcher::ExecutorLauncher;
 
 using process::wait; // Necessary on some OS's to disambiguate.
@@ -58,7 +58,8 @@ const int64_t MIN_MEMORY_MB = 128 * Megabyte;
 
 
 LxcIsolationModule::LxcIsolationModule()
-  : initialized(false)
+  : ProcessBase(ID::generate("lxc-isolation-module")),
+    initialized(false)
 {
   // Spawn the reaper, note that it might send us a message before we
   // actually get spawned ourselves, but that's okay, the message will
@@ -117,14 +118,14 @@ void LxcIsolationModule::launchExecutor(
   const ExecutorID& executorId = executorInfo.executor_id();
 
   LOG(INFO) << "Launching " << executorId
-            << " (" << executorInfo.uri() << ")"
+            << " (" << executorInfo.command().value() << ")"
             << " in " << directory
             << " with resources " << resources
             << "' for framework " << frameworkId;
 
   // Create a name for the container.
   std::ostringstream out;
-  out << "mesos.executor-" << executorId << ".framework-" << frameworkId;
+  out << "mesos_executor_" << executorId << "_framework_" << frameworkId;
 
   const string& container = out.str();
 
@@ -180,17 +181,15 @@ void LxcIsolationModule::launchExecutor(
     ExecutorLauncher* launcher =
       new ExecutorLauncher(frameworkId,
 			   executorId,
-			   executorInfo.uri(),
+			   executorInfo.command(),
 			   frameworkInfo.user(),
                            directory,
 			   slave,
-			   conf.get("frameworks_home", ""),
-			   conf.get("home", ""),
-			   conf.get("hadoop_home", ""),
+			   conf.get<string>("frameworks_home", ""),
+			   conf.get<string>("hadoop_home", ""),
 			   !local,
-			   conf.get("switch_user", true),
-			   container,
-			   executorInfo.environment());
+			   conf.get<bool>("switch_user", true),
+			   container);
 
     launcher->setupEnvironmentForLauncherMain();
 
@@ -211,7 +210,8 @@ void LxcIsolationModule::launchExecutor(
     }
 
     // Determine path for mesos-launcher from Mesos home directory.
-    string path = conf.get("launcher_dir", MESOS_LIBEXECDIR) + "/mesos-launcher";
+    string path =
+      conf.get<string>("launcher_dir", MESOS_LIBEXECDIR) + "/mesos-launcher";
     args[i++] = path.c_str();
     args[i++] = NULL;
 

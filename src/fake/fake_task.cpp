@@ -26,6 +26,8 @@ FakeTask* FakeTaskTracker::getTaskFor(const FrameworkID& frameworkId,
                                       const ExecutorID& executorId,
                                       const TaskID& taskId) const
 {
+  LOG(INFO) << "getTaskFor(" << frameworkId << ", " << executorId
+            << ", " << taskId << ")";
   ReadLock l(&lock);
   TaskMap::const_iterator it =
     tasks.find(boost::make_tuple(frameworkId, executorId, taskId));
