@@ -52,6 +52,7 @@ void BinaryFileUsageLogWriter::write(const UsageLogRecord& record)
   int size = record.ByteSize();
   out.write(reinterpret_cast<char*>(&size), sizeof(size));
   record.SerializeToOstream(&out);
+  out.flush();
 }
 
 UsageRecorder::UsageRecorder(UsageLogWriter* out_, const UPID& master_,
