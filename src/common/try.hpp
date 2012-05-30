@@ -19,6 +19,7 @@
 #ifndef __TRY_HPP__
 #define __TRY_HPP__
 
+#include <assert.h>
 #include <glog/logging.h>
 
 #include <string>
