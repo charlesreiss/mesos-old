@@ -28,8 +28,10 @@
 
 #include "common/try.hpp"
 
+#if 0
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,27)
 #error "Expecting Linux version >= 2.6.27"
+#endif
 #endif
 
 namespace mesos {
