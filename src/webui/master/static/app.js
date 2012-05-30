@@ -5,7 +5,6 @@ angular.module('mesos', []).
     $routeProvider
       .when('/', {template: 'static/home.html', controller: HomeCtrl})
       .when('/dashboard', {template: 'static/dashboard.html', controller: DashboardCtrl})
-      .when('/log', {template: 'static/log.html', controller: LogCtrl})
       .when('/frameworks', {template: 'static/frameworks.html', controller: FrameworksCtrl})
       .when('/framework/:id', {template: 'static/framework.html', controller: FrameworkCtrl})
       .when('/slaves', {template: 'static/slaves.html', controller: SlavesCtrl})
@@ -13,8 +12,18 @@ angular.module('mesos', []).
   }])
   .filter('truncateMesosID', function() {
     return function(id) {
-      var short_id =  id.split('-').splice(2,2).join('-');
-      return '…' + short_id;
+      return '…' + id.split('-').splice(3, 3).join('-');
+    }
+  })
+  .filter('truncateMesosState', function() {
+    return function(state) {
+      // Remove the "TASK_" prefix.
+      return state.substring(5);
+    }
+  })
+  .filter('mesosDate', function($filter) {
+    return function(date) {
+      return $filter('date')(date, 'MM/dd/yyyy H:mm:ss');
     }
   })
   .filter('relativeDate', function() {

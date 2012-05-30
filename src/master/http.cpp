@@ -271,6 +271,12 @@ Future<HttpResponse> state(
   object.values["id"] = master.info.id();
   object.values["pid"] = string(master.self());
 
+  Option<string> directory = master.conf.get<string>("log_dir");
+
+  if (directory.isSome()) {
+    object.values["log_dir"] = directory.get();
+  }
+
   // Model all of the slaves.
   {
     JSON::Array array;
@@ -325,10 +331,9 @@ Future<HttpResponse> log(
 
   off_t offset = -1;
   ssize_t length = -1;
-  string level = pairs.count("level") ? pairs["level"][0] : "INFO";
+  string level = pairs.count("level") > 0 ? pairs["level"][0] : "INFO";
 
-  if (pairs.count("offset") > 0) {
-    CHECK(pairs["offset"].size() > 0);
+  if (pairs.count("offset") > 0 && pairs["offset"].size() > 0) {
     Try<off_t> result = utils::numify<off_t>(pairs["offset"].back());
     if (result.isError()) {
       LOG(WARNING) << "Failed to \"numify\" the 'offset' ("
@@ -351,15 +356,20 @@ Future<HttpResponse> log(
     length = result.get();
   }
 
-  string directory = master.conf.get<string>("log_dir", FLAGS_log_dir);
-  string path = directory + "/mesos-master." + level;
+  Option<string> directory = master.conf.get<string>("log_dir");
 
-  Result<int> fd = utils::os::open(path, O_RDONLY);
+  if (directory.isNone()) {
+    return HttpNotFoundResponse();
+  }
+
+  string path = directory.get() + "/mesos-master." + level;
+
+  Try<int> fd = utils::os::open(path, O_RDONLY);
 
   if (fd.isError()) {
     LOG(WARNING) << "Failed to open log file at "
                  << path << ": " << fd.error();
-    return HttpNotFoundResponse();
+    return HttpInternalServerErrorResponse();
   }
 
   off_t size = lseek(fd.get(), 0, SEEK_END);

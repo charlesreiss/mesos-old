@@ -176,8 +176,10 @@ nodist_pkginclude_HEADERS = ../include/mesos/mesos.hpp mesos.pb.h
 
 if OS_LINUX
   libmesos_no_third_party_la_SOURCES += slave/lxc_isolation_module.cpp
+  libmesos_no_third_party_la_SOURCES += linux/proc.cpp
 else
   EXTRA_DIST += slave/lxc_isolation_module.cpp
+  EXTRA_DIST += linux/proc.cpp
 endif
 
 EXTRA_DIST += slave/solaris_project_isolation_module.cpp
@@ -188,16 +190,17 @@ libmesos_no_third_party_la_SOURCES += common/attributes.hpp		\
 	common/hashset.hpp common/json.hpp common/lock.hpp		\
 	common/logging.hpp common/lambda.hpp common/option.hpp		\
 	common/resources.hpp common/result.hpp common/multihashmap.hpp	\
-	common/process_utils.hpp common/seconds.hpp common/try.hpp	\
+	common/process_utils.hpp common/protobuf_utils.hpp		\
+	common/seconds.hpp common/try.hpp				\
 	common/type_utils.hpp common/thread.hpp common/timer.hpp	\
 	common/utils.hpp common/units.hpp common/uuid.hpp		\
 	common/strings.hpp common/values.hpp				\
 	configurator/configuration.hpp configurator/configurator.hpp	\
 	configurator/option.hpp detector/detector.hpp			\
-	launcher/launcher.hpp local/local.hpp master/allocator.hpp	\
-	master/allocator_factory.hpp master/constants.hpp		\
-	master/frameworks_manager.hpp master/http.hpp			\
-	master/master.hpp master/simple_allocator.hpp			\
+	launcher/launcher.hpp linux/proc.hpp local/local.hpp		\
+	master/allocator.hpp master/allocator_factory.hpp		\
+	master/constants.hpp master/frameworks_manager.hpp		\
+	master/http.hpp master/master.hpp master/simple_allocator.hpp	\
 	master/slaves_manager.hpp master/webui.hpp			\
 	messages/messages.hpp slave/constants.hpp slave/http.hpp	\
 	slave/isolation_module.hpp slave/isolation_module_factory.hpp	\
@@ -414,9 +417,9 @@ nobase_dist_webui_DATA += webui/bottle-0.8.3/bottle.py	\
   webui/static/stylesheet.css
 
 # Need to distribute/install webui javascript.
-nobase_dist_webui_DATA += webui/master/static/controllers.js	\
-  webui/master/static/app.js \
-  webui/master/static/dashboard.js
+nobase_dist_webui_DATA += webui/master/static/controllers.js		\
+  webui/master/static/app.js webui/master/static/dashboard.js		\
+  webui/master/static/popovers.js webui/master/static/jquery.pailer.js
 
 # Need to distribute/install webui CSS.
 nobase_dist_webui_DATA += webui/master/static/graph.css	\
@@ -429,10 +432,14 @@ nobase_dist_webui_DATA += webui/master/static/dashboard.html		\
   webui/master/static/index.html webui/master/static/log.html		\
   webui/master/static/slaves.html
 
+# Need to distribute/install webui images.
+nobase_dist_webui_DATA += webui/master/static/loading.gif
+
 # Need to distribute/install third_party javascript.
 nobase_dist_webui_DATA += webui/master/static/angular-1.0.0rc8.js	\
   webui/master/static/underscore-min.js					\
-  webui/master/static/cubism.v1.js webui/master/static/d3.v2.js
+  webui/master/static/cubism.v1.js webui/master/static/d3.v2.js		\
+  webui/master/static/relative-date.js
 
 # Need to distribute/install bootstrap.
 nobase_dist_webui_DATA +=							  \
@@ -817,6 +824,10 @@ mesos_tests_CXXFLAGS = $(MESOS_CXXFLAGS) -ggdb -O1
 mesos_tests_LDADD = ../third_party/libgmock.la libmesos.la
 
 mesos_tests_DEPENDENCIES = # Initialized to allow += below.
+
+if OS_LINUX
+  mesos_tests_SOURCES += tests/proc_tests.cpp
+endif
 
 if HAS_JAVA
   mesos_tests_SOURCES += tests/zookeeper_server.cpp		\
