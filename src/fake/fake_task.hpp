@@ -31,7 +31,7 @@
 #include "common/hashmap.hpp"
 #include "common/lock.hpp"
 #include "common/resources.hpp"
-#include "common/seconds.hpp"
+#include "common/time.hpp"
 #include "common/type_utils.hpp"
 
 namespace mesos {

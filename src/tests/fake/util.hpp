@@ -22,7 +22,7 @@
 #include <gmock/gmock.h>
 #include "fake/fake_task.hpp"
 #include "tests/utils.hpp"
-#include "common/seconds.hpp"
+#include "common/time.hpp"
 #include "common/resources.hpp"
 
 using namespace mesos;
