@@ -40,7 +40,7 @@ Try<set<pid_t> > pids()
 
 Try<SystemStatistics> stat()
 {
-  unsigned long long btime;
+  unsigned long long btime = 0;
 
   ifstream file("/proc/stat");
 
