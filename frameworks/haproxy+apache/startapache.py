@@ -1,47 +1,55 @@
 #!/usr/bin/env python
-import mesos
+
 import sys
-import time
+import mesos
+import mesos_pb2
 import os
-import atexit
+import pickle
+import subprocess
+import time
 
 from subprocess import *
 
-APACHECTL = "/usr/apache2/2.2/bin/apachectl" #EC2
-#APACHECTL = "sudo /etc/init.d/apache2" #R Cluster
+HTTPD = os.getenv('HTTPD')
+HTTPD_ARGS = map(str, pickle.loads(os.getenv('HTTPD_ARGS')))
 
-def cleanup():
-  try:
-    # TODO(*): This will kill ALL apaches...oops.
-    os.waitpid(Popen(APACHECTL + " stop", shell=True).pid, 0)
-  except Exception, e:
-    print e
-    None
+def verboseCall(args):
+  print "About to call ", args
+  subprocess.check_call(args)
 
 class MyExecutor(mesos.Executor):
   def __init__(self):
-    mesos.Executor.__init__(self)
-    self.tid = -1
+    self.tid = None
+
+  def argsForPort(self, port):
+    return HTTPD_ARGS + [
+      '-C', 'Define PORT ' + str(port),
+      '-c', 'Listen ' + str(port)
+    ]
 
   def launchTask(self, driver, task):
-    self.tid = task.taskId
-    Popen(APACHECTL + " start", shell=True)
+    self.tid = task.task_id
+    port = int(task.data)
+    driver.sendStatusUpdate(
+        mesos_pb2.TaskStatus(task_id = self.tid, state=mesos_pb2.TASK_RUNNING)
+        )
+    verboseCall([HTTPD, '-k', 'start'] + self.argsForPort(port))
 
   def killTask(self, driver, tid):
-    if (tid != self.tid):
-      print "Expecting different task id ... killing anyway!"
-    cleanup()
-    update = mesos.TaskStatus(tid, mesos.TASK_FINISHED, "")
+    subprocess.check_call([HTTPD, '-k', 'graceful-stop'] + HTTPD_ARGS)
+    update = mesos_pb2.TaskStatus(task_id = self.tid, state=mesos_pb2.TASK_FINISHED)
     driver.sendStatusUpdate(update)
 
-  def shutdown(driver, self):
-    cleanup()
+  def shutdown(self, driver):
+    if self.tid is not None:
+      subprocess.check_call([HTTPD, '-k', 'graceful-stop'] + HTTPD_ARGS)
+      update = mesos_pb2.TaskStatus(task_id = self.tid, state=mesos_pb2.TASK_FINISHED)
+      driver.sendStatusUpdate(update)
 
   def error(self, code, message):
     print "Error: %s" % message
 
 if __name__ == "__main__":
   print "Starting haproxy+apache executor"
-  atexit.register(cleanup)
   executor = MyExecutor()
   mesos.MesosExecutorDriver(executor).run()

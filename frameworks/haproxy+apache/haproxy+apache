@@ -1,11 +1,14 @@
 #!/bin/bash
 
-PYTHON=python
+PYTHON=${PYTHON-python}
 
-if [ "`uname`" == "SunOS" ]; then
-  PYTHON=python2.6
-fi
+MESOS_BUILD_DIR=${MESOS_BUILD_DIR-`dirname $0`/../..}
 
-export PYTHONPATH=`dirname $0`/../../lib/python:$PYTHONPATH
+PROTOBUF_EGG_PATH='third_party/protobuf-*/python/dist/protobbuf*.egg'
+PROTOBUF_EGG=${PROTOBUF_EGG-`echo ${MESOS_BUILD_DIR}/${PROTOBUF_EGG_PATH}`}
 
-$PYTHON ./haproxy+apache.py $@
+MESOS_EGG=${MESOS_EGG-`echo ${MESOS_BUILD_DIR}/src/python/dist/mesos*.egg`}
+
+export PYTHONPATH=$MESOS_EGG:$PROTOBUF_EGG:$PYTHONPATH
+
+exec $PYTHON ./haproxy+apache.py "${@}"
