@@ -176,9 +176,11 @@ nodist_pkginclude_HEADERS = ../include/mesos/mesos.hpp mesos.pb.h
 
 if OS_LINUX
   libmesos_no_third_party_la_SOURCES += slave/lxc_isolation_module.cpp
+  libmesos_no_third_party_la_SOURCES += linux/fs.cpp
   libmesos_no_third_party_la_SOURCES += linux/proc.cpp
 else
   EXTRA_DIST += slave/lxc_isolation_module.cpp
+  EXTRA_DIST += linux/fs.cpp
   EXTRA_DIST += linux/proc.cpp
 endif
 
@@ -190,17 +192,17 @@ libmesos_no_third_party_la_SOURCES += common/attributes.hpp		\
 	common/hashset.hpp common/json.hpp common/lock.hpp		\
 	common/logging.hpp common/lambda.hpp common/option.hpp		\
 	common/resources.hpp common/result.hpp common/multihashmap.hpp	\
-	common/process_utils.hpp common/protobuf_utils.hpp		\
-	common/seconds.hpp common/try.hpp				\
+	common/process_utils.hpp common/time.hpp common/try.hpp		\
 	common/type_utils.hpp common/thread.hpp common/timer.hpp	\
 	common/utils.hpp common/units.hpp common/uuid.hpp		\
 	common/strings.hpp common/values.hpp				\
 	configurator/configuration.hpp configurator/configurator.hpp	\
 	configurator/option.hpp detector/detector.hpp			\
-	launcher/launcher.hpp linux/proc.hpp local/local.hpp		\
-	master/allocator.hpp master/allocator_factory.hpp		\
-	master/constants.hpp master/frameworks_manager.hpp		\
-	master/http.hpp master/master.hpp master/simple_allocator.hpp	\
+	launcher/launcher.hpp linux/fs.hpp linux/proc.hpp		\
+	local/local.hpp master/allocator.hpp				\
+	master/allocator_factory.hpp master/constants.hpp		\
+	master/frameworks_manager.hpp master/http.hpp			\
+	master/master.hpp master/simple_allocator.hpp			\
 	master/slaves_manager.hpp master/webui.hpp			\
 	messages/messages.hpp slave/constants.hpp slave/http.hpp	\
 	slave/isolation_module.hpp slave/isolation_module_factory.hpp	\
@@ -786,6 +788,7 @@ check_PROGRAMS += mesos-tests
 
 mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 	              tests/master_tests.cpp tests/state_tests.cpp	\
+	              tests/slave_tests.cpp				\
 	              tests/resource_offers_tests.cpp			\
 	              tests/fault_tolerance_tests.cpp			\
 	              tests/log_tests.cpp tests/resources_tests.cpp	\
@@ -826,6 +829,7 @@ mesos_tests_LDADD = ../third_party/libgmock.la libmesos.la
 mesos_tests_DEPENDENCIES = # Initialized to allow += below.
 
 if OS_LINUX
+  mesos_tests_SOURCES += tests/fs_tests.cpp
   mesos_tests_SOURCES += tests/proc_tests.cpp
 endif
 
