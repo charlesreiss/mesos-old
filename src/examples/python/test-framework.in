@@ -43,5 +43,5 @@ test ! -e ${SCRIPT} && \
 # framework is able to find the executor.
 cd `dirname ${0}`
 
-PYTHONPATH="${DISTRIBUTE_EGG}:${MESOS_EGG}:${PROTOBUF_EGG}" \
+PYTHONPATH="${MESOS_EGG}:${PROTOBUF_EGG}" \
   exec ${PYTHON} ${SCRIPT} "${@}"
