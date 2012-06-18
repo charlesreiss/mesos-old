@@ -88,8 +88,12 @@ def read_file(name):
   # Pass 0, find framework names
   framework_names = set()
   slave_names = set()
+  shown_example = False
   for record in parse_usage.usage_from_stream(stream, is_binary):
     for usage in record.usage:
+      if not shown_example:
+        print "example = ", usage
+        shown_example = True
       framework_names.add(framework_id(usage))
       slave_names.add(usage.slave_id.value)
   stream.seek(0)
