@@ -90,7 +90,8 @@ int main(int argc, char** argv)
   conf.set("quiet", !conf.get("verbose", false));
 
   // Initialize logging.
-  logging::initialize(argv[0], conf);
+  string program_name(argv[0]);
+  logging::initialize(program_name, conf);
 
   // Initialize gmock/gtest.
   testing::InitGoogleTest(&argc, argv);
