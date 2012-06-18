@@ -1300,6 +1300,7 @@ struct ResourceUsageChecker : TaskInfoVisitor
 
     // Check that the executor is using some resources.
     if (task.has_executor()) {
+      CHECK(task.executor().has_executor_id());
       const ExecutorInfo& executorInfo = task.executor();
       foreach (const Resource& resource, executorInfo.resources()) {
         if (!Resources::isAllocatable(resource)) {
@@ -1372,6 +1373,7 @@ struct ExecutorInfoChecker : TaskInfoVisitor
       Slave* slave)
   {
     if (task.has_executor()) {
+      CHECK(task.executor().has_executor_id());
       if (slave->hasExecutor(framework->id, task.executor().executor_id())) {
         const ExecutorInfo& executorInfo =
           slave->executors[framework->id][task.executor().executor_id()];
@@ -1529,6 +1531,7 @@ ResourceHints Master::launchTask(const TaskInfo& task,
 
   if (task.has_executor()) {
     // TODO(benh): Refactor this code into Slave::addTask.
+    CHECK(task.executor().has_executor_id());
     if (!slave->hasExecutor(framework->id, task.executor().executor_id())) {
       CHECK(!framework->hasExecutor(slave->id, task.executor().executor_id()));
       addExecutor(framework->id, slave->id, task.executor());
@@ -1808,7 +1811,9 @@ void Master::removeSlave(Slave* slave)
       StatusUpdateMessage message;
       StatusUpdate* update = message.mutable_update();
       update->mutable_framework_id()->MergeFrom(task->framework_id());
-      update->mutable_executor_id()->MergeFrom(task->executor_id());
+      if (task->has_executor_id()) {
+        update->mutable_executor_id()->MergeFrom(task->executor_id());
+      }
       update->mutable_slave_id()->MergeFrom(task->slave_id());
       TaskStatus* status = update->mutable_status();
       status->mutable_task_id()->MergeFrom(task->task_id());

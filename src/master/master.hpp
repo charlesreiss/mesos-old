@@ -337,8 +337,6 @@ struct Slave
   void addExecutor(const FrameworkID& frameworkId,
 		   const ExecutorInfo& executorInfo)
   {
-    LOG(INFO) << "Slave: " << frameworkId << " adding executor "
-              << executorInfo.DebugString() << " on " << id;
     CHECK(!hasExecutor(frameworkId, executorInfo.executor_id()));
     executors[frameworkId][executorInfo.executor_id()] = executorInfo;
 
@@ -349,8 +347,6 @@ struct Slave
   void removeExecutor(const FrameworkID& frameworkId,
 		      const ExecutorID& executorId)
   {
-    LOG(INFO) << "Slave: " << frameworkId << " remove executor "
-              << executorId << " on " << id;
     if (hasExecutor(frameworkId, executorId)) {
       // Update the resources in use to reflect removing this executor.
       resourcesInUse -= executors[frameworkId][executorId].resources();
@@ -361,10 +357,6 @@ struct Slave
 	executors.erase(frameworkId);
         usageMessages.erase(frameworkId);
       }
-    } else {
-      LOG(WARNING) << "asked to remove non-existent executor "
-                   << frameworkId << " " << executorId << " from "
-                   << id;
     }
   }
 

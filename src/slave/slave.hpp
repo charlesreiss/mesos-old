@@ -156,12 +156,6 @@ protected:
   // Actually deletes the directories.
   void garbageCollect(const std::list<std::string>& directories);
 
-//   // Create a new status update stream.
-//   StatusUpdates* createStatusUpdateStream(const StatusUpdateStreamID& streamId,
-//                                           const string& directory);
-
-//   StatusUpdates* getStatusUpdateStream(const StatusUpdateStreamID& streamId);
-
   // Helper function for generating a unique work directory for this
   // framework/executor pair (non-trivial since a framework/executor
   // pair may be launched more than once on the same slave).
@@ -365,6 +359,8 @@ struct Framework
       // slightly oversubscribed, so we'll need to reevaluate with respect
       // to resources that can't be oversubscribed.
       return executor;
+    } else {
+      CHECK(task.executor().has_executor_id());
     }
 
     return task.executor();
