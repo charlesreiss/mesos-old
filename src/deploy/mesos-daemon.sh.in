@@ -11,4 +11,4 @@ PROGRAM=${1}
 shift # Remove PROGRAM from the argument list (since we pass ${@} below).
 
 nohup @sbindir@/${PROGRAM} \
-  --conf=@localstatedir@/mesos/conf ${@} </dev/null >/dev/null 2>&1 &
+  --conf=@sysconfdir@/mesos/conf ${@} </dev/null >/dev/null 2>&1 &

@@ -37,6 +37,7 @@ LIBPROCESS = third_party/libprocess
 # before automake 1.11, so we need to set them manually (until we in
 # the future assume an automake version).
 pkglibexecdir = $(libexecdir)/$(PACKAGE)
+pkgsysconfdir = $(sysconfdir)/$(PACKAGE)
 pkglocalstatedir = $(localstatedir)/$(PACKAGE)
 
 # Set install directory for webui artifacts (i.e., the location where
@@ -61,7 +62,7 @@ pkglibexec_PROGRAMS =
 dist_pkglibexec_SCRIPTS =
 nobase_dist_webui_DATA =
 nodist_sbin_SCRIPTS =
-nobase_pkglocalstate_DATA =
+nobase_pkgsysconf_DATA =
 check_PROGRAMS =
 dist_check_SCRIPTS =
 check_SCRIPTS =
@@ -448,7 +449,7 @@ nodist_sbin_SCRIPTS += deploy/mesos-daemon.sh			\
   deploy/mesos-start-slaves.sh deploy/mesos-stop-cluster.sh	\
   deploy/mesos-stop-masters.sh deploy/mesos-stop-slaves.sh
 
-nobase_pkglocalstate_DATA += deploy/mesos-deploy-env.sh.template
+nobase_pkgsysconf_DATA += deploy/mesos-deploy-env.sh.template
 
 # Need to explicitly add this because by default DATA files are not
 # included in distributions.
@@ -456,7 +457,7 @@ EXTRA_DIST += deploy/mesos-deploy-env.sh.template
 
 
 # And the configuration file.
-nobase_pkglocalstate_DATA += conf/mesos.conf.template
+nobase_pkgsysconf_DATA += conf/mesos.conf.template
 
 # Need to explicitly add this because by default DATA files are not
 # included in distributions.
