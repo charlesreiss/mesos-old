@@ -1194,9 +1194,11 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
 }
 
 void Slave::queueUsageUpdates() {
+  LOG(INFO) << "Asking for usage";
   foreachkey (const FrameworkID& frameworkId, frameworks) {
     Framework* framework = frameworks[frameworkId];
     foreachkey (const ExecutorID& executorId, framework->executors) {
+      LOG(INFO) << "Sampling usage from " << frameworkId << ":" << executorId;
       isolationModule->sampleUsage(frameworkId, executorId);
     }
   }
