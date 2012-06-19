@@ -89,7 +89,7 @@ private:
     ExecutorID executorId;
     std::string container; // Name of Linux container used for this framework.
     pid_t pid; // PID of lxc-execute command running the executor.
-    Resources curLimit; // Last set limit.
+    ResourceHints curLimit; // Last set limit.
 
     bool haveSample;
     double lastSample;

@@ -282,6 +282,8 @@ void LxcIsolationModule::resourcesChanged(
 
   ContainerInfo* info = infos[frameworkId][executorId];
 
+  info->curLimit = resources;
+
   CHECK(info->container != "");
 
   const string& container = info->container;
@@ -388,6 +390,8 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
     message.mutable_framework_id()->MergeFrom(frameworkId);
     message.mutable_executor_id()->MergeFrom(executorId);
     message.mutable_resources()->MergeFrom(result);
+    message.mutable_expected_resources()->MergeFrom(
+        info->curLimit.expectedResources);
     message.set_timestamp(now);
     if (info->haveSample) {
       message.set_duration(duration);
