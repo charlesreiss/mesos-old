@@ -29,6 +29,10 @@ namespace mesos {
 namespace internal {
 namespace logging {
 
+// Keep a copy of this string so we aren't referring to the .c_str() from
+// a temporary.
+static string programName;
+
 void registerOptions(Configurator* configurator)
 {
   configurator->addOption<bool>(
@@ -58,6 +62,8 @@ void initialize(const string& argv0, const Configuration& conf)
     return;
   }
 
+  programName = argv0;
+
   Option<string> directory = conf.get<string>("log_dir");
 
   // Set glog's parameters through Google Flags variables.
@@ -81,7 +87,7 @@ void initialize(const string& argv0, const Configuration& conf)
 
   FLAGS_logbufsecs = conf.get<int>("logbufsecs", 0);
 
-  google::InitGoogleLogging(argv0.c_str());
+  google::InitGoogleLogging(programName.c_str());
 
   LOG(INFO) << "Logging to " <<
     (directory.isSome() ? directory.get() : "STDERR");
