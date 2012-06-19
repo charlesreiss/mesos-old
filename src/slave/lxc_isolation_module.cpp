@@ -103,6 +103,8 @@ void LxcIsolationModule::initialize(
   cgroupRoot = conf.get<std::string>("cgroup_root", "/sys/fs/cgroup/");
   cgroupTypeLabel = conf.get<bool>("cgroup_type_label", true);
 
+  LOG(INFO) << "cgroup_type_label = " << cgroupTypeLabel;
+
   initialized = true;
 }
 
