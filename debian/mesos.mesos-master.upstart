@@ -1,0 +1,17 @@
+description "Mesos Master"
+
+env DEFAULTFILE=/etc/default/mesos
+
+start on runlevel [2345]
+
+respawn
+
+script
+  if [ -f "$DEFAULTFILE" ]; then
+    . "$DEFAULTFILE"
+  fi
+
+  if [ "x$RUN_MESOS_MASTER" = xyes ]; then
+    exec /usr/sbin/mesos-daemon.sh mesos-master
+  fi
+end script

@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-$(DEB_BUILD_ARCH)
+export PYTHON=python2.7 # needed for tests
+
+%:
+	dh $@ --with autoreconf
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+	  --prefix=/usr \
+	  --with-python-headers=/usr/include/python2.7 \
+	  --with-included-zookeeper \
+	  LDFLAGS="-Wl,-rpath,$(JAVA_HOME)/jre/lib/$(DEB_BUILD_ARCH)/server" \
+	  PYTHON_CONFIG=python2.7-config \
+	  PYTHON=python2.7
+
+override_dh_usrlocal:
+	@true # we really want to create /usr/local for these non-official packages
+
+override_dh_installinit:
+	dh_installinit --name mesos-master
+	dh_installinit --name mesos-slave
+	dh_installinit # for mesos.default

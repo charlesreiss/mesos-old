@@ -1,0 +1,17 @@
+Source: mesos
+Section: utils
+Priority: extra
+Maintainer: <general@apache.org>
+Build-Depends: debhelper (>= 8.0.0), dh-autoreconf, python2.7-dev, openjdk-7-jdk
+Standards-Version: 3.9.2
+Homepage: https://incubator.apache.org/mesos/
+Vcs-Git: git://git.apache.org/mesos.git
+
+Package: mesos
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}
+Description: cluster manager
+ Apache Mesos is a cluster manager that provides efficient resource isolation
+ and sharing across distributed applications, or frameworks. It can run Hadoop,
+ MPI, Hypertable, Spark (a new framework for low-latency interactive and
+ iterative jobs), and other applications.
