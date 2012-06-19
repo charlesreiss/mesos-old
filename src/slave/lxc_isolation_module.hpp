@@ -78,6 +78,7 @@ private:
                             int64_t *value);
 
   std::string cgroupRoot;
+  bool cgroupTypeLabel;
 
   std::vector<std::string> getControlGroupOptions(const ResourceHints& resources);
 

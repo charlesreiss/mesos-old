@@ -101,6 +101,7 @@ void LxcIsolationModule::initialize(
   }
 
   cgroupRoot = conf.get<std::string>("cgroup_root", "/sys/fs/cgroup/");
+  cgroupTypeLabel = conf.get<bool>("cgroup_type_label", true);
 
   initialized = true;
 }
@@ -428,8 +429,10 @@ bool LxcIsolationModule::getControlGroupValue(
     int64_t *value)
 {
   *value = 0;
+  // XXX FIXME: Need configurability for presence of 'group' dir.
   std::string controlFile = cgroupRoot +
-    group + "/" + container + "/" + group + "." + property;
+    (cgroupTypeLabel ? group + "/" : std::string()) + container + "/" +
+    group + "." + property;
   std::ifstream in(controlFile.c_str());
   if (!in) {
     LOG(ERROR) << "Couldn't open " << controlFile;
