@@ -67,6 +67,7 @@ NoRequestAllocator::slaveRemoved(Slave* slave) {
 
 void
 NoRequestAllocator::taskAdded(Task* task) {
+  DLOG(INFO) << "task added";
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              task, 0, Option<ExecutorInfo>::none());
   Slave* slave = master->getSlave(task->slave_id());
@@ -79,6 +80,7 @@ NoRequestAllocator::taskAdded(Task* task) {
 
 void
 NoRequestAllocator::taskRemoved(Task* task) {
+  DLOG(INFO) << "task removed" << task->DebugString();
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              0, task, Option<ExecutorInfo>::none());
   Slave* slave = master->getSlave(task->slave_id());
