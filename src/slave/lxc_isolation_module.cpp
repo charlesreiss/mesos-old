@@ -141,6 +141,7 @@ void LxcIsolationModule::launchExecutor(
   info->haveSample = false;
   info->lastSample = 0;
   info->lastCpu = 0;
+  info->curLimit = resources;
 
   infos[frameworkId][executorId] = info;
 
@@ -283,7 +284,6 @@ void LxcIsolationModule::resourcesChanged(
   ContainerInfo* info = infos[frameworkId][executorId];
 
 
-  LOG(INFO) << "XXX setting limit = " << resources.DebugString();
   info->curLimit = resources;
 
   CHECK(info->container != "");
