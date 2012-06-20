@@ -265,8 +265,12 @@ void fixResources(Resources* res) {
 ResourceHints
 NoRequestAllocator::nextOfferForSlave(Slave* slave)
 {
+  LOG(INFO) << "Computing next offer for " << slave->id;
   Resources offered = slave->resourcesOffered.expectedResources;
   Resources gaurenteedOffered = slave->resourcesOffered.minResources;
+  LOG(INFO) << "offered = " << slave->resourcesOffered;
+  LOG(INFO) << "tracker free " << tracker->freeForSlave(slave->id);
+  LOG(INFO) << "tracker min-free " << tracker->gaurenteedFreeForSlave(slave->id);
   Resources free = tracker->freeForSlave(slave->id).allocatable() - offered;
   Resources gaurenteed =
     tracker->gaurenteedFreeForSlave(slave->id).allocatable() -
