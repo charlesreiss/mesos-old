@@ -282,6 +282,8 @@ void LxcIsolationModule::resourcesChanged(
 
   ContainerInfo* info = infos[frameworkId][executorId];
 
+
+  LOG(INFO) << "XXX setting limit = " << resources.DebugString();
   info->curLimit = resources;
 
   CHECK(info->container != "");
