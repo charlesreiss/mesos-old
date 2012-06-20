@@ -54,7 +54,7 @@ void registerOptions(Configurator* configurator)
 }
 
 
-void initialize(const string& argv0, const Configuration& conf)
+void initialize(const string& _argv0, const Configuration& conf)
 {
   static process::Once initialized;
 
@@ -62,7 +62,9 @@ void initialize(const string& argv0, const Configuration& conf)
     return;
   }
 
-  programName = argv0;
+  // Persistent copy of argv0 since InitGoogleLogging requires the
+  // string we pass to it to be accessible indefinitely.
+  static string argv0 = _argv0;
 
   Option<string> directory = conf.get<string>("log_dir");
 
@@ -87,7 +89,7 @@ void initialize(const string& argv0, const Configuration& conf)
 
   FLAGS_logbufsecs = conf.get<int>("logbufsecs", 0);
 
-  google::InitGoogleLogging(programName.c_str());
+  google::InitGoogleLogging(argv0.c_str());
 
   LOG(INFO) << "Logging to " <<
     (directory.isSome() ? directory.get() : "STDERR");
