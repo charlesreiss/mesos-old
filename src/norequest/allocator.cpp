@@ -81,6 +81,7 @@ NoRequestAllocator::taskAdded(Task* task) {
 void
 NoRequestAllocator::taskRemoved(Task* task) {
   DLOG(INFO) << "task removed" << task->DebugString();
+  CHECK(task->has_executor_id());
   placeUsage(task->framework_id(), task->executor_id(), task->slave_id(),
              0, task, Option<ExecutorInfo>::none());
   Slave* slave = master->getSlave(task->slave_id());

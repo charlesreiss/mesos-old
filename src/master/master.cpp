@@ -1545,6 +1545,9 @@ ResourceHints Master::launchTask(const TaskInfo& task,
   // Add the task to the framework and slave.
   Task* t = new Task();
   t->mutable_framework_id()->MergeFrom(framework->id);
+  if (executorId.isSome()) {
+    t->mutable_executor_id()->MergeFrom(executorId.get());
+  }
   t->set_state(TASK_STAGING);
   t->set_name(task.name());
   t->mutable_task_id()->MergeFrom(task.task_id());

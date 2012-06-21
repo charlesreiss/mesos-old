@@ -323,12 +323,15 @@ TEST_F(MasterAllocatorTest, ReturnOfferMinOnly) {
                   Resources::parse("cpus:0;mem:0"),
                   Resources::parse("cpus:32;mem:1024")))).
     WillOnce(Trigger(&gotResourcesUnused));
-  EXPECT_CALL(allocator, taskAdded(_));
+  Task task;
+  EXPECT_CALL(allocator, taskAdded(_)).
+    WillOnce(testing::SaveArgPointee<0>(&task));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   vector<TaskInfo> tasks;
   addTask(theOffer, theOffer.resources(), Resources(), "taskId", &tasks);
   launchTasks(theOffer, tasks);
   WAIT_UNTIL(gotResourcesUnused);
+  EXPECT_EQ(task.executor_id(), DEFAULT_EXECUTOR_ID);
 }
 
 TEST_F(MasterAllocatorTest, ReturnOfferAll) {
