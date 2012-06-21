@@ -202,9 +202,11 @@ public class FrameworkScheduler implements Scheduler {
         // Count up the amount of free CPUs and memory on each node
         for (int i = 0; i < numOffers; i++) {
           Offer offer = offers.get(i);
-          LOG.info("Got resource offer " + offer.getId());
+          LOG.info("Got resource offer " + offer.getId().getValue());
           cpus[i] = getResource(offer, "cpus");
           mem[i] = getResource(offer, "mem");
+          LOG.info("Offer is for " + cpus[i] + " cpus and " + mem[i] +
+                   "mem on " + offer.getHostname())
         }
 
         // Assign tasks to the nodes in a round-robin manner, and stop when we
@@ -228,6 +230,7 @@ public class FrameworkScheduler implements Scheduler {
             Offer offer = offers.get(i);
             TaskInfo task = findTask(
                 offer.getSlaveId(), offer.getHostname(), cpus[i], mem[i]);
+            LOG.info("Launching task for offer " + offer.getId().getValue())
             if (task != null) {
               cpus[i] -= getResource(task, "cpus");
               mem[i] -= getResource(task, "mem");
@@ -592,8 +595,12 @@ public class FrameworkScheduler implements Scheduler {
 
   private void removeTask(MesosTask nt) {
     synchronized (jobTracker) {
+      LOG.info("Removing task with mesos id " + nt.mesosId +
+               "assigned = " + nt.isAssigned() + "; " +
+               "map = " + nt.isMap);
       mesosIdToMesosTask.remove(nt.mesosId);
       if (nt.hadoopId != null) {
+        LOG.info("Assigned hadoop id " + nt.hadoopId);
         hadoopIdToMesosTask.remove(nt.hadoopId);
       }
       TaskTrackerInfo ttInfo = ttInfos.get(nt.host);
