@@ -16,6 +16,7 @@
  * limitations under the License.
  */
 
+#include <cmath>
 #include <ostream>
 
 #include "norequest/usage_tracker.hpp"
@@ -304,7 +305,8 @@ UsageTrackerImpl::estimateFor(const FrameworkID& frameworkId,
 }
 
 UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
-    : lastTickTime(0.0)
+    : lastTickTime(0.0), smoothUsage(conf_.get<bool>("norequest_smooth", false)),
+      smoothDecay(conf_.get<double>("norequest_decay", 0.8))
 {
 }
 
@@ -312,8 +314,13 @@ void
 UsageTrackerImpl::recordUsage(const UsageMessage& update) {
   LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
   Resources usage = update.resources();
-  estimateFor(update.framework_id(), update.executor_id(), update.slave_id())->
-    observeUsage(update.timestamp(), update.duration(), usage);
+  ResourceEstimates* estimate = estimateFor(update.framework_id(),
+      update.executor_id(), update.slave_id());
+  // TODO(Charles Reiss): Consider not doing this when our estimate is a guess.
+  // TODO(Charles Reiss): FIXME XXX Test that this is actually done!
+  smoothUsageUpdate(&usage, update.duration(),
+      estimate->nextUsedResources);
+  estimate->observeUsage(update.timestamp(), update.duration(), usage);
   // TODO(Charles Reiss): Make this conditional on this update not being
   // an old, stray update.
   if (!update.still_running()) {
@@ -476,6 +483,20 @@ UsageTrackerImpl::sanityCheckAgainst(mesos::internal::master::Master* master)
   }
   CHECK_EQ(expectNumSlaves, slaveCapacities.size());
   CHECK_EQ(expectNumSlaves, slaveEstimates.size());
+}
+
+void UsageTrackerImpl::smoothUsageUpdate(Resources* observation,
+    double duration, const Resources& oldUsage)
+{
+  if (smoothUsage) {
+    // alpha + (1 - alpha)*alpha +  ... + (1 - alpha)^(duration)*alpha = 
+    // 1 - (1 - alpha)^(duration + 1.0)
+    double factor = 1. - std::pow(1. - smoothDecay, duration);
+    LOG(INFO) << "Computed factor = " << factor << "; decay = " << smoothDecay
+              << "; duration = " << duration;
+    *observation = multiplyResources(*observation, factor);
+    *observation += multiplyResources(oldUsage, 1.0 - factor);
+  }
 }
 
 } // namespace norequest {

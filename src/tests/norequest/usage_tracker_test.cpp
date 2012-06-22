@@ -77,14 +77,15 @@ protected:
 
   UsageMessage getUpdate(const std::string& slaveId,
       const std::string& frameworkId,
-      double time, const Resources& resources, bool stillRunning = true) {
+      double time, const Resources& resources, bool stillRunning = true,
+      double duration = 0.01) {
     UsageMessage update;
     update.mutable_slave_id()->set_value(slaveId);
     update.mutable_framework_id()->set_value(frameworkId);
     update.mutable_executor_id()->set_value("testExecutor");
     update.mutable_resources()->MergeFrom(resources);
     update.set_timestamp(time);
-    update.set_duration(0.01);
+    update.set_duration(duration);
     update.set_still_running(stillRunning);
     return update;
   }
@@ -118,7 +119,8 @@ static Resources removeZeros(const Resources& in)
   return out;
 }
 
-TEST_F(UsageTrackerTest, PlaceUsageOnce) {
+TEST_F(UsageTrackerTest, PlaceUsageOnce)
+{
   placeSimple("testFramework", "testSlave",
       Resources::parse("cpus:5.5;mem:1024"),
       Resources::parse("cpus:15.0;mem:512"));
@@ -357,3 +359,21 @@ TEST_F(UsageTrackerTest, NotStillRunningClearsUsage)
   EXPECT_EQ(Resources(), removeZeros(
         tracker->chargeForFramework(framework("testFramework"))));
 }
+
+TEST_F(UsageTrackerTest, SmoothUsageTest)
+{
+  Configuration conf;
+  conf.set<bool>("norequest_smooth", true);
+  conf.set<double>("norequest_decay", 0.6);
+  tracker.reset(getUsageTracker(conf));
+  placeSimple("testFramework", "testSlave",
+      Resources::parse("cpus:5.5;mem:1024"),
+      Resources::parse("cpus:15.0;mem:512"));
+  tracker->recordUsage(
+      getUpdate("testSlave", "testFramework", kStartTime + 1.,
+        Resources::parse("cpus:4.0;mem:1024"), true, 2.0));
+  Resources est = tracker->nextUsedForFramework(framework("testFramework"));
+  EXPECT_DOUBLE_EQ(est.get("cpus", Value::Scalar()).value(),
+      4.0 * 0.6 + (15.0 * 0.4 + 4.0 * 0.6) * 0.4);
+}
+
