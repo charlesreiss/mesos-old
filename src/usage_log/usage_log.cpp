@@ -76,6 +76,7 @@ void UsageRecorder::initialize()
 
   install<UsageMessage>(&UsageRecorder::recordUsageMessage);
   install<StatusUpdateMessage>(&UsageRecorder::recordStatusUpdateMessage);
+  install<OfferRecord>(&UsageRecorder::recordOffer);
 }
 
 void UsageRecorder::finalize()
@@ -118,6 +119,15 @@ void UsageRecorder::recordStatusUpdateMessage(const StatusUpdateMessage& message
   }
 }
 
+void UsageRecorder::recordOffer(const OfferRecord& offer)
+{
+  if (process::Clock::now() <= endTime[0]) {
+    pendingOffers[0].push_back(offer);
+  } else {
+    pendingOffers[1].push_back(offer);
+  }
+}
+
 void UsageRecorder::emit()
 {
   UsageLogRecord record;
@@ -135,6 +145,9 @@ void UsageRecorder::emit()
     minTimestamp = std::min(minTimestamp, update.timestamp());
     maxTimestamp = std::max(maxTimestamp, update.timestamp());
   }
+  foreach (const OfferRecord& offer, pendingOffers[0]) {
+    record.add_offer()->MergeFrom(offer);
+  }
   if (minTimestamp <= maxTimestamp) {
     record.set_min_seen_timestamp(minTimestamp);
     record.set_max_seen_timestamp(maxTimestamp);
@@ -151,6 +164,8 @@ void UsageRecorder::advance()
   pendingUsage[1].clear();
   std::swap(pendingUpdates[0], pendingUpdates[1]);
   pendingUpdates[1].clear();
+  std::swap(pendingOffers[0], pendingOffers[1]);
+  pendingOffers[1].clear();
   endTime[0] = endTime[1];
   endTime[1] = endTime[0] + interval;
 }

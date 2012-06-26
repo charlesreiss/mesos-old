@@ -256,21 +256,14 @@ TEST_F(UsageRecorderTest, CopyUsageMessageOverlapFirst) {
   testUsageTiming(6.0, 2.0, 3.2, 10.0);
 }
 
-TEST_F(UsageRecorderTest, CopyUsageMessageOverlapBoth) {
-  // [2.0 -> 5.4]: 11% > 10% of this overlaps [5.0, 10.0], so it gets emitted
-  // for both.
-  testUsageTiming(6.0, 2.0, 3.4, 10.0, true);
-}
 
-TEST_F(UsageRecorderTest, CopyUsageMessageOverlapSecond) {
-  // [4.9 -> 9.9]: not enough overlaps [0, 5.0]
-  testUsageTiming(8.0, 4.9, 5.0, 15.0);
-}
-
-TEST_F(UsageRecorderTest, RecordStatusUpdate) {
+TEST_F(UsageRecorderTest, RecordStatusUpdate)
+{
   testUpdateTiming(0, 2.0, 2.0, 10.0);
 }
 
-TEST_F(UsageRecorderTest, RecordStatusUpdateLate) {
+TEST_F(UsageRecorderTest, RecordStatusUpdateLate)
+{
   testUpdateTiming(0, 2.0, 7.0, 10.0);
 }
+

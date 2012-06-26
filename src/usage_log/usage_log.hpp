@@ -80,6 +80,7 @@ private:
   // Entrypoints for messages from the master.
   void recordUsageMessage(const UsageMessage&);
   void recordStatusUpdateMessage(const StatusUpdateMessage&);
+  void recordOffer(const OfferRecord&);
 
   // We collect two sets of pending measurements. Index 0 contains
   // the next measurements we are about to emit, and index 1 contains
@@ -95,6 +96,7 @@ private:
   double endTime[2];
   std::vector<UsageMessage> pendingUsage[2];
   std::vector<StatusUpdate> pendingUpdates[2];
+  std::vector<OfferRecord> pendingOffers[2];
   boost::scoped_ptr<UsageLogWriter> out;
   process::UPID master;
 };

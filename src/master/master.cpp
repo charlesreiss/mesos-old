@@ -35,6 +35,8 @@
 #include "master/master.hpp"
 #include "master/slaves_manager.hpp"
 
+#include "usage_log/usage_log.pb.h"
+
 namespace params = std::tr1::placeholders;
 
 using std::list;
@@ -1169,6 +1171,15 @@ void Master::makeOffers(Framework* framework,
         slave->executors[framework->id];
       foreachkey (const ExecutorID& executorId, executors) {
         offer->add_executor_ids()->MergeFrom(executorId);
+      }
+    }
+
+    {
+      OfferRecord offerRecord;
+      offerRecord.mutable_offer()->MergeFrom(*offer);
+      offerRecord.set_timestamp(process::Clock::now());
+      foreach (UPID pid, usageListeners) {
+        send(pid, offerRecord);
       }
     }
 
