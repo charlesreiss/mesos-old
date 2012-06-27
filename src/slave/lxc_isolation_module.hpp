@@ -103,6 +103,8 @@ private:
   bool initialized;
   Reaper* reaper;
   hashmap<FrameworkID, hashmap<ExecutorID, ContainerInfo*> > infos;
+  Resources slaveResources;
+  double maxContainerMemory;
 };
 
 }}} // namespace mesos { namespace internal { namespace slave {

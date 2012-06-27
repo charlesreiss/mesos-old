@@ -102,8 +102,12 @@ void LxcIsolationModule::initialize(
 
   cgroupRoot = conf.get<std::string>("cgroup_root", "/sys/fs/cgroup/");
   cgroupTypeLabel = conf.get<bool>("cgroup_type_label", true);
+  slaveResources = Resources::parse(
+      conf.get<std::string>("resources", "cpus:1;mem:1024"));
+  maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value();
 
   LOG(INFO) << "cgroup_type_label = " << cgroupTypeLabel;
+  LOG(INFO) << "maxContainerMemory = " << maxContainerMemory;
 
   initialized = true;
 }
@@ -321,6 +325,13 @@ void LxcIsolationModule::resourcesChanged(
     // slave finds out about it exiting.
     return;
   }
+
+  // Probably prevent the container from swapping and exceeding the memory
+  // allocated to Mesos on its own.
+  setControlGroupValue(container, "memory.memsw.limit_in_bytes",
+      (long long) maxContainerMemory * 1024LL * 1024LL);
+  setControlGroupValue(container, "memory.limit_in_bytes",
+      (long long) maxContainerMemory * 1024LL * 1024LL);
 
   // TODO(charles): We need to handle OOM better since setting the soft limit
   //                surely isn't enough.
