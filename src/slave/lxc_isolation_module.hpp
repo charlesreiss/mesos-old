@@ -105,6 +105,7 @@ private:
   hashmap<FrameworkID, hashmap<ExecutorID, ContainerInfo*> > infos;
   Resources slaveResources;
   double maxContainerMemory;
+  bool noLimits;
 };
 
 }}} // namespace mesos { namespace internal { namespace slave {

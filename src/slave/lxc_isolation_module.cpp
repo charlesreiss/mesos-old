@@ -106,9 +106,11 @@ void LxcIsolationModule::initialize(
       conf.get<std::string>("resources", "cpus:1;mem:1024"));
   maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value()
     * 1.1;
+  noLimits = conf.get<bool>("lxc_no_limits", false);
 
   LOG(INFO) << "cgroup_type_label = " << cgroupTypeLabel;
   LOG(INFO) << "maxContainerMemory = " << maxContainerMemory;
+  LOG(INFO) << "noLimits = " << maxContainerMemory;
 
   initialized = true;
 }
@@ -306,25 +308,29 @@ void LxcIsolationModule::resourcesChanged(
   double cpu = resources.minResources.get("cpu", Value::Scalar()).value();
   int32_t cpu_shares = max(CPU_SHARES_PER_CPU * (int32_t) cpu, MIN_CPU_SHARES);
 
-  property = "cpu.shares";
-  value = cpu_shares;
+  if (!noLimits) {
 
-  if (!setControlGroupValue(container, property, value)) {
-    // TODO(benh): Kill the executor, but do it in such a way that the
-    // slave finds out about it exiting.
-    return;
-  }
+    property = "cpu.shares";
+    value = cpu_shares;
 
-  double mem = resources.minResources.get("mem", Value::Scalar()).value();
-  int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
+    if (!setControlGroupValue(container, property, value)) {
+      // TODO(benh): Kill the executor, but do it in such a way that the
+      // slave finds out about it exiting.
+      return;
+    }
 
-  property = "memory.soft_limit_in_bytes";
-  value = limit_in_bytes;
+    double mem = resources.minResources.get("mem", Value::Scalar()).value();
+    int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
 
-  if (!setControlGroupValue(container, property, value)) {
-    // TODO(benh): Kill the executor, but do it in such a way that the
-    // slave finds out about it exiting.
-    return;
+    property = "memory.soft_limit_in_bytes";
+    value = limit_in_bytes;
+
+    if (!setControlGroupValue(container, property, value)) {
+      // TODO(benh): Kill the executor, but do it in such a way that the
+      // slave finds out about it exiting.
+      return;
+    }
+
   }
 
   // Probably prevent the container from swapping and exceeding the memory
@@ -479,18 +485,20 @@ vector<string> LxcIsolationModule::getControlGroupOptions(
   double cpu = resources.minResources.get("cpu", Value::Scalar()).value();
   int32_t cpu_shares = max(CPU_SHARES_PER_CPU * (int32_t) cpu, MIN_CPU_SHARES);
 
-  options.push_back("-s");
-  out << "lxc.cgroup.cpu.shares=" << cpu_shares;
-  options.push_back(out.str());
+  if (!noLimits) {
+    options.push_back("-s");
+    out << "lxc.cgroup.cpu.shares=" << cpu_shares;
+    options.push_back(out.str());
 
-  out.str("");
+    out.str("");
 
-  double mem = resources.minResources.get("mem", Value::Scalar()).value();
-  int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
+    double mem = resources.minResources.get("mem", Value::Scalar()).value();
+    int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
 
-  options.push_back("-s");
-  out << "lxc.cgroup.memory.soft_limit_in_bytes=" << limit_in_bytes;
-  options.push_back(out.str());
+    options.push_back("-s");
+    out << "lxc.cgroup.memory.soft_limit_in_bytes=" << limit_in_bytes;
+    options.push_back(out.str());
+  }
 
   int64_t hard_limit_in_bytes = ((int64_t) maxContainerMemory) * 1024LL * 1024LL;
   out.str("");
