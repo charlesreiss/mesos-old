@@ -104,7 +104,8 @@ void LxcIsolationModule::initialize(
   cgroupTypeLabel = conf.get<bool>("cgroup_type_label", true);
   slaveResources = Resources::parse(
       conf.get<std::string>("resources", "cpus:1;mem:1024"));
-  maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value();
+  maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value()
+    * 1.1;
 
   LOG(INFO) << "cgroup_type_label = " << cgroupTypeLabel;
   LOG(INFO) << "maxContainerMemory = " << maxContainerMemory;
@@ -489,6 +490,17 @@ vector<string> LxcIsolationModule::getControlGroupOptions(
 
   options.push_back("-s");
   out << "lxc.cgroup.memory.soft_limit_in_bytes=" << limit_in_bytes;
+  options.push_back(out.str());
+
+  int64_t hard_limit_in_bytes = ((int64_t) maxContainerMemory) * 1024LL * 1024LL;
+  out.str("");
+  options.push_back("-s");
+  out << "lxc.cgroup.memory.memsw.limit_in_bytes=" << hard_limit_in_bytes;
+  options.push_back(out.str());
+
+  out.str("");
+  options.push_back("-s");
+  out << "lxc.cgroup.memory.limit_in_bytes=" << hard_limit_in_bytes;
   options.push_back(out.str());
 
   return options;
