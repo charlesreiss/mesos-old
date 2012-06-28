@@ -365,15 +365,18 @@ TEST_F(UsageTrackerTest, SmoothUsageTest)
   Configuration conf;
   conf.set<bool>("norequest_smooth", true);
   conf.set<double>("norequest_decay", 0.6);
+  conf.set<double>("norequest_decay_mem", 0.1);
   tracker.reset(getUsageTracker(conf));
   placeSimple("testFramework", "testSlave",
       Resources::parse("cpus:5.5;mem:1024"),
       Resources::parse("cpus:15.0;mem:512"));
   tracker->recordUsage(
       getUpdate("testSlave", "testFramework", kStartTime + 1.,
-        Resources::parse("cpus:4.0;mem:1024"), true, 2.0));
+        Resources::parse("cpus:4.0;mem:128"), true, 2.0));
   Resources est = tracker->nextUsedForFramework(framework("testFramework"));
   EXPECT_DOUBLE_EQ(est.get("cpus", Value::Scalar()).value(),
       4.0 * 0.6 + (15.0 * 0.4 + 4.0 * 0.6) * 0.4);
+  EXPECT_DOUBLE_EQ(est.get("mem", Value::Scalar()).value(),
+      128. * 0.1 + (512. * 0.9 + 128. * 0.1) * 0.9);
 }
 

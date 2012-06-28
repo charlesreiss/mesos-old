@@ -308,6 +308,7 @@ UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
     : lastTickTime(0.0), smoothUsage(conf_.get<bool>("norequest_smooth", false)),
       smoothDecay(conf_.get<double>("norequest_decay", 0.8))
 {
+  smoothDecayMem = conf_.get<double>("norequest_decay_mem", smoothDecay);
 }
 
 void
@@ -492,10 +493,16 @@ void UsageTrackerImpl::smoothUsageUpdate(Resources* observation,
     // alpha + (1 - alpha)*alpha +  ... + (1 - alpha)^(duration)*alpha = 
     // 1 - (1 - alpha)^(duration + 1.0)
     double factor = 1. - std::pow(1. - smoothDecay, duration);
-    LOG(INFO) << "Computed factor = " << factor << "; decay = " << smoothDecay
-              << "; duration = " << duration;
+    double memFactor = 1. - std::pow(1. - smoothDecayMem, duration);
+    double mem = observation->get("mem", Value::Scalar()).value() * memFactor;
+    mem += oldUsage.get("mem", Value::Scalar()).value() * (1.0 - memFactor);
     *observation = multiplyResources(*observation, factor);
     *observation += multiplyResources(oldUsage, 1.0 - factor);
+    foreach (Resource& resource, *observation) {
+      if (resource.name() == "mem") {
+        resource.mutable_scalar()->set_value(mem);
+      }
+    }
   }
 }
 

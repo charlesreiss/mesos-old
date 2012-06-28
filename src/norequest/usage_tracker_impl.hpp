@@ -152,6 +152,7 @@ private:
   // Smoothing parameters
   bool smoothUsage;
   double smoothDecay;
+  double smoothDecayMem;
   void smoothUsageUpdate(Resources* observation, double duration,
                          const Resources& oldUsage);
 
