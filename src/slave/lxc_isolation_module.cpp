@@ -495,13 +495,15 @@ vector<string> LxcIsolationModule::getControlGroupOptions(
   int64_t hard_limit_in_bytes = ((int64_t) maxContainerMemory) * 1024LL * 1024LL;
   out.str("");
   options.push_back("-s");
-  out << "lxc.cgroup.memory.memsw.limit_in_bytes=" << hard_limit_in_bytes;
-  options.push_back(out.str());
-
-  out.str("");
-  options.push_back("-s");
   out << "lxc.cgroup.memory.limit_in_bytes=" << hard_limit_in_bytes;
   options.push_back(out.str());
+
+  /*
+  out.str("");
+  options.push_back("-s");
+  out << "lxc.cgroup.memory.memsw.limit_in_bytes=" << hard_limit_in_bytes;
+  options.push_back(out.str());
+  */
 
   return options;
 }
