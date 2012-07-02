@@ -42,8 +42,9 @@ class ApacheWebFWScheduler(mesos.Scheduler):
     self.reconfigs = 0
     self.servers = {}
     self.overloaded = False
+    self.monitor_server = monitor_server
 
-  def registered(self, driver, fid):
+  def registered(self, driver, fid, masterInfo):
     print "Mesos haproxy+apache scheduler registered as framework #%s" % fid
     self.driver = driver
 
@@ -58,8 +59,10 @@ class ApacheWebFWScheduler(mesos.Scheduler):
     apachectl_var.value = self.apachectl_exe
     return mesos_pb2.ExecutorInfo(
         executor_id=mesos_pb2.ExecutorID(value='default'),
-        uri=execPath,
-        environment=environment)
+        command=mesos_pb2.CommandInfo(
+          value=execPath,
+          environment=environment)
+        )
 
 
   def reconfigure(self):
@@ -112,10 +115,11 @@ class ApacheWebFWScheduler(mesos.Scheduler):
       elif getResource(offer, 'cpus') < args.cpu_required:
         print "Rejecting offer because it doesn't contain enough CPUs."
       else:
-        td = mesos_pb2.TaskDescription()
+        td = mesos_pb2.TaskInfo()
         td.name = 'webserver'
         td.task_id.value = str(self.id)
         td.slave_id.MergeFrom(offer.slave_id)
+        td.executor.MergeFrom(self.getExecutorInfo(driver))
         cpus = td.resources.add()
         cpus.name = 'cpus'
         cpus.type = mesos_pb2.Value.SCALAR
@@ -213,27 +217,32 @@ class ApacheWebFWScheduler(mesos.Scheduler):
           data = res.read()
           lines = data.split('\n')[2:-2]
 
-          data = data.split('\n')
-          data = data[1].split(',')
-
-          if int(data[33]) >= self.start_threshold:
+          total_queue = 0
+          best_victim = None
+          min_load = sys.maxint
+          for line in lines:
+            print 'stats line ', line
+            fields = line.split(',')
+            server_id = int(fields[1])
+            sessions = int(fields[4]) # current number of sessions
+            queue = int(fields[2]) # currently queued requests
+            if sessions < min_load:
+              min_load = sessions
+              best_victim = server_id
+            total_queue += sessions + queue
+          
+          queue_per_server = float(total_queue) / len(lines)
+          print 'queue ', queue_per_server
+          
+          if queue_per_server >= self.start_threshold:
             self.scaleUp()
-          elif int(data[4]) <= self.kill_threshold:
-            minload, minid = (sys.maxint, 0)
-            for l in lines:
-              cols = l.split(',')
-              id = int(cols[1])
-              load = int(cols[4])
-              if load < minload:
-                minload = load
-                minid = id
-
-            if len(lines) > self.min_servers and minload == 0:
-              self.scaleDown(minid)
+          elif queue_per_server <= self.kill_threshold:
+            if len(lines) > self.min_servers:
+              self.scaleDown(best_victim)
 
           conn.close()
       except Exception, e:
-        print "exception in monitor()"
+        print "exception in monitor(): ", e
         continue
     print "done in MONITOR()"
 
@@ -269,8 +278,12 @@ if __name__ == "__main__":
       server_port = args.server_port)
 
   print "Connecting to mesos master %s" % args.master
-  driver = mesos.MesosSchedulerDriver(sched, args.name,
-      sched.getExecutorInfo(None), args.master)
+  driver = mesos.MesosSchedulerDriver(sched, 
+      mesos_pb2.FrameworkInfo(
+        user='',
+        name=args.name),
+      args.master)
+
 
   threading.Thread(target = sched.monitor, args=[]).start()
 
