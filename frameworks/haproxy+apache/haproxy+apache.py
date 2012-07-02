@@ -2,29 +2,35 @@
 
 import mesos
 import mesos_pb2
-import os
-import sys
-import time
 import httplib
+import os
+import pickle
 import Queue
+import sys
+import subprocess
 import threading
+import time
 
 from argparse import ArgumentParser
-from subprocess import *
 from socket import gethostname
 
-class ApacheWebFWScheduler(mesos.Scheduler):
+class HaproxyFWScheduler(mesos.Scheduler):
   def __init__(self, min_servers, start_threshold, kill_threshold, 
-               haproxy_exe, memory_required, cpu_required, monitor_server,
-               server_port, apachectl_exe):
+               haproxy_exe, haproxy_config_template,
+               memory_required, cpu_required, monitor_server,
+               httpd_exe, httpd_args, slave_port):
     self.min_servers = min_servers
     self.start_threshold = start_threshold
     self.kill_threshold = kill_threshold
     self.haproxy_exe = haproxy_exe
-    self.apachectl_exe = apachectl_exe
-    self.server_port = server_port
+    self.haproxy_config_template = haproxy_config_template
+    self.apahcectl_args = httpd_args
     self.cpu_required = cpu_required
     self.memory_required = memory_required
+    self.monitor_server = monitor_server
+    self.httpd_exe = httpd_exe
+    self.httpd_args = httpd_args
+    self.slave_port = slave_port
     self.resources = [
         mesos_pb2.Resource(
           name='cpus',
@@ -38,46 +44,56 @@ class ApacheWebFWScheduler(mesos.Scheduler):
 
     self.lock = threading.RLock()
     self.id = 0
-    self.haproxy = -1
+    self.haproxy = None
     self.reconfigs = 0
     self.servers = {}
     self.overloaded = False
-    self.monitor_server = monitor_server
+    self.driver = None
 
-  def registered(self, driver, fid, masterInfo):
+
+  def registered(self, driver, fid, master_info):
     print "Mesos haproxy+apache scheduler registered as framework #%s" % fid
     self.driver = driver
+
 
   def getFrameworkName(self, driver):
       return "haproxy+apache"
 
-  def getExecutorInfo(self, driver):
+
+  def getExecutorInfo(self):
     execPath = os.path.join(os.getcwd(), "startapache.sh")
     environment = mesos_pb2.Environment()
-    apachectl_var = environment.variables.add()
-    apachectl_var.name = 'APACHECTL'
-    apachectl_var.value = self.apachectl_exe
+    httpd_var = environment.variables.add()
+    httpd_var.name = 'HTTPD'
+    httpd_var.value = self.httpd_exe
+    httpd_args_var = environment.variables.add()
+    httpd_args_var.name = 'HTTPD_ARGS'
+    httpd_args_var.value = pickle.dumps(self.httpd_args)
+    pythonpath_var = environment.variables.add()
+    pythonpath_var.name = 'PYTHONPATH'
+    pythonpath_var.value = ':'.join(sys.path)
     return mesos_pb2.ExecutorInfo(
         executor_id=mesos_pb2.ExecutorID(value='default'),
         command=mesos_pb2.CommandInfo(
-          value=execPath,
-          environment=environment)
-        )
+          value=execPath, environment=environment))
 
 
   def reconfigure(self):
     print "reconfiguring haproxy"
     name = "/tmp/haproxy.conf.%d" % self.reconfigs
     with open(name, 'w') as config:
-      with open('haproxy.config.template', 'r') as template:
+      with open(self.haproxy_config_template, 'r') as template:
         for line in template:
           config.write(line)
       for id, host in self.servers.iteritems():
         config.write("       ")
-        config.write("server %d %s:%d check\n" % (int(id), host, self.server_port))
+        config.write("server %d %s:%d check\n" %
+                     (int(id), host, self.slave_port))
 
     cmd = []
-    if self.haproxy != -1:
+    old_haproxy = None
+    if self.haproxy is not None:
+      old_haproxy = self.haproxy
       cmd = [self.haproxy_exe,
              "-f",
              name,
@@ -89,8 +105,11 @@ class ApacheWebFWScheduler(mesos.Scheduler):
              name]
 
     print "about to run ", cmd
-    self.haproxy = Popen(cmd, shell = False)
+    self.haproxy = subprocess.Popen(cmd, shell = False)
     self.reconfigs += 1
+    if old_haproxy is not None:
+      old_haproxy.wait()
+
 
   def resourceOffers(self, driver, offers):
     def getResource(offer, name):
@@ -119,7 +138,8 @@ class ApacheWebFWScheduler(mesos.Scheduler):
         td.name = 'webserver'
         td.task_id.value = str(self.id)
         td.slave_id.MergeFrom(offer.slave_id)
-        td.executor.MergeFrom(self.getExecutorInfo(driver))
+        td.executor.MergeFrom(self.getExecutorInfo())
+        td.data = str(self.slave_port)
         cpus = td.resources.add()
         cpus.name = 'cpus'
         cpus.type = mesos_pb2.Value.SCALAR
@@ -249,41 +269,48 @@ class ApacheWebFWScheduler(mesos.Scheduler):
 
 
 if __name__ == "__main__":
-  parser = ArgumentParser(usage = "Usage: %prog mesos_master")
-  parser.add_argument('--monitor_server', type=str)
-  parser.add_argument('--master', type=str)
-  parser.add_argument('--name', type=str, default='haproxy+apache')
-  parser.add_argument('--start_threshold', type=float, default=25.0)
-  parser.add_argument('--kill_threshold', type=float, default=5.0)
+  parser = ArgumentParser()
+  parser.add_argument('--monitor_server', type=str,
+      help='host:port to connect to haproxy', default='localhost:80')
+  parser.add_argument('--master', type=str,
+      help='method for connecting to mesos master', default='local')
+  parser.add_argument('--name', type=str, default='haproxy+apache',
+      help='framework name to provide mesos')
+  parser.add_argument('--start_threshold', type=float, default=25.0,
+      help='Threshold for starting new servers in sessions/second (queued?)')
+  parser.add_argument('--kill_threshold', type=float, default=5.0,
+      help='Threshold for killing servers in active sessions (queued?)')
   parser.add_argument('--haproxy_exe', type=str,
-                      default='/root/haproxy-1.3.20/haproxy')
+                      default='/scratch/charles/mesos-exp-frameworks/haproxy')
   parser.add_argument('--min_servers', type=int, default=1)
-  parser.add_argument('--apachectl_exe', type=str)
+  parser.add_argument('--httpd_exe', type=str, default='httpd')
+  parser.add_argument('--httpd_args', type=str, action='append')
   parser.add_argument('--memory_required', type=float, default=1024.0)
   parser.add_argument('--cpu_required', type=float, default=1.0)
-  parser.add_argument('--server_port', type=int, default=8888)
+  parser.add_argument('--slave_port', type=int, default=80)
+  parser.add_argument('--haproxy_config_template', type=str,
+                      default='haproxy.config.template')
 
   args = parser.parse_args()
 
-  print "sched = ApacheWebFWScheduler()"
-  sched = ApacheWebFWScheduler(
+  sched = HaproxyFWScheduler(
       min_servers = args.min_servers,
       start_threshold = args.start_threshold,
       kill_threshold = args.kill_threshold,
       haproxy_exe = args.haproxy_exe,
-      apachectl_exe = args.apachectl_exe,
+      haproxy_config_template = args.haproxy_config_template,
+      httpd_exe = args.httpd_exe,
+      httpd_args = args.httpd_args,
       cpu_required = args.cpu_required,
       memory_required = args.memory_required,
       monitor_server = args.monitor_server,
-      server_port = args.server_port)
+      slave_port = args.slave_port)
 
   print "Connecting to mesos master %s" % args.master
-  driver = mesos.MesosSchedulerDriver(sched, 
-      mesos_pb2.FrameworkInfo(
-        user='',
-        name=args.name),
-      args.master)
-
+  framework = mesos_pb2.FrameworkInfo()
+  framework.user = ''
+  framework.name = args.name
+  driver = mesos.MesosSchedulerDriver(sched, framework, args.master)
 
   threading.Thread(target = sched.monitor, args=[]).start()
 
