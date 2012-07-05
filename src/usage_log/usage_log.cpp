@@ -77,6 +77,7 @@ void UsageRecorder::initialize()
   install<UsageMessage>(&UsageRecorder::recordUsageMessage);
   install<StatusUpdateMessage>(&UsageRecorder::recordStatusUpdateMessage);
   install<OfferRecord>(&UsageRecorder::recordOffer);
+  install<AllocatorEstimates>(&UsageRecorder::recordAllocatorEstimates);
 }
 
 void UsageRecorder::finalize()
@@ -112,41 +113,36 @@ void UsageRecorder::recordUsageMessage(const UsageMessage& message)
 
 void UsageRecorder::recordStatusUpdateMessage(const StatusUpdateMessage& message)
 {
-  if (message.update().timestamp() <= endTime[0]) {
-    pendingUpdates[0].push_back(message.update());
-  } else {
-    pendingUpdates[1].push_back(message.update());
-  }
+  getRecord(message.update().timestamp())->add_update()->MergeFrom(message.update());
 }
 
 void UsageRecorder::recordOffer(const OfferRecord& offer)
 {
-  if (process::Clock::now() <= endTime[0]) {
-    pendingOffers[0].push_back(offer);
-  } else {
-    pendingOffers[1].push_back(offer);
+  getRecord(process::Clock::now())->add_offer()->MergeFrom(offer);
+}
+
+// FIXME TEST
+void UsageRecorder::recordAllocatorEstimates(const AllocatorEstimates& estimates) {
+  foreach (const AllocatorEstimate& estimate, estimates.estimate()) {
+    getRecord(estimate.time())->add_allocator_estimate()->MergeFrom(estimate);
   }
 }
 
 void UsageRecorder::emit()
 {
-  UsageLogRecord record;
+  UsageLogRecord record = pendingRecord[0];
   record.set_min_expect_timestamp(endTime[0] - interval);
   record.set_max_expect_timestamp(endTime[0]);
   double minTimestamp = std::numeric_limits<double>::infinity();
   double maxTimestamp = 0;
+  if (record.has_min_seen_timestamp()) {
+    minTimestamp = record.min_seen_timestamp();
+    maxTimestamp = record.max_seen_timestamp();
+  }
   foreach (const UsageMessage& usage, pendingUsage[0]) {
     record.add_usage()->MergeFrom(usage);
     minTimestamp = std::min(minTimestamp, usage.timestamp() - usage.duration());
     maxTimestamp = std::max(maxTimestamp, usage.timestamp());
-  }
-  foreach (const StatusUpdate& update, pendingUpdates[0]) {
-    record.add_update()->MergeFrom(update);
-    minTimestamp = std::min(minTimestamp, update.timestamp());
-    maxTimestamp = std::max(maxTimestamp, update.timestamp());
-  }
-  foreach (const OfferRecord& offer, pendingOffers[0]) {
-    record.add_offer()->MergeFrom(offer);
   }
   if (minTimestamp <= maxTimestamp) {
     record.set_min_seen_timestamp(minTimestamp);
@@ -162,10 +158,8 @@ void UsageRecorder::advance()
 {
   std::swap(pendingUsage[0], pendingUsage[1]);
   pendingUsage[1].clear();
-  std::swap(pendingUpdates[0], pendingUpdates[1]);
-  pendingUpdates[1].clear();
-  std::swap(pendingOffers[0], pendingOffers[1]);
-  pendingOffers[1].clear();
+  std::swap(pendingRecord[0], pendingRecord[1]);
+  pendingRecord[1].Clear();
   endTime[0] = endTime[1];
   endTime[1] = endTime[0] + interval;
 }

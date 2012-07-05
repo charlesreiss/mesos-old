@@ -80,6 +80,7 @@ private:
   // Entrypoints for messages from the master.
   void recordUsageMessage(const UsageMessage&);
   void recordStatusUpdateMessage(const StatusUpdateMessage&);
+  void recordAllocatorEstimates(const AllocatorEstimates&);
   void recordOffer(const OfferRecord&);
 
   // We collect two sets of pending measurements. Index 0 contains
@@ -94,9 +95,25 @@ private:
   bool doneFirstTick;
   double interval;
   double endTime[2];
+  UsageLogRecord pendingRecord[2];
+  UsageLogRecord* getRecord(double time) {
+    UsageLogRecord *record;
+    if (time <= endTime[0])
+      record = &pendingRecord[0];
+    else
+      record = &pendingRecord[1];
+    if (!record->has_min_seen_timestamp()) {
+      record->set_min_seen_timestamp(time);
+      record->set_max_seen_timestamp(time);
+    } else {
+      record->set_min_seen_timestamp(
+          std::min(time, record->min_seen_timestamp()));
+      record->set_max_seen_timestamp(
+          std::max(time, record->max_seen_timestamp()));
+    }
+    return record;
+  }
   std::vector<UsageMessage> pendingUsage[2];
-  std::vector<StatusUpdate> pendingUpdates[2];
-  std::vector<OfferRecord> pendingOffers[2];
   boost::scoped_ptr<UsageLogWriter> out;
   process::UPID master;
 };

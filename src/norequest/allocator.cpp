@@ -23,6 +23,10 @@
 
 #include "norequest/allocator.hpp"
 #include <process/process.hpp>
+#define DO_ALLOC_USAGE_LOG
+#ifdef DO_ALLOC_USAGE_LOG
+#include "usage_log/usage_log.pb.h"
+#endif
 
 using boost::unordered_map;
 using boost::unordered_set;
@@ -211,6 +215,8 @@ struct ChargedShareComparator {
 
 }
 
+
+// TODO(Charles): Cache DRF calculations over longer time scales for speed.
 vector<Framework*>
 NoRequestAllocator::getOrderedFrameworks() {
   vector<Framework*> frameworks = master->getActiveFrameworks();
@@ -453,6 +459,26 @@ void NoRequestAllocator::timerTick() {
       refuserSet.clear();
     }
   }
+
+#ifdef DO_ALLOC_USAGE_LOG
+  {
+    double now(process::Clock::now());
+    ChargedShareComparator comp(tracker, totalResources, useCharge);
+    AllocatorEstimates estimates;
+    foreach (Framework* framework, master->getActiveFrameworks()) {
+      AllocatorEstimate* estimate = estimates.add_estimate();
+      estimate->set_drf(comp.dominantShareOf(framework));
+      estimate->mutable_framework_id()->MergeFrom(framework->id);
+      estimate->set_time(now);
+      estimate->mutable_next_used()->MergeFrom(
+          tracker->nextUsedForFramework(framework->id));
+      estimate->mutable_charge()->MergeFrom(
+          tracker->chargeForFramework(framework->id));
+    }
+    master->forwardAllocatorEstimates(estimates);
+  }
+#endif
+
   allRefusers.clear();
   makeNewOffers(master->getActiveSlaves());
 }

@@ -26,5 +26,20 @@ message UsageLogRecord {
   // Running at min_timestamp
   repeated StatusUpdate running_start = 8;
 
-  // Next available number: 10
+  repeated AllocatorEstimates allocator_estimate = 10;
+
+  // Next available number: 11
 }
+
+message AllocatorEstimate {
+  optional double time = 1;
+  optional FrameworkID framework_id = 2;
+  optional double drf = 3;
+  repeated Resource next_used = 4;
+  repeated Resource charge = 5;
+}
+
+message AllocatorEstimates {
+  repeated AllocatorEstimate estimate = 1;
+}
+

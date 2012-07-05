@@ -406,6 +406,8 @@ void Master::initialize()
       &Master::registerUsageListener,
       &RegisterUsageListenerMessage::pid);
 
+  install<AllocatorEstimates>(&Master::forwardAllocatorEstimates);
+
   // Setup HTTP request handlers.
   route("vars", bind(&http::vars, cref(*this), params::_1));
   route("stats.json", bind(&http::json::stats, cref(*this), params::_1));
@@ -2042,6 +2044,13 @@ void Master::updateUsage(const UsageMessage& message) {
 
   foreach (UPID pid, usageListeners) {
     send(pid, message);
+  }
+}
+
+void Master::forwardAllocatorEstimates(const AllocatorEstimates& estimates)
+{
+  foreach (UPID pid, usageListeners) {
+    send(pid, estimates);
   }
 }
 

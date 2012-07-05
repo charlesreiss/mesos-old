@@ -42,6 +42,8 @@
 
 #include "messages/messages.hpp"
 
+#include "usage_log/usage_log.pb.h"
+
 
 namespace mesos {
 namespace internal {
@@ -67,6 +69,8 @@ public:
 
   virtual void makeOffers(Framework* framework,
                           const hashmap<Slave*, ResourceHints>& offered) = 0;
+
+  virtual void forwardAllocatorEstimates(const AllocatorEstimates& estimates) {}
 };
 
 class Master : public ProtobufProcess<Master>, public AllocatorMasterInterface
@@ -122,6 +126,8 @@ public:
                                 double reregisteredTime);
 
   void updateUsage(const UsageMessage& update);
+
+  void forwardAllocatorEstimates(const AllocatorEstimates& estimates);
 
   void registerUsageListener(const UPID& pid);
 
