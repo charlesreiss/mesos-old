@@ -26,7 +26,7 @@ message UsageLogRecord {
   // Running at min_timestamp
   repeated StatusUpdate running_start = 8;
 
-  repeated AllocatorEstimates allocator_estimate = 10;
+  repeated AllocatorEstimate allocator_estimate = 10;
 
   // Next available number: 11
 }
