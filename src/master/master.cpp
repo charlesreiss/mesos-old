@@ -747,6 +747,7 @@ void Master::launchTasks(const FrameworkID& frameworkId,
         status->set_message("Task launched with invalid offer");
         update->set_timestamp(Clock::now());
         update->set_uuid(UUID::random().toBytes());
+        recordStatusUpdate(*update);
         send(framework->pid, message);
       }
     }
@@ -806,6 +807,7 @@ void Master::killTask(const FrameworkID& frameworkId,
       status->set_message("Task not found");
       update->set_timestamp(Clock::now());
       update->set_uuid(UUID::random().toBytes());
+      recordStatusUpdate(*update);
       send(framework->pid, message);
     }
   }
@@ -964,6 +966,16 @@ void Master::unregisterSlave(const SlaveID& slaveId)
 }
 
 
+void Master::recordStatusUpdate(const StatusUpdate& update)
+{
+  foreach (const UPID& listener, usageListeners) {
+    StatusUpdateMessage message;
+    message.mutable_update()->MergeFrom(update);
+    send(listener, message);
+  }
+}
+
+
 void Master::statusUpdate(const StatusUpdate& update, const UPID& pid)
 {
   const TaskStatus& status = update.status();
@@ -973,11 +985,7 @@ void Master::statusUpdate(const StatusUpdate& update, const UPID& pid)
             << " of framework " << update.framework_id()
             << " is now in state " << status.state();
 
-  foreach (const UPID& listener, usageListeners) {
-    StatusUpdateMessage message;
-    message.mutable_update()->MergeFrom(update);
-    send(listener, message);
-  }
+  recordStatusUpdate(update);
 
   Slave* slave = getSlave(update.slave_id());
   if (slave != NULL) {
@@ -1589,6 +1597,23 @@ ResourceHints Master::launchTask(const TaskInfo& task,
 
   stats.tasks[TASK_STAGING]++;
 
+  // For the purpose of usage logging, record a dummy status update to
+  // TASK_STAGING:
+  {
+    StatusUpdate update;
+    update.mutable_framework_id()->MergeFrom(framework->id);
+    TaskStatus* status = update.mutable_status();
+    status->mutable_task_id()->MergeFrom(t->task_id());
+    if (executorId.isSome()) {
+      update.mutable_executor_id()->MergeFrom(executorId.get());
+    }
+    status->set_state(TASK_STAGING);
+    status->set_message("[implicit update for RunTasksMessage]");
+    update.set_timestamp(Clock::now());
+    update.set_uuid("[implicit-update]");
+    recordStatusUpdate(update);
+  }
+
   *pTask = t;
 
   return ResourceHints(resources, minResources);
@@ -1837,6 +1862,7 @@ void Master::removeSlave(Slave* slave)
       status->set_message("Slave removed");
       update->set_timestamp(Clock::now());
       update->set_uuid(UUID::random().toBytes());
+      recordStatusUpdate(*update);
       send(framework->pid, message);
     }
     removeTask(task);
