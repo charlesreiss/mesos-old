@@ -376,16 +376,20 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
 
   int64_t curCpu;
   int64_t curMemBytes;
+  string memoryStats;
 
   bool haveCpu = getControlGroupValue(info->container, "cpuacct", "usage",
                                       &curCpu);
   bool haveMem = getControlGroupValue(info->container, "memory", 
 				      "usage_in_bytes", &curMemBytes);
+  bool haveMemStats = getControlGroupString(info->container, "memory", "stat",
+      &memoryStats);
 
   double now = process::Clock::now();
   double duration = now - info->lastSample;
   info->lastSample = now;
   Resources result;
+  Resources psuedoResult;
   if (haveMem) {
     mesos::Resource mem;
     mem.set_name("mem");
@@ -404,6 +408,18 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
       info->lastCpu = curCpu;
     }
   }
+  if (haveMemStats) {
+    std::istringstream is(memoryStats);
+    std::string label;
+    uint64_t value;
+    while (is >> label >> value) {
+      mesos::Resource res;
+      res.set_name("mem_" + label);
+      res.set_type(Value::SCALAR);
+      res.mutable_scalar()->set_value(value);
+      psuedoResult += res;
+    }
+  }
   info->haveSample = true;
   if (result.size() > 0) {
     UsageMessage message;
@@ -412,6 +428,7 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
     message.mutable_resources()->MergeFrom(result);
     message.mutable_expected_resources()->MergeFrom(
         info->curLimit.expectedResources);
+    message.mutable_pseudo_resources()->MergeFrom(psuedoResult);
     message.set_timestamp(now);
     if (info->haveSample) {
       message.set_duration(duration);
@@ -468,6 +485,28 @@ bool LxcIsolationModule::getControlGroupValue(
       return true;
     } else {
       *value = 0;
+      return false;
+    }
+  }
+}
+
+bool LxcIsolationModule::getControlGroupString(
+    const string& container, const string& group, const string& property,
+    string* value)
+{
+  *value = "";
+  std::string controlFile = cgroupRoot +
+    (cgroupTypeLabel ? group + "/" : std::string()) + container + "/" +
+    group + "." + property;
+  std::ifstream in(controlFile.c_str());
+  if (!in) {
+    LOG(ERROR) << "Couldn't open " << controlFile;
+    return false;
+  } else {
+    if (std::getline(in, *value, '\0')) {
+      return true;
+    } else {
+      *value = "";
       return false;
     }
   }

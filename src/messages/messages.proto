@@ -247,6 +247,9 @@ message UsageMessage {
 
   // Extra fields for simulation convenience...
   repeated Resource expected_resources = 8;
+ 
+  // Non-allocatable "resources" considered for monitoring purposes only. 
+  repeated Resource pseudo_resources = 9;
 }
 
 // Tells a slave to shut down all executors of the given framework.

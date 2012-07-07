@@ -77,6 +77,11 @@ private:
                             const std::string& property,
                             int64_t *value);
 
+  bool getControlGroupString(const std::string& container,
+			     const std::string& group,
+                             const std::string& property,
+                             std::string *value);
+
   std::string cgroupRoot;
   bool cgroupTypeLabel;
 
