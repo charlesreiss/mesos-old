@@ -743,6 +743,7 @@ void Master::launchTasks(const FrameworkID& frameworkId,
         update->mutable_framework_id()->MergeFrom(frameworkId);
         TaskStatus* status = update->mutable_status();
         status->mutable_task_id()->MergeFrom(task.task_id());
+        update->mutable_slave_id()->MergeFrom(task.slave_id());
         status->set_state(TASK_LOST);
         status->set_message("Task launched with invalid offer");
         update->set_timestamp(Clock::now());
@@ -1604,6 +1605,7 @@ ResourceHints Master::launchTask(const TaskInfo& task,
     update.mutable_framework_id()->MergeFrom(framework->id);
     TaskStatus* status = update.mutable_status();
     status->mutable_task_id()->MergeFrom(t->task_id());
+    update.mutable_slave_id()->MergeFrom(t->slave_id());
     if (executorId.isSome()) {
       update.mutable_executor_id()->MergeFrom(executorId.get());
     }
