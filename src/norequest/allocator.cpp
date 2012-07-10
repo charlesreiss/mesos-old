@@ -479,6 +479,16 @@ void NoRequestAllocator::timerTick() {
   }
 #endif
 
+  if (useLocalPriorities) {
+    ChargedShareComparator comp(tracker, totalResources, useCharge);
+    FrameworkPrioritiesMessage message;
+    foreach (Framework* framework, master->getActiveFrameworks()) {
+      message.add_framework_id()->MergeFrom(framework->id);
+      message.add_priority(std::max(0.0, 1.0 - comp.dominantShareOf(framework)));
+    }
+    master->sendFrameworkPriorities(message);
+  }
+
   allRefusers.clear();
   makeNewOffers(master->getActiveSlaves());
 }
