@@ -639,7 +639,7 @@ void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
     addFramework(framework);
 
     // Add any running tasks reported by slaves for this framework.
-    foreachpair (const SlaveID& slaveId, Slave* slave, slaves) {
+    foreachvalue (Slave* slave, slaves) {
       foreachvalue (Task* task, slave->tasks) {
         if (framework->id == task->framework_id()) {
           framework->addTask(task);
@@ -2087,6 +2087,14 @@ void Master::registerUsageListener(const UPID& pid) {
   UsageListenerRegisteredMessage registered;
   link(pid);
   send(pid, registered);
+}
+
+void Master::sendFrameworkPriorities(const FrameworkPrioritiesMessage&
+    priorities)
+{
+  foreachvalue (Slave* slave, slaves) {
+    send(slave->pid, priorities);
+  }
 }
 
 } // namespace master {

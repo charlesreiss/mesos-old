@@ -125,6 +125,8 @@ public:
                           const FrameworkID& frameworkId,
                           bool command_executor,
                           int status);
+
+  void setFrameworkPriorities(const FrameworkPrioritiesMessage& priorities);
 protected:
   virtual void initialize();
   virtual void finalize();

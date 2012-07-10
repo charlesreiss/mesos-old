@@ -28,6 +28,7 @@
 #include "configurator/configuration.hpp"
 
 #include "common/resources.hpp"
+#include "common/hashmap.hpp"
 
 
 namespace mesos { namespace internal { namespace slave {
@@ -70,6 +71,11 @@ public:
   // callback the slave.
   virtual void sampleUsage(const FrameworkID& frameworkId,
                            const ExecutorID& executorId) {}
+
+  // Set priorities among frameworks for excess resources. Larger is more.
+  virtual void setFrameworkPriorities(
+      const hashmap<FrameworkID, double>& priorites) {}
+
 };
 
 }}} // namespace mesos { namespace internal { namespace slave {
