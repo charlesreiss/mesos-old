@@ -84,6 +84,7 @@ private:
 
   std::string cgroupRoot;
   bool cgroupTypeLabel;
+  bool measureSwapAsMemory;
 
   std::vector<std::string> getControlGroupOptions(const ResourceHints& resources);
 

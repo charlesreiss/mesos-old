@@ -107,6 +107,7 @@ void LxcIsolationModule::initialize(
   maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value()
     * 1.1;
   noLimits = conf.get<bool>("lxc_no_limits", false);
+  measureSwapAsMemory = conf.get<bool>("lxc_measure_swap_as_mem", true);
 
   LOG(INFO) << "cgroup_type_label = " << cgroupTypeLabel;
   LOG(INFO) << "maxContainerMemory = " << maxContainerMemory;
@@ -390,6 +391,21 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
   info->lastSample = now;
   Resources result;
   Resources psuedoResult;
+  if (haveMemStats) {
+    std::istringstream is(memoryStats);
+    std::string label;
+    uint64_t value;
+    while (is >> label >> value) {
+      mesos::Resource res;
+      if (measureSwapAsMemory && label == "swap") {
+        curMemBytes += value / 1024.0 / 1024.0;
+      }
+      res.set_name("mem_" + label);
+      res.set_type(Value::SCALAR);
+      res.mutable_scalar()->set_value(value);
+      psuedoResult += res;
+    }
+  }
   if (haveMem) {
     mesos::Resource mem;
     mem.set_name("mem");
@@ -406,18 +422,6 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
       cpu.mutable_scalar()->set_value(cpuRate);
       result += cpu;
       info->lastCpu = curCpu;
-    }
-  }
-  if (haveMemStats) {
-    std::istringstream is(memoryStats);
-    std::string label;
-    uint64_t value;
-    while (is >> label >> value) {
-      mesos::Resource res;
-      res.set_name("mem_" + label);
-      res.set_type(Value::SCALAR);
-      res.mutable_scalar()->set_value(value);
-      psuedoResult += res;
     }
   }
   info->haveSample = true;
