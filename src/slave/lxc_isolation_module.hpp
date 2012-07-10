@@ -61,6 +61,9 @@ public:
   virtual void sampleUsage(const FrameworkID& frameworkId,
                            const ExecutorID& executorId);
 
+  virtual void setFrameworkPriorities(
+      const hashmap<FrameworkID, double>& priorites);
+
 private:
   // No copying, no assigning.
   LxcIsolationModule(const LxcIsolationModule&);
@@ -85,7 +88,11 @@ private:
   std::string cgroupRoot;
   bool cgroupTypeLabel;
 
-  std::vector<std::string> getControlGroupOptions(const ResourceHints& resources);
+  struct ContainerInfo;
+
+  std::vector<std::string> getControlGroupOptions(ContainerInfo* info);
+
+  double computeCpuShares(ContainerInfo* info);
 
   // Per-framework information object maintained in info hashmap.
   struct ContainerInfo
@@ -111,6 +118,8 @@ private:
   Resources slaveResources;
   double maxContainerMemory;
   bool noLimits;
+  bool priorityShares;
+  hashmap<FrameworkID, double> priorities;
 };
 
 }}} // namespace mesos { namespace internal { namespace slave {

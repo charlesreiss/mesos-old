@@ -17,6 +17,7 @@
  */
 
 #include <algorithm>
+#include <iterator>
 #include <sstream>
 #include <fstream>
 #include <map>
@@ -50,7 +51,8 @@ using std::vector;
 
 namespace {
 
-const int32_t CPU_SHARES_PER_CPU = 1024;
+const int32_t CPU_SHARES_PER_CPU = 4096; // Too small with priority stuff?
+const int32_t CPU_SHARES_PER_PRIORITY = 512;
 const int32_t MIN_CPU_SHARES = 10;
 const int64_t MIN_MEMORY_MB = 128 * Megabyte;
 
@@ -206,7 +208,7 @@ void LxcIsolationModule::launchExecutor(
 
     // Construct the initial control group options that specify the
     // initial resources limits for this executor.
-    const vector<string>& options = getControlGroupOptions(resources);
+    const vector<string>& options = getControlGroupOptions(info);
 
     const char** args = (const char**) new char*[3 + options.size() + 2];
 
@@ -305,19 +307,16 @@ void LxcIsolationModule::resourcesChanged(
   string property;
   uint64_t value;
 
-  double cpu = resources.minResources.get("cpu", Value::Scalar()).value();
-  int32_t cpu_shares = max(CPU_SHARES_PER_CPU * (int32_t) cpu, MIN_CPU_SHARES);
+  property = "cpu.shares";
+  value = computeCpuShares(info);
+
+  if (!setControlGroupValue(container, property, value)) {
+    // TODO(benh): Kill the executor, but do it in such a way that the
+    // slave finds out about it exiting.
+    return;
+  }
 
   if (!noLimits) {
-
-    property = "cpu.shares";
-    value = cpu_shares;
-
-    if (!setControlGroupValue(container, property, value)) {
-      // TODO(benh): Kill the executor, but do it in such a way that the
-      // slave finds out about it exiting.
-      return;
-    }
 
     double mem = resources.minResources.get("mem", Value::Scalar()).value();
     int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
@@ -515,20 +514,18 @@ bool LxcIsolationModule::getControlGroupString(
 
 
 vector<string> LxcIsolationModule::getControlGroupOptions(
-    const ResourceHints& resources)
+    ContainerInfo* info)
 {
+  const ResourceHints& resources = info->curLimit;
   vector<string> options;
 
   std::ostringstream out;
 
-  double cpu = resources.minResources.get("cpu", Value::Scalar()).value();
-  int32_t cpu_shares = max(CPU_SHARES_PER_CPU * (int32_t) cpu, MIN_CPU_SHARES);
+  options.push_back("-s");
+  out << "lxc.cgroup.cpu.shares=" << computeCpuShares(info);
+  options.push_back(out.str());
 
   if (!noLimits) {
-    options.push_back("-s");
-    out << "lxc.cgroup.cpu.shares=" << cpu_shares;
-    options.push_back(out.str());
-
     out.str("");
 
     double mem = resources.minResources.get("mem", Value::Scalar()).value();
@@ -553,4 +550,38 @@ vector<string> LxcIsolationModule::getControlGroupOptions(
   */
 
   return options;
+}
+
+
+double LxcIsolationModule::computeCpuShares(ContainerInfo* info)
+{
+  if (priorityShares) {
+    int32_t cpuBoost =
+      (int32_t) (priorities[info->frameworkId] * CPU_SHARES_PER_PRIORITY);
+    int32_t cpuBase = info->curLimit.minResources.get(
+        "cpus", Value::Scalar()).value();
+    return max(MIN_CPU_SHARES, cpuBoost + cpuBase);
+  } else if (!noLimits) {
+    int32_t cpuBase = info->curLimit.minResources.get(
+        "cpus", Value::Scalar()).value();
+    return max(MIN_CPU_SHARES, cpuBase);
+  } else {
+    return MIN_CPU_SHARES;
+  }
+}
+
+
+void LxcIsolationModule::setFrameworkPriorities(
+    const hashmap<FrameworkID, double>& priorities_)
+{
+  priorities.clear();
+  std::copy(priorities_.begin(), priorities_.end(),
+      std::inserter(priorities, priorities.end()));
+  typedef hashmap<ExecutorID, ContainerInfo*> ContainerMap;
+  foreachvalue (const ContainerMap& containers, infos) {
+    foreachvalue (ContainerInfo* info, containers) {
+      setControlGroupValue(info->container, "cpu.shares",
+          computeCpuShares(info));
+    }
+  }
 }
