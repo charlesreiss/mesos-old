@@ -329,3 +329,10 @@ message NewMasterDetectedMessage {
 message GotMasterTokenMessage {
   required string token = 1;
 }
+
+
+// Extension for setting per-framework local priorites/shares
+message FrameworkPrioritiesMessage {
+  repeated FrameworkID framework_id = 1;
+  repeated double priority = 2;
+}

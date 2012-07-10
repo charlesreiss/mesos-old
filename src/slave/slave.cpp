@@ -326,6 +326,9 @@ void Slave::initialize()
   install<ShutdownMessage>(
       &Slave::shutdown);
 
+  install<FrameworkPrioritiesMessage>(
+      &Slave::setFrameworkPriorities);
+
   // Install the ping message handler.
   install("PING", &Slave::ping);
 
@@ -988,6 +991,16 @@ void Slave::transitionLiveTask(const TaskID& taskId,
   statusUpdate(update);
 }
 
+
+
+void Slave::setFrameworkPriorities(const FrameworkPrioritiesMessage& priorities_)
+{
+  hashmap<FrameworkID, double> priorities;
+  for (int i = 0; i < priorities_.framework_id_size(); ++i) {
+    priorities[priorities_.framework_id(i)] = priorities_.priority(i);
+  }
+  isolationModule->setFrameworkPriorities(priorities);
+}
 
 // Called by the isolation module when an executor process exits.
 void Slave::executorExited(const FrameworkID& frameworkId,

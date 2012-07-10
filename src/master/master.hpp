@@ -71,6 +71,8 @@ public:
                           const hashmap<Slave*, ResourceHints>& offered) = 0;
 
   virtual void forwardAllocatorEstimates(const AllocatorEstimates& estimates) {}
+
+  virtual void sendFrameworkPriorities(const FrameworkPrioritiesMessage& priorities) {}
 };
 
 class Master : public ProtobufProcess<Master>, public AllocatorMasterInterface
@@ -140,6 +142,8 @@ public:
 
   void makeOffers(Framework* framework,
                   const hashmap<Slave*, ResourceHints>& offered);
+
+  void sendFrameworkPriorities(const FrameworkPrioritiesMessage& priorities);
 
 protected:
   virtual void initialize();
