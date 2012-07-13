@@ -365,6 +365,39 @@ void LxcIsolationModule::processExited(pid_t pid, int status)
   }
 }
 
+namespace {
+
+void getBlkioStats(const string& prefix,
+                   const string& stats,
+                   double duration,
+                   hashmap<string, int64_t>* prev,
+                   Resources* result)
+{
+  std::istringstream is(stats);
+  int64_t value;
+  std::string disk, type;
+  while (is >> disk) {
+    if (disk == "Total") {
+      disk = "all";
+      type = "Total";
+      is >> value;
+    } else {
+      is >> type >> value;
+    }
+    std::string label = disk + "_" + type;
+    if (prev->count(label) > 0) {
+      double delta = (value - (*prev)[label]) / duration;
+      mesos::Resource resource;
+      resource.set_name(prefix + label);
+      resource.set_type(Value::SCALAR);
+      resource.mutable_scalar()->set_value(delta);
+    }
+    (*prev)[label] = value;
+  }
+}
+
+}  // unnamed namespace
+
 void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
                                      const ExecutorID& executorId) {
   if (!infos.contains(frameworkId) ||
@@ -377,6 +410,9 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
   int64_t curCpu;
   int64_t curMemBytes;
   string memoryStats;
+  string diskTime;
+  string diskServiced;
+  string diskBytes;
 
   bool haveCpu = getControlGroupValue(info->container, "cpuacct", "usage",
                                       &curCpu);
@@ -384,6 +420,12 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
 				      "usage_in_bytes", &curMemBytes);
   bool haveMemStats = getControlGroupString(info->container, "memory", "stat",
       &memoryStats);
+  bool haveBlkioTime = getControlGroupString(info->container, "blkio", "time",
+      &diskTime);
+  bool haveBlkioServiced = getControlGroupString(info->container, "blkio",
+      "io_serviced", &diskServiced);
+  bool haveBlkioBytes = getControlGroupString(info->container, "blkio",
+      "io_service_bytes", &diskBytes);
 
   double now = process::Clock::now();
   double duration = now - info->lastSample;
@@ -422,6 +464,18 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
       result += cpu;
       info->lastCpu = curCpu;
     }
+  }
+  if (haveBlkioTime) {
+    getBlkioStats("disk_time", diskTime, duration, &info->lastDiskTime,
+        &psuedoResult);
+  }
+  if (haveBlkioServiced) {
+    getBlkioStats("disk_serviced", diskServiced, duration,
+        &info->lastDiskServiced, &psuedoResult);
+  }
+  if (haveBlkioBytes) {
+    getBlkioStats("disk_bytes", diskBytes, duration, &info->lastDiskBytes,
+        &psuedoResult);
   }
   info->haveSample = true;
   if (result.size() > 0) {
