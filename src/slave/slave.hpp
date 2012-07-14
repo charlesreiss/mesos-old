@@ -127,6 +127,9 @@ public:
                           int status);
 
   void setFrameworkPriorities(const FrameworkPrioritiesMessage& priorities);
+
+  // For testing.
+  SlaveID getId() { return id; }
 protected:
   virtual void initialize();
   virtual void finalize();

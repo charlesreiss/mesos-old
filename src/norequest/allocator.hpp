@@ -21,9 +21,9 @@
 
 #include <vector>
 
-#include <boost/unordered_map.hpp>
-#include <boost/unordered_set.hpp>
 #include <boost/scoped_ptr.hpp>
+
+#include <process/timer.hpp>
 
 #include "norequest/usage_tracker.hpp"
 
@@ -37,63 +37,54 @@ namespace norequest {
 
 using master::Allocator;
 using master::AllocatorMasterInterface;
-using master::Framework;
-using master::Slave;
 
-class NoRequestAllocator : public Allocator {
+struct Filter;
+
+class NoRequestAllocator : public Allocator, public process::Process<NoRequestAllocator> {
 public:
   // XXX FIXME pass Configuration for real
-  NoRequestAllocator() :
+  NoRequestAllocator(const Configuration& _conf) :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(0),
-    master(0), aggressiveReoffer(false), useCharge(false), lastTime(0.0),
-    offersSinceTimeChange(0), usageReofferDelay(-1.) {}
+    aggressiveReoffer(false), useCharge(false), lastTime(0.0),
+    offersSinceTimeChange(0), usageReofferDelay(-1.),
+    conf(_conf) {}
 
-  NoRequestAllocator(AllocatorMasterInterface* _master,
-                     UsageTracker* _tracker) :
+  NoRequestAllocator(UsageTracker* _tracker, const Configuration& _conf) :
     dontDeleteTracker(true), dontMakeOffers(false), tracker(_tracker),
-    master(_master), aggressiveReoffer(false), useCharge(false),
-    usageReofferDelay(-1.) { }
+    aggressiveReoffer(false), useCharge(false), lastTime(0.0),
+    offersSinceTimeChange(0), usageReofferDelay(-1.),
+    conf(_conf) {}
 
-  ~NoRequestAllocator() {
-    process::timers::cancel(usageReofferTimer);
-    if (!dontDeleteTracker && tracker) {
-      delete tracker;
-    }
+  using process::Process<NoRequestAllocator>::self;
+
+  void initialize(const process::PID<master::Master>& _master) {
+    initialize(_master.operator process::PID<AllocatorMasterInterface>());
   }
 
-  void initialize(AllocatorMasterInterface* _master, const Configuration& _conf) {
-    master = _master;
-    conf = _conf;
-    aggressiveReoffer = conf.get<bool>("norequest_aggressive", false);
-    // TODO(Charles): Fix things so this is not the default.
-    useCharge = conf.get<bool>("norequest_charge", false);
-    useLocalPriorities = conf.get<bool>("norequest_local_prio", false);
-    if (!tracker) {
-      tracker = getUsageTracker(conf);
-      dontDeleteTracker = false;
-    }
-    usageReofferDelay =  conf.get<double>("norequest_usage_reoffer_delay", -1.);
+  void initialize(const process::PID<AllocatorMasterInterface>& _master);
+  void resourcesRequested(const FrameworkID& frameworkId,
+      const std::vector<Request>& requests) {}
+
+  void updateWhitelist(const Option<hashset<std::string> >&) {
+    LOG(FATAL) << "unimplemented";
   }
 
-  void initialize(master::Master* _master, const Configuration& _conf) {
-    master = _master;
-    conf = _conf;
-    aggressiveReoffer = conf.get<bool>("norequest_aggressive", false);
-    useCharge = conf.get<bool>("norequest_charge", false);
-    useLocalPriorities = conf.get<bool>("norequest_local_prio", false);
-    if (!tracker) {
-      tracker = getUsageTracker(conf);
-      dontDeleteTracker = false;
-    }
-    usageReofferDelay =  conf.get<double>("norequest_usage_reoffer_delay", -1.);
+  virtual void frameworkAdded(const FrameworkID& frameworkId,
+                              const FrameworkInfo& frameworkInfo);
+
+  virtual void frameworkDeactivated(const FrameworkID& frameworkId);
+  virtual void frameworkRemoved(const FrameworkID& frameworkId) {
+    frameworkDeactivated(frameworkId); // XXX does this need to be different?
   }
 
-  void frameworkAdded(Framework* framework);
-  void frameworkRemoved(Framework* framework);
-  void slaveAdded(Slave* slave);
-  void slaveRemoved(Slave* slave);
-  void taskAdded(Task* task);
-  void taskRemoved(Task* task);
+  virtual void slaveAdded(const SlaveID& slaveId,
+                          const SlaveInfo& slaveInfo,
+                          const hashmap<FrameworkID, Resources>& used);
+
+  virtual void slaveRemoved(const SlaveID& slaveId);
+
+  void taskAdded(const FrameworkID& frameworkID, const TaskInfo& task);
+  void taskRemoved(const FrameworkID& frameworkId, const TaskInfo& task);
   void executorAdded(const FrameworkID& frameworkId,
                      const SlaveID& slaveId,
                      const ExecutorInfo& info);
@@ -102,40 +93,53 @@ public:
                        const ExecutorInfo& info);
   void resourcesUnused(const FrameworkID& frameworkId,
                        const SlaveID& slaveId,
-                       const ResourceHints& unusedResources);
+                       const ResourceHints& unusedResources,
+                       const Option<Filters>& filters);
   void resourcesRecovered(const FrameworkID& frameworkId,
                           const SlaveID& slaveId,
                           const ResourceHints& resources);
-  void offersRevived(Framework* framework);
+  void offersRevived(const FrameworkID& framework);
   void timerTick();
   void gotUsage(const UsageMessage& update);
 
   // public for testing
-  std::vector<Framework*> getOrderedFrameworks();
+  std::vector<FrameworkID> getOrderedFrameworks();
   void stopMakingOffers() { dontMakeOffers = true; }
   void startMakingOffers() { dontMakeOffers = false; }
 
-  void sanityCheck() { tracker->sanityCheckAgainst(
-      dynamic_cast<mesos::internal::master::Master*>(master)); }
-
 private:
   void makeUsageReoffers() {
-    std::vector<Slave*> offerSlaves(
+    pendingReoffer = false;
+    std::vector<SlaveID> offerSlaves(
         usageReofferSlaves.begin(), usageReofferSlaves.end());
     usageReofferSlaves.clear();
     makeNewOffers(offerSlaves);
   }
-  void makeNewOffers(const std::vector<Slave*>& slaves);
+  void makeNewOffers(const std::vector<SlaveID>& slaves);
+  void makeNewOffers();
   void placeUsage(const FrameworkID& frameworkId,
                   const ExecutorID& executorId,
                   const SlaveID& slaveId,
-                  Task* newTask, Task* removedTask,
+                  Option<TaskInfo> newTask, Option<TaskInfo> removedTask,
                   Option<ExecutorInfo> maybeExecutorInfo);
+  void completeOffer(
+      const FrameworkID& frameworkId,
+      const SlaveID& slaveId,
+      const ResourceHints& resources);
 
-  ResourceHints nextOfferForSlave(Slave* slave);
+  void accountOffer(
+      const FrameworkID& frameworkId,
+      const SlaveID& slaveId,
+      const ResourceHints& resources);
+
+  bool checkFilters(const FrameworkID& frameworkId, const SlaveID& slaveId,
+                    const ResourceHints& offer);
+  void expire(const FrameworkID& frameworkID, Filter* filter);
+
+  ResourceHints nextOfferForSlave(const SlaveID& slave);
 
   Resources totalResources;
-  AllocatorMasterInterface* master;
+  process::PID<AllocatorMasterInterface> master;
   UsageTracker* tracker;
   bool dontDeleteTracker;
   bool dontMakeOffers;
@@ -151,7 +155,7 @@ private:
   // - we get a usage update for that slave;
   // - the framework makes a reviveOffers() call; or
   // - all frameworks are refusers (see allRefusers)
-  boost::unordered_map<Slave*, boost::unordered_set<FrameworkID> > refusers;
+  boost::unordered_map<SlaveID, hashset<FrameworkID> > refusers;
   // This is a `second-chance' list for when all frameworks refuse a slave. When
   // all frameworks refuse a slave, we add it to this set and clear the refuser
   // list for the slave. If all frameworks refuse a slave again (without us
@@ -160,7 +164,7 @@ private:
   //
   // Every time an entry is cleared from refusers, we need to clear the
   // corresponding allRefusers entry.
-  boost::unordered_set<Slave*> allRefusers;
+  boost::unordered_set<SlaveID> allRefusers;
 
   // We want to make sure we eventually consolidate offers that are being
   // refused. Whenever an offer is returned unused and more resources are not
@@ -175,21 +179,29 @@ private:
   //
   // Note that we still always offer on timer ticks, which gaurentees that we
   // make progress in spite of a framework hoarding offers.
-  boost::unordered_set<Slave*> waitingOffers;
+  boost::unordered_set<SlaveID> waitingOffers;
 
   // We keep track of the set of known tasks here so we can incrementally
   // update our estimates. Otherwise, we will be confused when, e.g.,
   // an executor and a task are added/removed simulatenously.
-  boost::unordered_map<ExecutorKey, boost::unordered_set<Task*> > knownTasks;
+  boost::unordered_map<ExecutorKey, hashset<TaskID> > knownTasks;
 
   // After receiving a usage message, wait this long to actually send new
   // offers. If less than 0, do it immediately. Configured from
   // norequest_usage_reoffer_delay
   double usageReofferDelay;
-  boost::unordered_set<Slave*> usageReofferSlaves;
+  hashset<SlaveID> usageReofferSlaves;
+  bool pendingReoffer;
   process::Timer usageReofferTimer;
 
   bool useLocalPriorities;
+
+  // Master state tracking:
+  hashmap<FrameworkID, FrameworkInfo> frameworks;
+  hashmap<SlaveID, SlaveInfo> slaveInfos;
+  hashmap<SlaveID, ResourceHints> offered;
+  hashmap<FrameworkID, ResourceHints> frameworkOffered;
+  multihashmap<FrameworkID, Filter*> filters;
 };
 
 } // namespace norequest

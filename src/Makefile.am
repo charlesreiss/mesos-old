@@ -156,9 +156,10 @@ nodist_libmesos_no_third_party_la_SOURCES = $(CXX_PROTOS) $(MESSAGES_PROTOS)
 
 libmesos_no_third_party_la_SOURCES = sched/sched.cpp local/local.cpp	\
 	master/master.cpp master/http.cpp master/slaves_manager.cpp	\
-	master/frameworks_manager.cpp master/allocator_factory.cpp	\
-	master/simple_allocator.cpp slave/slave.cpp slave/http.cpp	\
-	slave/isolation_module.cpp					\
+	master/frameworks_manager.cpp					\
+	master/allocator_factory.cpp 					\
+	master/dominant_share_allocator.cpp slave/slave.cpp		\
+	slave/http.cpp slave/isolation_module.cpp			\
 	slave/process_based_isolation_module.cpp slave/reaper.cpp	\
 	launcher/launcher.cpp exec/exec.cpp common/fatal.cpp		\
 	common/lock.cpp detector/detector.cpp				\
@@ -176,10 +177,12 @@ nodist_pkginclude_HEADERS = ../include/mesos/mesos.hpp mesos.pb.h
 
 if OS_LINUX
   libmesos_no_third_party_la_SOURCES += slave/lxc_isolation_module.cpp
+  libmesos_no_third_party_la_SOURCES += linux/cgroups.cpp
   libmesos_no_third_party_la_SOURCES += linux/fs.cpp
   libmesos_no_third_party_la_SOURCES += linux/proc.cpp
 else
   EXTRA_DIST += slave/lxc_isolation_module.cpp
+  EXTRA_DIST += linux/cgroups.cpp
   EXTRA_DIST += linux/fs.cpp
   EXTRA_DIST += linux/proc.cpp
 endif
@@ -188,24 +191,25 @@ EXTRA_DIST += slave/solaris_project_isolation_module.cpp
 
 libmesos_no_third_party_la_SOURCES += common/attributes.hpp		\
 	common/build.hpp common/date_utils.hpp common/factory.hpp	\
-	common/fatal.hpp common/foreach.hpp common/hashmap.hpp		\
-	common/hashset.hpp common/json.hpp common/lock.hpp		\
-	common/logging.hpp common/lambda.hpp common/option.hpp		\
-	common/resources.hpp common/result.hpp common/multihashmap.hpp	\
-	common/process_utils.hpp common/time.hpp common/try.hpp		\
-	common/type_utils.hpp common/thread.hpp common/timer.hpp	\
-	common/utils.hpp common/units.hpp common/uuid.hpp		\
-	common/strings.hpp common/values.hpp				\
+	common/fatal.hpp common/foreach.hpp common/format.hpp		\
+	common/hashmap.hpp common/hashset.hpp common/json.hpp		\
+	common/lock.hpp common/logging.hpp common/lambda.hpp		\
+	common/option.hpp common/resources.hpp common/result.hpp	\
+	common/multihashmap.hpp common/process_utils.hpp		\
+	common/stringify.hpp common/strings.hpp common/time.hpp		\
+	common/try.hpp common/type_utils.hpp common/thread.hpp		\
+	common/timer.hpp common/utils.hpp common/units.hpp		\
+	common/uuid.hpp common/values.hpp				\
 	configurator/configuration.hpp configurator/configurator.hpp	\
 	configurator/option.hpp detector/detector.hpp			\
-	launcher/launcher.hpp linux/fs.hpp linux/proc.hpp		\
-	local/local.hpp master/allocator.hpp				\
-	master/allocator_factory.hpp master/constants.hpp		\
-	master/frameworks_manager.hpp master/http.hpp			\
-	master/master.hpp master/simple_allocator.hpp			\
-	master/slaves_manager.hpp master/webui.hpp			\
-	messages/messages.hpp slave/constants.hpp slave/http.hpp	\
-	slave/isolation_module.hpp slave/isolation_module_factory.hpp	\
+	launcher/launcher.hpp linux/cgroups.hpp linux/fs.hpp		\
+	linux/proc.hpp local/local.hpp master/allocator.hpp		\
+	master/constants.hpp master/frameworks_manager.hpp		\
+	master/http.hpp master/master.hpp				\
+	master/dominant_share_allocator.hpp master/slaves_manager.hpp	\
+	master/webui.hpp messages/messages.hpp slave/constants.hpp	\
+	slave/http.hpp slave/isolation_module.hpp			\
+	slave/isolation_module_factory.hpp				\
 	slave/lxc_isolation_module.hpp					\
 	slave/process_based_isolation_module.hpp slave/reaper.hpp	\
 	slave/slave.hpp slave/solaris_project_isolation_module.hpp	\
@@ -815,7 +819,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 		      tests/usage_log_test.cpp				\
 		      tests/fake/scenario_test.cpp			\
 	              tests/attributes_tests.cpp			\
-	              tests/master_detector_tests.cpp
+	              tests/master_detector_tests.cpp			\
+	              tests/allocator_tests.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
@@ -829,6 +834,7 @@ mesos_tests_LDADD = ../third_party/libgmock.la libmesos.la
 mesos_tests_DEPENDENCIES = # Initialized to allow += below.
 
 if OS_LINUX
+  mesos_tests_SOURCES += tests/cgroups_tests.cpp
   mesos_tests_SOURCES += tests/fs_tests.cpp
   mesos_tests_SOURCES += tests/proc_tests.cpp
 endif

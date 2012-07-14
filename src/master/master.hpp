@@ -24,12 +24,12 @@
 
 #include <process/process.hpp>
 #include <process/protobuf.hpp>
-#include <process/timer.hpp>
 
 #include "common/foreach.hpp"
 #include "common/hashmap.hpp"
 #include "common/hashset.hpp"
 #include "common/multihashmap.hpp"
+#include "common/option.hpp"
 #include "common/resources.hpp"
 #include "common/type_utils.hpp"
 #include "common/units.hpp"
@@ -57,27 +57,23 @@ class SlavesManager;
 struct Framework;
 struct Slave;
 class SlaveObserver;
+class WhitelistWatcher;
 
-class AllocatorMasterInterface
-{
-public:
-  // TODO(charles): These should all be const or all be non-const
-  virtual Slave* getSlave(const SlaveID& slaveId) = 0;
-  virtual Framework* getFramework(const FrameworkID& frameworkId) = 0;
-  virtual std::vector<Framework*> getActiveFrameworks() const = 0;
-  virtual std::vector<Slave*> getActiveSlaves() const = 0;
+struct AllocatorMasterInterface : public Process<AllocatorMasterInterface> {
+  virtual void offer(const FrameworkID& framework,
+                     const hashmap<SlaveID, ResourceHints>& resources) = 0;
 
-  virtual void makeOffers(Framework* framework,
-                          const hashmap<Slave*, ResourceHints>& offered) = 0;
-
-  virtual void forwardAllocatorEstimates(const AllocatorEstimates& estimates) {}
-
-  virtual void sendFrameworkPriorities(const FrameworkPrioritiesMessage& priorities) {}
+  virtual void forwardAllocatorEstimates(
+      const AllocatorEstimates& estimates) {}
+  virtual void sendFrameworkPriorities(
+      const FrameworkPrioritiesMessage& message) {}
 };
 
 class Master : public ProtobufProcess<Master>, public AllocatorMasterInterface
 {
 public:
+  using Process<Master>::self;
+
   Master(Allocator* _allocator);
   Master(Allocator* _allocator, const Configuration& conf);
 
@@ -124,7 +120,6 @@ public:
                       int32_t status);
   void activatedSlaveHostnamePort(const std::string& hostname, uint16_t port);
   void deactivatedSlaveHostnamePort(const std::string& hostname, uint16_t port);
-  void timerTick();
   void frameworkFailoverTimeout(const FrameworkID& frameworkId,
                                 double reregisteredTime);
 
@@ -134,21 +129,18 @@ public:
 
   void registerUsageListener(const UPID& pid);
 
-  // Return connected frameworks that are not in the process of being removed
-  std::vector<Framework*> getActiveFrameworks() const;
-
-  // Return connected slaves that are not in the process of being removed
-  std::vector<Slave*> getActiveSlaves() const;
-
-  void makeOffers(Framework* framework,
-                  const hashmap<Slave*, ResourceHints>& offered);
-
   void sendFrameworkPriorities(const FrameworkPrioritiesMessage& priorities);
+
+  void offer(const FrameworkID& framework,
+             const hashmap<SlaveID, ResourceHints>& resources);
 
 protected:
   virtual void initialize();
   virtual void finalize();
   virtual void exited(const UPID& pid);
+
+  // Return connected frameworks that are not in the process of being removed
+  std::vector<Framework*> getActiveFrameworks() const;
 
   // Process a launch tasks request (for a non-cancelled offer) by
   // launching the desired tasks (if the offer contains a valid set of
@@ -209,9 +201,6 @@ protected:
   SlaveID newSlaveId();
 
 private:
-
-  // TODO(benh): Remove once SimpleAllocator doesn't use Master::get*.
-  friend class SimpleAllocator;
   friend struct SlaveRegistrar;
   friend struct SlaveReregistrar;
 
@@ -240,6 +229,7 @@ private:
 
   Allocator* allocator;
   SlavesManager* slavesManager;
+  WhitelistWatcher* whitelistWatcher;
 
   MasterInfo info;
 
@@ -267,8 +257,6 @@ private:
   } stats;
 
   double startTime; // Start time used to calculate uptime.
-
-  process::Timer timerTickTimer;
 };
 
 
@@ -282,7 +270,6 @@ struct Slave
     : info(_info),
       id(_id),
       pid(_pid),
-      active(true),
       registeredTime(time),
       lastHeartbeat(time) {}
 
@@ -307,7 +294,7 @@ struct Slave
     CHECK(tasks.count(key) == 0);
     tasks[key] = task;
     VLOG(1) << "Adding task with resources " << task->resources()
-	    << " on slave " << id;
+            << " on slave " << id;
     resourcesInUse += task->resources();
     resourcesGaurenteed += task->min_resources();
   }
@@ -319,7 +306,7 @@ struct Slave
     CHECK(tasks.count(key) > 0);
     tasks.erase(key);
     VLOG(1) << "Removing task with resources " << task->resources()
-	    << " on slave " << id;
+            << " on slave " << id;
     resourcesInUse -= task->resources();
     resourcesGaurenteed -= task->min_resources();
   }
@@ -396,10 +383,10 @@ struct Slave
     Resources resources = info.resources() - (resourcesOffered.expectedResources
                                               + resourcesInUse);
     VLOG(1) << "Calculating resources free on slave " << id << std::endl
-	    << "    Resources: " << info.resources() << std::endl
-	    << "    Resources Offered: " << resourcesOffered << std::endl
-	    << "    Resources In Use: " << resourcesInUse << std::endl
-	    << "    Resources Free: " << resources << std::endl;
+            << "    Resources: " << info.resources() << std::endl
+            << "    Resources Offered: " << resourcesOffered << std::endl
+            << "    Resources In Use: " << resourcesInUse << std::endl
+            << "    Resources Free: " << resources << std::endl;
     return resources;
   }
 
@@ -408,7 +395,6 @@ struct Slave
 
   UPID pid;
 
-  bool active; // Turns false when slave is being removed.
   double registeredTime;
   double lastHeartbeat;
 
@@ -437,9 +423,9 @@ struct Slave
 struct Framework
 {
   Framework(const FrameworkInfo& _info,
-	    const FrameworkID& _id,
+            const FrameworkID& _id,
             const UPID& _pid,
-	    double time)
+            double time)
     : info(_info),
       id(_id),
       pid(_pid),
@@ -533,38 +519,6 @@ struct Framework
     }
   }
 
-  bool filters(Slave* slave, Resources resources)
-  {
-    return filters(slave, ResourceHints(resources, Resources()));
-  }
-
-  bool filters(Slave* slave, ResourceHints resources)
-  {
-    // TODO: Implement other filters
-    hashmap<Slave*, FilterInfo>::iterator iter = slaveFilter.find(slave);
-    if (iter != slaveFilter.end()) {
-      DLOG(INFO) << "Checking " << resources << " versus filter "
-                 << iter->second.upToResources << " for " << id;
-      return
-        resources.expectedResources
-            <= iter->second.upToResources.expectedResources &&
-        resources.minResources
-            <= iter->second.upToResources.minResources;
-    } else {
-      return false;
-    }
-  }
-
-  void removeExpiredFilters(double now)
-  {
-    foreachpair (Slave* slave, const FilterInfo& filterInfo,
-                 utils::copy(slaveFilter)) {
-      if (filterInfo.untilTime != 0 && filterInfo.untilTime <= now) {
-        slaveFilter.erase(slave);
-      }
-    }
-  }
-
   const FrameworkID id; // TODO(benh): Store this in 'info.
   const FrameworkInfo info;
 
@@ -585,18 +539,6 @@ struct Framework
   Resources offeredResources;
 
   hashmap<SlaveID, hashmap<ExecutorID, ExecutorInfo> > executors;
-
-  struct FilterInfo {
-    FilterInfo() : untilTime(0), upToResources() {}
-    FilterInfo(double _untilTime, const ResourceHints& _upToResources)
-      : untilTime(_untilTime), upToResources(_upToResources) {}
-    double untilTime;
-    ResourceHints upToResources;
-  };
-
-  // Contains a time of unfiltering for each slave we've filtered,
-  // or 0 for slaves that we want to keep filtered forever
-  hashmap<Slave*, FilterInfo> slaveFilter;
 };
 
 } // namespace master {

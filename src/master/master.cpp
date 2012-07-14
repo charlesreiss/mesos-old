@@ -1,20 +1,20 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+* Licensed to the Apache Software Foundation (ASF) under one
+* or more contributor license agreements.  See the NOTICE file
+* distributed with this work for additional information
+* regarding copyright ownership.  The ASF licenses this file
+* to you under the Apache License, Version 2.0 (the
+* "License"); you may not use this file except in compliance
+* with the License.  You may obtain a copy of the License at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*/
 
 #include <fstream>
 #include <iomanip>
@@ -27,11 +27,11 @@
 #include "common/build.hpp"
 #include "common/date_utils.hpp"
 #include "common/logging.hpp"
+#include "common/strings.hpp"
 #include "common/utils.hpp"
 #include "common/uuid.hpp"
 
 #include "master/allocator.hpp"
-#include "master/allocator_factory.hpp"
 #include "master/master.hpp"
 #include "master/slaves_manager.hpp"
 
@@ -52,6 +52,67 @@ using std::tr1::bind;
 namespace mesos {
 namespace internal {
 namespace master {
+
+class WhitelistWatcher : public Process<WhitelistWatcher> {
+public:
+  WhitelistWatcher(const string& _path, Allocator* _allocator)
+  : path(_path), allocator(_allocator) {}
+
+protected:
+  virtual void initialize()
+  {
+    watch();
+  }
+
+  void watch()
+  {
+    // Get the list of white listed slaves.
+    Option<hashset<string> > whitelist;
+    if (path == "*") { // Accept all slaves.
+      LOG(WARNING) << "No whitelist given. Advertising offers for all slaves";
+    } else {
+      // Read from local file.
+      // TODO(vinod): Add support for reading from ZooKeeper.
+      CHECK(path.find("file://") == 0)
+          << "File path " << path << " should start with file://";
+
+      // TODO(vinod): Ensure this read is atomic w.r.t external
+      // writes/updates to this file.
+      Result<string> result = utils::os::read(path.substr(strlen("file://")));
+      if (result.isError()) {
+        LOG(ERROR) << "Error reading whitelist file "
+                   << result.error() << ". Retrying";
+        whitelist = lastWhitelist;
+      } else if (result.isNone()) {
+        LOG(WARNING) << "Empty whitelist file "
+                     << path << ". No offers will be made!";
+        whitelist = Option<hashset<string> >::some(hashset<string>());
+      } else {
+        hashset<string> hostnames;
+        vector<string> lines = strings::split(result.get(), "\n");
+        foreach (const string& hostname, lines) {
+          hostnames.insert(hostname);
+        }
+        whitelist = Option<hashset<string> >::some(hostnames);
+      }
+    }
+
+    // Send the whitelist to allocator, if necessary.
+    if (whitelist != lastWhitelist) {
+      dispatch(allocator, &Allocator::updateWhitelist, whitelist);
+    }
+
+    // Check again.
+    lastWhitelist = whitelist;
+    delay(WATCH_TIMEOUT, self(), &WhitelistWatcher::watch);
+  }
+
+private:
+  Allocator* allocator;
+  const string path;
+  Option<hashset<string> > lastWhitelist;
+};
+
 
 class SlaveObserver : public Process<SlaveObserver>
 {
@@ -219,6 +280,11 @@ Master::~Master()
   wait(slavesManager);
 
   delete slavesManager;
+
+  terminate(whitelistWatcher);
+  wait(whitelistWatcher);
+
+  delete whitelistWatcher;
 }
 
 
@@ -230,32 +296,11 @@ void Master::registerOptions(Configurator* configurator)
       "root_submissions",
       "Can root submit frameworks?",
       true);
-}
 
-
-// Return connected frameworks that are not in the process of being removed
-vector<Framework*> Master::getActiveFrameworks() const
-{
-  vector <Framework*> result;
-  foreachvalue (Framework* framework, frameworks) {
-    if (framework->active) {
-      result.push_back(framework);
-    }
-  }
-  return result;
-}
-
-
-// Return connected slaves that are not in the process of being removed
-vector<Slave*> Master::getActiveSlaves() const
-{
-  vector <Slave*> result;
-  foreachvalue (Slave* slave, slaves) {
-    if (slave->active) {
-      result.push_back(slave);
-    }
-  }
-  return result;
+  configurator->addOption<string>(
+        "whitelist",
+        "Path to a file with a list of slaves (one per line) to advertise resource offers for.\n"
+        "Should be of the form: file://path/to/file\n");
 }
 
 
@@ -267,7 +312,7 @@ void Master::initialize()
   // address and port from self() and the OS PID.
 
   Try<string> id =
-    strings::format("%s-%u-%u-%d", DateUtils::currentDate().c_str(),
+    strings::format("%s-%u-%u-%d", DateUtils::currentDate(),
                     self().ip, self().port, getpid());
 
   CHECK(!id.isError()) << id.error();
@@ -282,7 +327,14 @@ void Master::initialize()
   slavesManager = new SlavesManager(conf, self());
   spawn(slavesManager);
 
-  allocator->initialize(this, conf);
+  // Spawn the allocator.
+  spawn(allocator);
+  dispatch(allocator, &Allocator::initialize, self());
+
+  // Parse the white list
+  whitelistWatcher = new WhitelistWatcher(conf.get<string>("whitelist", "*"),
+                                          allocator);
+  spawn(whitelistWatcher);
 
   elected = false;
 
@@ -304,10 +356,6 @@ void Master::initialize()
   stats.invalidFrameworkMessages = 0;
 
   startTime = Clock::now();
-
-  LOG(INFO) << "triggering timerTick at " << static_cast<long>(Clock::now());
-  // Start our timer ticks.
-  timerTickTimer = delay(1.0, self(), &Master::timerTick);
 
   // Install handler functions for certain messages.
   install<SubmitSchedulerRequest>(
@@ -435,7 +483,8 @@ void Master::finalize()
     send(slave->pid, ShutdownMessage());
   }
 
-  process::timers::cancel(timerTickTimer);
+  terminate(allocator);
+  wait(allocator);
 }
 
 
@@ -452,6 +501,9 @@ void Master::exited(const UPID& pid)
       // Stop sending offers here for now.
       framework->active = false;
 
+      // Tell the allocator to stop allocating resources to this framework.
+      dispatch(allocator, &Allocator::frameworkDeactivated, framework->id);
+
       double failoverTimeout = framework->info.failover_timeout();
 
       LOG(INFO) << "Giving framework " << framework->id << " "
@@ -464,13 +516,11 @@ void Master::exited(const UPID& pid)
 
       // Remove the framework's offers.
       foreach (Offer* offer, utils::copy(framework->offers)) {
-        FrameworkID frameworkId = offer->framework_id();
-        SlaveID slaveId = offer->slave_id();
-        ResourceHints resources = ResourceHints::forOffer(*offer);
+	dispatch(allocator, &Allocator::resourcesRecovered,
+		 offer->framework_id(),
+                 offer->slave_id(),
+                 ResourceHints::forOffer(*offer));
         removeOffer(offer);
-        allocator->resourcesRecovered(frameworkId,
-                                      slaveId,
-                                      resources);
       }
       return;
     }
@@ -478,7 +528,7 @@ void Master::exited(const UPID& pid)
 
   foreachvalue (Slave* slave, slaves) {
     if (slave->pid == pid) {
-      LOG(INFO) << "Slave " << slave->id << " disconnected";
+      LOG(INFO) << "Slave " << slave->id << "(" << slave->info.hostname() << ") disconnected";
       removeSlave(slave);
       return;
     }
@@ -614,9 +664,9 @@ void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
       // replied to the offers but the driver might have dropped
       // those messages since it wasn't connected to the master.
       foreach (Offer* offer, utils::copy(framework->offers)) {
-        allocator->resourcesRecovered(offer->framework_id(),
-                                      offer->slave_id(),
-                                      ResourceHints::forOffer(*offer));
+        dispatch(allocator, &Allocator::resourcesRecovered,
+		 offer->framework_id(), offer->slave_id(), 
+                 ResourceHints::forOffer(*offer));
         removeOffer(offer);
       }
 
@@ -706,7 +756,7 @@ void Master::deactivateFramework(const FrameworkID& frameworkId)
 void Master::resourceRequest(const FrameworkID& frameworkId,
                              const vector<Request>& requests)
 {
-  allocator->resourcesRequested(frameworkId, requests);
+  dispatch(allocator, &Allocator::resourcesRequested, frameworkId, requests);
 }
 
 
@@ -761,8 +811,7 @@ void Master::reviveOffers(const FrameworkID& frameworkId)
   Framework* framework = getFramework(frameworkId);
   if (framework != NULL) {
     LOG(INFO) << "Reviving offers for framework " << framework->id;
-    framework->slaveFilter.clear();
-    allocator->offersRevived(framework);
+    dispatch(allocator, &Allocator::offersRevived, framework->id);
   }
 }
 
@@ -1132,21 +1181,6 @@ void Master::deactivatedSlaveHostnamePort(const string& hostname,
 }
 
 
-void Master::timerTick()
-{
-  // Check which framework filters can be expired.
-  foreachvalue (Framework* framework, frameworks) {
-    framework->removeExpiredFilters(Clock::now());
-  }
-
-  // Do allocations!
-  allocator->timerTick();
-
-  // Scheduler another timer tick!
-  timerTickTimer = delay(1.0, self(), &Master::timerTick);
-}
-
-
 void Master::frameworkFailoverTimeout(const FrameworkID& frameworkId,
                                       double reregisteredTime)
 {
@@ -1160,21 +1194,46 @@ void Master::frameworkFailoverTimeout(const FrameworkID& frameworkId,
 }
 
 
-void Master::makeOffers(Framework* framework,
-                        const hashmap<Slave*, ResourceHints>& offered)
+void Master::offer(const FrameworkID& frameworkId,
+                   const hashmap<SlaveID, ResourceHints>& resources)
 {
+  if (!frameworks.contains(frameworkId) || !frameworks[frameworkId]->active) {
+    LOG(WARNING) << "Master returning resources offered to framework "
+                 << frameworkId << " because the framework"
+                 << " has terminated or is inactive";
+
+    foreachpair (const SlaveID& slaveId, const ResourceHints& offered, resources) {
+      dispatch(allocator, &Allocator::resourcesRecovered,
+               frameworkId, slaveId, offered);
+    }
+    return;
+  }
+
   // Create an offer for each slave and add it to the message.
   ResourceOffersMessage message;
 
-  foreachpair (Slave* slave, const ResourceHints& offerRes, offered) {
+  Framework* framework = frameworks[frameworkId];
+  foreachpair (const SlaveID& slaveId, const ResourceHints& offered, resources) {
+    if (!slaves.contains(slaveId)) {
+      LOG(WARNING) << "Master returning resources offered to framework "
+                   << frameworkId << " because slave " << slaveId
+                   << " is not valid";
+
+      dispatch(allocator, &Allocator::resourcesRecovered,
+               frameworkId, slaveId, offered);
+      continue;
+    }
+
+    Slave* slave = slaves[slaveId];
+
     Offer* offer = new Offer();
     offer->mutable_id()->MergeFrom(newOfferId());
     offer->mutable_framework_id()->MergeFrom(framework->id);
     offer->mutable_slave_id()->MergeFrom(slave->id);
     offer->set_hostname(slave->info.hostname());
-    offer->mutable_resources()->MergeFrom(offerRes.expectedResources);
+    offer->mutable_resources()->MergeFrom(offered.expectedResources);
+    offer->mutable_min_resources()->MergeFrom(offered.minResources);
     offer->mutable_attributes()->MergeFrom(slave->info.attributes());
-    offer->mutable_min_resources()->MergeFrom(offerRes.minResources);
 
     // Add all framework's executors running on this slave.
     if (slave->executors.contains(framework->id)) {
@@ -1208,15 +1267,32 @@ void Master::makeOffers(Framework* framework,
     if (framework->info.allocates_min()) {
       messageOffer->clear_resources();
       messageOffer->clear_min_resources();
-      messageOffer->mutable_resources()->MergeFrom(offerRes.minResources);
+      messageOffer->mutable_resources()->MergeFrom(offer->min_resources());
     }
     message.add_pids(slave->pid);
+  }
+
+  if (message.offers().size() == 0) {
+    return;
   }
 
   LOG(INFO) << "Sending " << message.offers().size()
             << " offers to framework " << framework->id;
 
   send(framework->pid, message);
+}
+
+
+// Return connected frameworks that are not in the process of being removed
+vector<Framework*> Master::getActiveFrameworks() const
+{
+  vector <Framework*> result;
+  foreachvalue (Framework* framework, frameworks) {
+    if (framework->active) {
+      result.push_back(framework);
+    }
+  }
+  return result;
 }
 
 
@@ -1493,26 +1569,17 @@ void Master::processTasks(Offer* offer,
            usedResources.minResources.allocatable());
 
   // Calculate unused resources.
-  ResourceHints offerResources = ResourceHints::forOffer(*offer);
-  ResourceHints unusedResources = offerResources - usedResources;
+  ResourceHints unusedResources =
+    ResourceHints::forOffer(*offer) - usedResources;
 
-  // TODO(benh): Move all filter logic to the allocators!
-
-  // Get the timeout (if it exists) for re-offering refused resources.
-  double timeout = filters.has_refuse_seconds()
-    ? filters.refuse_seconds()
-    : UNUSED_RESOURCES_TIMEOUT;
-
-  // Only add a filter on a slave if none of the resources are used.
-  if (timeout != 0 && usedResources.empty()) {
-    LOG(INFO) << "Filtered slave " << slave->id
-              << " for framework " << framework->id
-              << " (" << slave->info.hostname() << ") for framework "
-              << " for " << timeout << " seconds "
-              << " at " << unusedResources;
-    double time = (timeout == -1) ? 0 : Clock::now() + timeout;
-    framework->slaveFilter[slave] =
-        Framework::FilterInfo(time, unusedResources);
+  if (unusedResources.expectedResources.allocatable().size() > 0 ||
+      unusedResources.minResources.allocatable().size() > 0) {
+    // Tell the allocator about the unused (e.g., refused) resources.
+    dispatch(allocator, &Allocator::resourcesUnused,
+	     offer->framework_id(),
+	     offer->slave_id(),
+	     unusedResources,
+	     filters);
   }
 
   FrameworkID frameworkId = offer->framework_id();
@@ -1521,16 +1588,7 @@ void Master::processTasks(Offer* offer,
   removeOffer(offer);
 
   foreach (Task* t, launchedTasks) {
-    allocator->taskAdded(t);
-  }
-
-  if (!unusedResources.empty()) {
-    // Tell the allocator about the unused (e.g., refused) resources.
-    allocator->resourcesUnused(frameworkId,
-                               slaveId,
-                               unusedResources);
-  } else {
-    LOG(INFO) << "all resources used";
+    dispatch(allocator, &Allocator::taskAdded, *t);
   }
 }
 
@@ -1635,7 +1693,8 @@ void Master::addFramework(Framework* framework)
   message.mutable_master_info()->MergeFrom(info);
   send(framework->pid, message);
 
-  allocator->frameworkAdded(framework);
+  dispatch(allocator, &Allocator::frameworkAdded,
+           framework->id, framework->info);
 }
 
 
@@ -1659,6 +1718,9 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
   // Make sure we can get offers again.
   framework->active = true;
 
+  dispatch(allocator, &Allocator::frameworkAdded,
+           framework->id, framework->info);
+
   framework->reregisteredTime = Clock::now();
 
   {
@@ -1674,9 +1736,10 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
   // these resources to this framework if it wants.
   // TODO(benh): Consider just reoffering these to
   foreach (Offer* offer, utils::copy(framework->offers)) {
-    allocator->resourcesRecovered(offer->framework_id(),
-                                  offer->slave_id(),
-                                  ResourceHints::forOffer(*offer));
+    dispatch(allocator, &Allocator::resourcesRecovered,
+             offer->framework_id(),
+             offer->slave_id(),
+             ResourceHints::forOffer(*offer));
     removeOffer(offer);
   }
 }
@@ -1684,8 +1747,10 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
 
 void Master::removeFramework(Framework* framework)
 {
-  framework->active = false;
-  // TODO: Notify allocator that a framework removal is beginning?
+  if (framework->active) {
+    // Tell the allocator to stop allocating resources to this framework.
+    dispatch(allocator, &Allocator::frameworkDeactivated, framework->id);
+  }
 
   // Tell slaves to shutdown the framework.
   foreachvalue (Slave* slave, slaves) {
@@ -1697,15 +1762,18 @@ void Master::removeFramework(Framework* framework)
   // Remove pointers to the framework's tasks in slaves.
   foreachvalue (Task* task, utils::copy(framework->tasks)) {
     Slave* slave = getSlave(task->slave_id());
+    // Since we only find out about tasks when the slave reregisters,
+    // it must be the case that the slave exists!
     CHECK(slave != NULL);
     removeTask(task);
   }
 
   // Remove the framework's offers (if they weren't removed before).
   foreach (Offer* offer, utils::copy(framework->offers)) {
-    allocator->resourcesRecovered(offer->framework_id(),
-                                  offer->slave_id(),
-                                  ResourceHints::forOffer(*offer));
+    dispatch(allocator, &Allocator::resourcesRecovered,
+             offer->framework_id(),
+             offer->slave_id(),
+             ResourceHints::forOffer(*offer));
     removeOffer(offer);
   }
 
@@ -1736,7 +1804,7 @@ void Master::removeFramework(Framework* framework)
 
   // Delete it.
   frameworks.erase(framework->id);
-  allocator->frameworkRemoved(framework);
+  dispatch(allocator, &Allocator::frameworkRemoved, framework->id);
   delete framework;
 }
 
@@ -1773,7 +1841,10 @@ void Master::addSlave(Slave* slave, bool reregister)
                                       slave->id, self());
   spawn(slave->observer);
 
-  allocator->slaveAdded(slave);
+  if (!reregister) {
+    dispatch(allocator, &Allocator::slaveAdded,
+             slave->id, slave->info, hashmap<FrameworkID, Resources>());
+  }
 }
 
 
@@ -1785,23 +1856,32 @@ void Master::readdSlave(Slave* slave,
 
   addSlave(slave, true);
 
-  foreach (const Task& task, tasks) {
-    Task* t = new Task(task);
+  // Add the executors and tasks to the slave and framework state and
+  // determine the resources that have been allocated to frameworks.
+  hashmap<FrameworkID, Resources> resources;
 
-    // If this task has an executor then add it to the slave's state
-    // (unless it has already been added). TODO(benh): There is
-    // actually an accounting bug here because we won't end up adding
-    // all running executors (because some might not be running tasks)
-    // which means that more resources will be available on that slave
-    // than are actually available.
-    if (t->has_executor_id()) {
-      foreach (const ExecutorInfo& executorInfo, executorInfos) {
-        if (executorInfo.executor_id() == task.executor_id()) {
-          addExecutor(task.framework_id(), slave->id, executorInfo);
-          break;
-        }
+  foreach (const ExecutorInfo& executorInfo, executorInfos) {
+    // TODO(benh): Remove this check if framework_id becomes required
+    // on ExecutorInfo (which will also mean we can remove setting it
+    // in the slave).
+    CHECK(executorInfo.has_framework_id());
+    if (!slave->hasExecutor(executorInfo.framework_id(),
+                            executorInfo.executor_id())) {
+      slave->addExecutor(executorInfo.framework_id(), executorInfo);
+    }
+
+    Framework* framework = getFramework(executorInfo.framework_id());
+    if (framework != NULL) {
+      if (!framework->hasExecutor(slave->id, executorInfo.executor_id())) {
+        framework->addExecutor(slave->id, executorInfo);
       }
     }
+
+    resources[executorInfo.framework_id()] += executorInfo.resources();
+  }
+
+  foreach (const Task& task, tasks) {
+    Task* t = new Task(task);
 
     // Add the task to the slave.
     slave->addTask(t);
@@ -1828,17 +1908,18 @@ void Master::readdSlave(Slave* slave,
                    << " running on slave " << slave->id << " ("
                    << slave->info.hostname() << ")";
     }
+
+    resources[task.framework_id()] += task.resources();
   }
+
+  dispatch(allocator, &Allocator::slaveAdded,
+           slave->id, slave->info, resources);
 }
 
 
 // Lose all of a slave's tasks and delete the slave object
 void Master::removeSlave(Slave* slave)
 {
-  slave->active = false;
-
-  // TODO: Notify allocator that a slave removal is beginning?
-
   // Remove pointers to slave's tasks in frameworks, and send status updates
   foreachvalue (Task* task, utils::copy(slave->tasks)) {
     Framework* framework = getFramework(task->framework_id());
@@ -1861,7 +1942,7 @@ void Master::removeSlave(Slave* slave)
       TaskStatus* status = update->mutable_status();
       status->mutable_task_id()->MergeFrom(task->task_id());
       status->set_state(TASK_LOST);
-      status->set_message("Slave removed");
+      status->set_message("Slave " + slave->info.hostname() + " removed");
       update->set_timestamp(Clock::now());
       update->set_uuid(UUID::random().toBytes());
       recordStatusUpdate(*update);
@@ -1888,11 +1969,6 @@ void Master::removeSlave(Slave* slave)
     }
   }
 
-  // Remove slave from any filters.
-  foreachvalue (Framework* framework, frameworks) {
-    framework->slaveFilter.erase(slave);
-  }
-
   // Send lost-slave message to all frameworks (this helps them re-run
   // previously finished tasks whose output was on the lost slave).
   foreachvalue (Framework* framework, frameworks) {
@@ -1916,7 +1992,7 @@ void Master::removeSlave(Slave* slave)
 
   // Delete it.
   slaves.erase(slave->id);
-  allocator->slaveRemoved(slave);
+  dispatch(allocator, &Allocator::slaveRemoved, slave->id);
   delete slave;
 }
 
@@ -1925,8 +2001,9 @@ void Master::removeTask(Task* task)
 {
   // Remove from framework.
   Framework* framework = getFramework(task->framework_id());
-  CHECK(framework != NULL);
-  framework->removeTask(task);
+  if (framework != NULL) { // A framework might not be re-connected yet.
+    framework->removeTask(task);
+  }
 
   // Remove from slave.
   Slave* slave = getSlave(task->slave_id());
@@ -1934,11 +2011,13 @@ void Master::removeTask(Task* task)
   slave->removeTask(task);
 
   // TODO(charles): remove??
-  allocator->taskRemoved(task);
+  dispatch(allocator, &Allocator::taskRemoved, *task);
 
   // Tell the allocator about the recovered resources.
-  allocator->resourcesRecovered(framework->id, slave->id,
-      ResourceHints::forTask(*task));
+  dispatch(allocator, &Allocator::resourcesRecovered,
+           task->framework_id(),
+           task->slave_id(),
+           ResourceHints::forTask(*task));
 
   delete task;
 }
@@ -1963,7 +2042,8 @@ void Master::addExecutor(const FrameworkID& frameworkId,
     }
   }
   if (!hadSlave && !hadFramework) {
-    allocator->executorAdded(framework->id, slave->id, info);
+    dispatch(allocator, &Allocator::executorAdded,
+        framework->id, slave->id, info);
   } else {
     LOG(INFO) << "Not adding executor to allocator again";
   }
@@ -1973,7 +2053,8 @@ void Master::removeExecutor(Slave* slave, Framework* framework,
                             const ExecutorInfo& info) {
   framework->removeExecutor(slave->id, info.executor_id());
   slave->removeExecutor(framework->id, info.executor_id());
-  allocator->executorRemoved(framework->id, slave->id, info);
+  dispatch(allocator, &Allocator::executorRemoved,
+      framework->id, slave->id, info);
 }
 
 void Master::removeOffer(Offer* offer, bool rescind)
@@ -2050,7 +2131,7 @@ FrameworkID Master::newFrameworkId()
 OfferID Master::newOfferId()
 {
   OfferID offerId;
-  offerId.set_value(info.id() + "-" + utils::stringify(nextOfferId++));
+  offerId.set_value(info.id() + "-" + stringify(nextOfferId++));
   return offerId;
 }
 
@@ -2058,17 +2139,17 @@ OfferID Master::newOfferId()
 SlaveID Master::newSlaveId()
 {
   SlaveID slaveId;
-  slaveId.set_value(info.id() + "-" + utils::stringify(nextSlaveId++));
+  slaveId.set_value(info.id() + "-" + stringify(nextSlaveId++));
   return slaveId;
 }
 
 
 void Master::updateUsage(const UsageMessage& message) {
   Slave* slave = getSlave(message.slave_id());
-  if (slave && slave->active) {
+  if (slave) {
     slave->addUsageMessage(message);
   }
-  allocator->gotUsage(message);
+  dispatch(allocator, &Allocator::gotUsage, message);
 
   foreach (UPID pid, usageListeners) {
     send(pid, message);

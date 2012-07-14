@@ -27,6 +27,7 @@
 #include "fake/fake_isolation_module.hpp"
 #include "fake/fake_scheduler.hpp"
 
+#include "master/dominant_share_allocator.hpp"
 #include "master/master.hpp"
 
 #include "slave/slave.hpp"
@@ -64,11 +65,8 @@ public:
     Configuration conf;
     conf.set("fake_interval", kTick);
     process::Clock::pause();
-    trigger allocatorTicked;
     ASSERT_TRUE(GTEST_IS_THREADSAFE);
-    EXPECT_CALL(allocator, initialize(_, _));
-    EXPECT_CALL(allocator, timerTick()).
-      WillOnce(Trigger(&allocatorTicked));
+    EXPECT_CALL(allocator, initialize(_));
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());
 
@@ -78,12 +76,11 @@ public:
     slavePid = process::spawn(slave.get());
 
     trigger gotSlave;
-    EXPECT_CALL(allocator, slaveAdded(_)).
-      WillOnce(DoAll(SaveArg<0>(&masterSlave), Trigger(&gotSlave)));
+    EXPECT_CALL(allocator, slaveAdded(_, _, _)).
+      WillOnce(DoAll(SaveArg<0>(&masterSlaveId), Trigger(&gotSlave)));
     detector.reset(new BasicMasterDetector(masterPid, slavePid, true));
     process::Clock::advance(kTick);
     WAIT_UNTIL(gotSlave);
-    WAIT_UNTIL(allocatorTicked);
   }
 
   void startScheduler() {
@@ -94,8 +91,8 @@ public:
     driver.reset(
       new MesosSchedulerDriver(scheduler.get(), DEFAULT_FRAMEWORK_INFO_WITH_ID,
                                std::string(masterPid)));
-    EXPECT_CALL(allocator, frameworkAdded(_)).
-      WillOnce(DoAll(SaveArg<0>(&masterFramework), Trigger(&gotFramework)));
+    EXPECT_CALL(allocator, frameworkAdded(_, _)).
+      WillOnce(DoAll(SaveArg<0>(&masterFrameworkId), Trigger(&gotFramework)));
     driver->start();
     WAIT_UNTIL(gotFramework);
   }
@@ -128,25 +125,15 @@ public:
   }
 
   void makeOfferOnTick(const ResourceHints& resources) {
-    hashmap<mesos::internal::master::Slave*, ResourceHints> offers;
-    offers[masterSlave] = resources;
-    trigger madeOffer;
-    EXPECT_CALL(allocator, timerTick()).
-      WillOnce(DoAll(
-            Invoke(boost::bind(&Master::makeOffers,
-                               master.get(), masterFramework, offers)),
-            Trigger(&madeOffer)));
+    hashmap<SlaveID, ResourceHints> offers;
+    offers[masterSlaveId] = resources;
     process::Clock::advance(kTick);
-    WAIT_UNTIL(madeOffer);
+    process::dispatch(master->self(), &Master::offer, masterFrameworkId, offers);
   }
 
   void tick() {
-    trigger gotTick;
-    EXPECT_CALL(allocator, timerTick()).
-      WillOnce(Trigger(&gotTick));
     process::Clock::advance(kTick);
     process::Clock::settle();
-    WAIT_UNTIL(gotTick);
   }
 
   void waitForStatus(trigger* trig) {
@@ -166,12 +153,12 @@ public:
 
 protected:
   MockFilter filter;
-  MockAllocator allocator;
+  MockAllocator<mesos::internal::master::DominantShareAllocator> allocator;
   FakeTaskTracker tasks;
 
   scoped_ptr<FakeScheduler> scheduler;
-  mesos::internal::master::Framework* masterFramework;
-  mesos::internal::master::Slave* masterSlave;
+  FrameworkID masterFrameworkId;
+  SlaveID masterSlaveId;
   scoped_ptr<MesosSchedulerDriver> driver;
   scoped_ptr<FakeIsolationModule> module;
   scoped_ptr<BasicMasterDetector> detector;
@@ -193,7 +180,7 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRejectOffer) {
   startMasterAndSlave();
   startScheduler();
   trigger offerReturned;
-  EXPECT_CALL(allocator, resourcesUnused(_, _, _)).
+  EXPECT_CALL(allocator, resourcesUnused(_, _, _, _)).
     WillOnce(Trigger(&offerReturned));
   makeOfferOnTick(ResourceHints::parse("cpu:8;mem:4096", "cpu:8;mem:4096"));
   WAIT_UNTIL(offerReturned);
@@ -216,7 +203,7 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
   addTask("task0", &task);
   trigger offerComplete, gotStatus;
   EXPECT_CALL(allocator, resourcesUnused(_, _,
-              ResourceHints::parse("cpu:4;mem:2048", "cpu:8;mem:4096"))).
+              ResourceHints::parse("cpu:4;mem:2048", "cpu:8;mem:4096"), _)).
     WillOnce(Trigger(&offerComplete));
   waitForStatus(&gotStatus);
   LOG(INFO) << "about to makeOffer";
@@ -227,9 +214,7 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
   tick();  // task should schedule by now.
   WAIT_UNTIL(tookUsage);
   LOG(INFO) << "tookUsage";
-  Task* masterTask = masterSlave->getTask(masterFramework->id, TASK_ID("task0:1"));
-  ASSERT_TRUE(masterTask);
-  EXPECT_EQ(Resources::parse("cpu:4;mem:2048"), masterTask->resources());
+  // FIXME: test allocator sees task start?
   trigger tookFinished;
   EXPECT_CALL(task, takeUsage(_, _, _)).
     WillOnce(DoAll(Trigger(&tookFinished), Return(TASK_FINISHED)));

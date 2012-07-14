@@ -89,10 +89,22 @@ inline std::ostream& operator << (std::ostream& stream, const Value::Ranges& ran
   return stream;
 }
 
+inline std::ostream& operator << (std::ostream& stream, const Filters& filters)
+{
+  stream << filters.DebugString();
+  return stream;
+}
+
 
 inline bool operator == (const FrameworkID& left, const FrameworkID& right)
 {
   return left.value() == right.value();
+}
+
+
+inline bool operator == (const FrameworkInfo& left, const FrameworkInfo& right)
+{
+  return (left.name() == right.name()) && (left.user() == right.user());
 }
 
 

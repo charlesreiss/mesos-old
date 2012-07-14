@@ -25,7 +25,7 @@
 
 namespace mesos { namespace internal { namespace master {
 
-DECLARE_FACTORY(Allocator, Master *);
+DECLARE_FACTORY(Allocator, const Configuration&)
 
 }}}
 

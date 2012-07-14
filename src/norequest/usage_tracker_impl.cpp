@@ -445,6 +445,7 @@ UsageTrackerImpl::gaurenteedForExecutor(const SlaveID& slaveId,
   return lookupOrDefault(estimateByExecutor, key).minResources;
 }
 
+#if 0
 void
 UsageTrackerImpl::sanityCheckAgainst(mesos::internal::master::Master* master)
 {
@@ -485,6 +486,7 @@ UsageTrackerImpl::sanityCheckAgainst(mesos::internal::master::Master* master)
   CHECK_EQ(expectNumSlaves, slaveCapacities.size());
   CHECK_EQ(expectNumSlaves, slaveEstimates.size());
 }
+#endif
 
 void UsageTrackerImpl::smoothUsageUpdate(Resources* observation,
     double duration, const Resources& oldUsage)

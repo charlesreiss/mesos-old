@@ -59,6 +59,7 @@
 #include "common/logging.hpp"
 #include "common/option.hpp"
 #include "common/result.hpp"
+#include "common/stringify.hpp"
 #include "common/strings.hpp"
 #include "common/try.hpp"
 
@@ -77,43 +78,15 @@ T copy(const T& t) { return t; }
 
 
 template <typename T>
-std::string stringify(T t)
-{
-  try {
-    return boost::lexical_cast<std::string>(t);
-  } catch (const boost::bad_lexical_cast&) {
-    LOG(FATAL) << "Failed to stringify!";
-  }
-}
-
-
-template <typename T>
-std::string stringify(const std::set<T>& set)
-{
-  std::ostringstream out;
-  out << "{ ";
-  typename std::set<T>::const_iterator iterator = set.begin();
-  while (iterator != set.end()) {
-    out << utils::stringify(*iterator);
-    if (++iterator != set.end()) {
-      out << ", ";
-    }
-  }
-  out << " }";
-  return out.str();
-}
-
-
-template <typename T>
 Try<T> numify(const std::string& s)
 {
   try {
     return boost::lexical_cast<T>(s);
   } catch (const boost::bad_lexical_cast&) {
-    const Try<std::string>& message = strings::format(
-      "Failed to convert '%s' to number", s.c_str());
-    return Try<T>::error(
-      message.isSome() ? message.get() : "Failed to convert to number");
+    const Try<std::string>& message =
+      strings::format("Failed to convert '%s' to number", s);
+    CHECK(message.isSome());
+    return Try<T>::error(message.get());
   }
 }
 
@@ -635,7 +608,7 @@ inline Try<int> shell(std::ostream* os, const std::string& fmt, ...)
   va_list args;
   va_start(args, fmt);
 
-  const Try<std::string>& cmdline = strings::format(fmt, args);
+  const Try<std::string>& cmdline = strings::internal::format(fmt, args);
 
   va_end(args);
 
@@ -795,7 +768,7 @@ inline Try<bool> write(int fd, const google::protobuf::Message& message)
 
   if (length == -1) {
     std::string error = strerror(errno);
-    error = error + " (" + __FILE__ + ":" + utils::stringify(__LINE__) + ")";
+    error = error + " (" + __FILE__ + ":" + stringify(__LINE__) + ")";
     return Try<bool>::error(error);
   }
 
@@ -841,7 +814,7 @@ inline Result<bool> read(int fd, google::protobuf::Message* message)
 
   if (offset < 0) {
     std::string error = strerror(errno);
-    error = error + " (" + __FILE__ + ":" + utils::stringify(__LINE__) + ")";
+    error = error + " (" + __FILE__ + ":" + stringify(__LINE__) + ")";
     return Result<bool>::error(error);
   }
 
@@ -853,7 +826,7 @@ inline Result<bool> read(int fd, google::protobuf::Message* message)
   } else if (length == -1) {
     // Save the error, reset the file offset, and return the error.
     std::string error = strerror(errno);
-    error = error + " (" + __FILE__ + ":" + utils::stringify(__LINE__) + ")";
+    error = error + " (" + __FILE__ + ":" + stringify(__LINE__) + ")";
     lseek(fd, offset, SEEK_SET);
     return Result<bool>::error(error);
   } else if (length != sizeof(size)) {
@@ -865,7 +838,7 @@ inline Result<bool> read(int fd, google::protobuf::Message* message)
   if (size > 10 * 1024 * 1024) { // 10 MB
     // Save the error, reset the file offset, and return the error.
     std::string error = "Size > 10 MB, possible corruption detected";
-    error = error + " (" + __FILE__ + ":" + utils::stringify(__LINE__) + ")";
+    error = error + " (" + __FILE__ + ":" + stringify(__LINE__) + ")";
     lseek(fd, offset, SEEK_SET);
     return Result<bool>::error(error);;
   }
@@ -880,7 +853,7 @@ inline Result<bool> read(int fd, google::protobuf::Message* message)
   } else if (length == -1) {
     // Save the error, reset the file offset, and return the error.
     std::string error = strerror(errno);
-    error = error + " (" + __FILE__ + ":" + utils::stringify(__LINE__) + ")";
+    error = error + " (" + __FILE__ + ":" + stringify(__LINE__) + ")";
     lseek(fd, offset, SEEK_SET);
     delete[] temp;
     return Result<bool>::error(error);
@@ -897,7 +870,7 @@ inline Result<bool> read(int fd, google::protobuf::Message* message)
   if (!parsed) {
     // Save the error, reset the file offset, and return the error.
     std::string error = "Failed to parse protobuf";
-    error = error + " (" + __FILE__ + ":" + utils::stringify(__LINE__) + ")";
+    error = error + " (" + __FILE__ + ":" + stringify(__LINE__) + ")";
     lseek(fd, offset, SEEK_SET);
     return Result<bool>::error(error);;
   }

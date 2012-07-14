@@ -129,7 +129,9 @@ public:
                                   const FrameworkID& frameworkId,
                                   const ExecutorID& executorId) const;
 
+#if 0
   void sanityCheckAgainst(mesos::internal::master::Master* master);
+#endif
 
 private:
   const hashmap<FrameworkID, ResourceEstimates>& usageByFramework() const;

@@ -24,6 +24,7 @@
 #include "process/process.hpp"
 #include "process/dispatch.hpp"
 
+#include "master/dominant_share_allocator.hpp"
 #include "master/master.hpp"
 #include "messages/messages.hpp"
 
@@ -35,6 +36,7 @@ using namespace mesos::internal::test;
 
 using boost::scoped_ptr;
 
+using mesos::internal::master::DominantShareAllocator;
 using mesos::internal::master::Master;
 using process::PID;
 using process::UPID;
@@ -71,8 +73,7 @@ private:
 class UsageListenerTest : public testing::Test {
 protected:
   void SetUp() {
-    EXPECT_CALL(allocator, initialize(_, _)).Times(1);
-    EXPECT_CALL(allocator, timerTick()).Times(testing::AtLeast(0));
+    EXPECT_CALL(allocator, initialize(_)).Times(1);
     EXPECT_CALL(allocator, gotUsage(_)).Times(testing::AtLeast(0));
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());
@@ -95,7 +96,7 @@ protected:
   process::UPID listenerPid;
   scoped_ptr<Master> master;
   PID<Master> masterPid;
-  MockAllocator allocator;
+  MockAllocator<DominantShareAllocator> allocator;
 };
 
 TEST_F(UsageListenerTest, ForwardUsage)

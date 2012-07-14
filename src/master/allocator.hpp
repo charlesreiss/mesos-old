@@ -20,6 +20,7 @@
 #define __ALLOCATOR_HPP__
 
 #include "common/hashmap.hpp"
+#include "common/option.hpp"
 #include "common/resources.hpp"
 
 #include "master/master.hpp"
@@ -35,30 +36,39 @@ namespace master {
 // framework when tasks finish/fail (or are lost due to a slave
 // failure) or when an offer is rescinded.
 
-class Allocator {
+class Allocator : public process::Process<Allocator> {
 public:
   virtual ~Allocator() {}
 
-  virtual void initialize(Master* _master, const Configuration& conf) {}
+  virtual void initialize(const process::PID<Master>& master) = 0;
 
-  virtual void frameworkAdded(Framework* framework) {}
+  virtual void frameworkAdded(const FrameworkID& frameworkId,
+                              const FrameworkInfo& frameworkInfo) = 0;
 
-  virtual void frameworkRemoved(Framework* framework) {}
+  virtual void frameworkDeactivated(const FrameworkID& frameworkId) = 0;
 
-  virtual void slaveAdded(Slave* slave) {}
+  virtual void frameworkRemoved(const FrameworkID& frameworkId) = 0;
 
-  virtual void slaveRemoved(Slave* slave) {}
+  virtual void slaveAdded(const SlaveID& slaveId,
+                          const SlaveInfo& slaveInfo,
+                          const hashmap<FrameworkID, Resources>& used) = 0;
+
+  virtual void slaveRemoved(const SlaveID& slaveId) = 0;
+
+  virtual void updateWhitelist(
+      const Option<hashset<std::string> >& whitelist) = 0;
 
   virtual void resourcesRequested(
       const FrameworkID& frameworkId,
-      const std::vector<Request>& requests) {}
+      const std::vector<Request>& requests) = 0;
 
   // Whenever resources offered to a framework go unused (e.g.,
   // refused) the master invokes this callback.
   virtual void resourcesUnused(
       const FrameworkID& frameworkId,
       const SlaveID& slaveId,
-      const ResourceHints& offerResources) {}
+      const ResourceHints& offerResources,
+      const Option<Filters>& filters) = 0;
 
   // Whenever resources are "recovered" in the cluster (e.g., a task
   // finishes, an offer is removed because a framework has failed or
@@ -66,14 +76,16 @@ public:
   virtual void resourcesRecovered(
       const FrameworkID& frameworkId,
       const SlaveID& slaveId,
-      const ResourceHints& offerResources) {}
+      const ResourceHints& offerResources) = 0;
 
   // For allocators that want to track actual resource usage to determine
   // what offers to make. taskRemoved() is called _in addition_ to
   // resourcesRecovered
   // TODO(charles): do we need these?
-  virtual void taskAdded(Task* task) {}
-  virtual void taskRemoved(Task* task) {}
+  virtual void taskAdded(const FrameworkID& frameworkID, const TaskInfo& task) {}
+  virtual void taskRemoved(const FrameworkID& frameworkId, const TaskInfo& task) {}
+  virtual void taskAdded(const Task& task) {}
+  virtual void taskRemoved(const Task& task) {}
   // Because executors have usage, too
   virtual void executorAdded(const FrameworkID& frameworkId,
                              const SlaveID& slaveId,
@@ -82,9 +94,9 @@ public:
                                const SlaveID& slaveId,
                                const ExecutorInfo& executorInfo) {}
 
-  // Whenever a framework that has filtered resources want's to revive
+  // Whenever a framework that has filtered resources wants to revive
   // offers for those resources the master invokes this callback.
-  virtual void offersRevived(Framework* framework) {}
+  virtual void offersRevived(const FrameworkID& frameworkId) = 0;
 
   virtual void timerTick() {}
 

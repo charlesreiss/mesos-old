@@ -25,6 +25,7 @@
 #include <process/process.hpp>
 
 #include "master/allocator.hpp"
+#include "master/dominant_share_allocator.hpp"
 #include "master/master.hpp"
 
 #include "tests/utils.hpp"
@@ -63,14 +64,12 @@ protected:
       WillRepeatedly(Return(false));
     process::filter(&filter);
     EXPECT_CALL(allocator, resourcesUnused(_, _,
-          ResourceHints::parse("cpus:0;mem:0", "cpus:0;mem:0"))).
+          ResourceHints::parse("cpus:0;mem:0", "cpus:0;mem:0"), _)).
         Times(AnyNumber());
   }
 
   void TearDown()
   {
-    EXPECT_CALL(allocator, taskRemoved(_)).Times(AnyNumber());
-    EXPECT_CALL(allocator, executorRemoved(_, _, _)).Times(AnyNumber());
     EXPECT_CALL(allocator, resourcesRecovered(_, _, _)).Times(AnyNumber());
     if (frameworkPid) {
       EXPECT_CALL(allocator, frameworkRemoved(_)).Times(1);
@@ -98,7 +97,7 @@ protected:
   {
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());
-    EXPECT_CALL(allocator, initialize(master.get(), _)).
+    EXPECT_CALL(allocator, initialize(master->self())).
       Times(1);
     GotMasterTokenMessage tokenMessage;
     tokenMessage.set_token("test-token");
@@ -136,7 +135,7 @@ protected:
     SlaveRegisteredMessage registeredMessage;
     trigger doneRegister;
     trigger slaveAdded;
-    EXPECT_CALL(allocator, slaveAdded(_)).
+    EXPECT_CALL(allocator, slaveAdded(_, _, _)).
       WillOnce(Trigger(&slaveAdded));
     slave->expectAndStore<SlaveRegisteredMessage>(
         masterPid, &registeredMessage, &doneRegister);
@@ -144,12 +143,11 @@ protected:
     WAIT_UNTIL(doneRegister);
     WAIT_UNTIL(slaveAdded);
     slaveId.MergeFrom(registeredMessage.slave_id());
-    CHECK_GT(master->getActiveSlaves().size(), 0);
   }
 
   void registerFramework()
   {
-    EXPECT_CALL(allocator, frameworkAdded(_)).Times(1);
+    EXPECT_CALL(allocator, frameworkAdded(_, _)).Times(1);
     framework.reset(new FakeProtobufProcess);
     framework->setFilter(&filter);
     frameworkPid = framework->start();
@@ -200,19 +198,15 @@ protected:
 
   void makeFullOffer(Offer* offer)
   {
-    hashmap<master::Slave*, ResourceHints> offers;
-    CHECK_GT(master->getActiveSlaves().size(), 0);
-    master::Slave* slave = master->getActiveSlaves()[0];
+    hashmap<SlaveID, ResourceHints> offers;
 
-    offers[slave].expectedResources = Resources::parse("cpus:32;mem:1024");
-    offers[slave].minResources = Resources::parse("cpus:32;mem:1024");
+    offers[slaveId].expectedResources = Resources::parse("cpus:32;mem:1024");
+    offers[slaveId].minResources = Resources::parse("cpus:32;mem:1024");
 
     ResourceOffersMessage offerMessage;
     trigger gotResourceOffers;
     framework->expectAndStore(masterPid, &offerMessage, &gotResourceOffers);
-    CHECK_GT(master->getActiveFrameworks().size(), 0);
-    process::dispatch(masterPid, &Master::makeOffers,
-        master->getActiveFrameworks()[0], offers);
+    process::dispatch(masterPid, &Master::offer, frameworkId, offers);
 
     WAIT_UNTIL(gotResourceOffers);
     offer->MergeFrom(offerMessage.offers(0));
@@ -283,7 +277,7 @@ protected:
   }
 
   MockFilter filter;
-  MockAllocator allocator;
+  MockAllocator<mesos::internal::master::DominantShareAllocator> allocator;
   scoped_ptr<FakeProtobufProcess> slave;
   PID<FakeProtobufProcess> slavePid;
   scoped_ptr<FakeProtobufProcess> framework;
@@ -305,7 +299,7 @@ TEST_F(MasterAllocatorTest, ReturnOffer) {
   EXPECT_CALL(allocator,
               resourcesUnused(_, _, WithResourceHints(
                   Resources::parse("cpus:32;mem:1024"),
-                  Resources::parse("cpus:32;mem:1024")))).
+                  Resources::parse("cpus:32;mem:1024")), _)).
       WillOnce(Trigger(&gotResourcesUnused));
   launchTasks(theOffer, empty);
   WAIT_UNTIL(gotResourcesUnused);
@@ -321,17 +315,13 @@ TEST_F(MasterAllocatorTest, ReturnOfferMinOnly) {
   EXPECT_CALL(allocator,
               resourcesUnused(_, _, WithResourceHints(
                   Resources::parse("cpus:0;mem:0"),
-                  Resources::parse("cpus:32;mem:1024")))).
+                  Resources::parse("cpus:32;mem:1024")), _)).
     WillOnce(Trigger(&gotResourcesUnused));
-  Task task;
-  EXPECT_CALL(allocator, taskAdded(_)).
-    WillOnce(testing::SaveArgPointee<0>(&task));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   vector<TaskInfo> tasks;
   addTask(theOffer, theOffer.resources(), Resources(), "taskId", &tasks);
   launchTasks(theOffer, tasks);
   WAIT_UNTIL(gotResourcesUnused);
-  EXPECT_EQ(task.executor_id(), DEFAULT_EXECUTOR_ID);
 }
 
 TEST_F(MasterAllocatorTest, ReturnOfferAll) {
@@ -353,7 +343,7 @@ TEST_F(MasterAllocatorTest, KillTask) {
   registerFramework();
   makeFullOffer(&theOffer);
   vector<TaskInfo> tasks;
-  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, taskAdded(_, _));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);
@@ -364,7 +354,7 @@ TEST_F(MasterAllocatorTest, KillTask) {
                   Resources(theOffer.resources()),
                   Resources(theOffer.min_resources())))).
     WillOnce(Trigger(&gotReturned));
-  EXPECT_CALL(allocator, taskRemoved(_));
+  EXPECT_CALL(allocator, taskRemoved(_, _));
   sendTaskUpdate(theOffer, tasks[0], TASK_KILLED);
   WAIT_UNTIL(gotReturned);
 }
@@ -376,12 +366,12 @@ TEST_F(MasterAllocatorTest, UnregisterFramework) {
   registerFramework();
   makeFullOffer(&theOffer);
   vector<TaskInfo> tasks;
-  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, taskAdded(_, _));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
-  EXPECT_CALL(allocator, taskRemoved(_));
+  EXPECT_CALL(allocator, taskRemoved(_, _));
   EXPECT_CALL(allocator, executorRemoved(_, _,
                                          EqProto(DEFAULT_EXECUTOR_INFO)));
   EXPECT_CALL(allocator, resourcesRecovered(_, _, _));
@@ -395,12 +385,12 @@ TEST_F(MasterAllocatorTest, UnregisterSlave) {
   registerFramework();
   makeFullOffer(&theOffer);
   vector<TaskInfo> tasks;
-  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, taskAdded(_, _));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
-  EXPECT_CALL(allocator, taskRemoved(_));
+  EXPECT_CALL(allocator, taskRemoved(_, _));
   EXPECT_CALL(allocator, executorRemoved(_, _,
                                          EqProto(DEFAULT_EXECUTOR_INFO)));
   trigger statusUpdate;
@@ -419,7 +409,7 @@ TEST_F(MasterAllocatorTest, ExitedExecutor) {
   registerFramework();
   makeFullOffer(&theOffer);
   vector<TaskInfo> tasks;
-  EXPECT_CALL(allocator, taskAdded(_));
+  EXPECT_CALL(allocator, taskAdded(_, _));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);

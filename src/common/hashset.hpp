@@ -19,6 +19,8 @@
 #ifndef __HASHSET_HPP__
 #define __HASHSET_HPP__
 
+#include <ostream>
+
 #include <boost/get_pointer.hpp>
 #include <boost/unordered_set.hpp>
 
@@ -64,5 +66,16 @@ public:
     }
   }
 };
+
+template <class T>
+inline std::ostream& operator<<(std::ostream& out, const hashset<T>& set)
+{
+  out << "{";
+  foreach (const T& t, set) {
+    out << t << ",";
+  }
+  out << "}";
+  return out;
+}
 
 #endif // __HASHMAP_HPP__

@@ -29,7 +29,7 @@
 
 #include "master/allocator.hpp"
 #include "master/allocator_factory.hpp"
-#include "master/simple_allocator.hpp"
+#include "master/dominant_share_allocator.hpp"
 #include "master/master.hpp"
 #include "master/webui.hpp"
 
@@ -121,8 +121,8 @@ int main(int argc, char **argv)
     fatalerror("Could not chdir into %s", dirname(argv[0]));
   }
 
-  string allocatorName = conf.get<std::string>("allocator", "simple");
-  Allocator* allocator = AllocatorFactory::instantiate(allocatorName, NULL);
+  string allocatorName = conf.get<std::string>("allocator", "drf");
+  Allocator* allocator = AllocatorFactory::instantiate(allocatorName, conf);
 
   Master* master = new Master(allocator, conf);
   process::spawn(master);

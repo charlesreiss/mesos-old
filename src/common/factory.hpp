@@ -90,7 +90,7 @@ public:
 template<typename C, typename T, typename P>
 class ConcreteCreator : public Creator<T, P> {
 public:
-  virtual T* instantiate(P p) { return new C(); }
+  virtual T* instantiate(P p) { return new C(p); }
 };
 
 
