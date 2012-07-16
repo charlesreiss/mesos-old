@@ -49,7 +49,6 @@ void Scenario::spawnSlave(const Resources& resources)
 {
   VLOG(1) << "start slave with resources=" << resources;
   CHECK(masterPid);
-  FakeIsolationModule* module = new FakeIsolationModule(tracker);
   Configuration confForSlave = conf;
   {
     std::ostringstream ost;
@@ -58,7 +57,10 @@ void Scenario::spawnSlave(const Resources& resources)
     }
     confForSlave.set("resources", ost.str());
   }
-  Slave* slave = new Slave("", resources, confForSlave, true, module);
+  FakeIsolationModule* module = new FakeIsolationModule(conf, tracker);
+  slave::Flags slaveFlags;
+  slaveFlags.load(conf.getMap());
+  Slave* slave = new Slave("", resources, slaveFlags, true, module);
   slaves.push_back(slave);
   slavePids.push_back(process::spawn(slave));
   slaveMasterDetectors.push_back(

@@ -150,7 +150,7 @@ protected:
 
   void registerFramework()
   {
-    EXPECT_CALL(allocator, frameworkAdded(_, _)).Times(1);
+    EXPECT_CALL(allocator, frameworkAdded(_, _, _)).Times(1);
     framework.reset(new FakeProtobufProcess);
     framework->setFilter(&filter);
     frameworkPid = framework->start();

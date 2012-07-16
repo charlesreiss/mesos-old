@@ -23,7 +23,7 @@
 
 #include <boost/tuple/tuple.hpp>
 
-#include "common/hashmap.hpp"
+#include "stout/hashmap.hpp"
 #include "common/resources.hpp"
 
 #include "master/allocator.hpp"

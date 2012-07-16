@@ -70,8 +70,10 @@ public:
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());
 
-    module.reset(new FakeIsolationModule(tasks));
-    slave.reset(new Slave("slave", Resources::parse("cpu:8.0;mem:4096"), conf,
+    module.reset(new FakeIsolationModule(conf, tasks));
+    slave::Flags flags;
+    flags.load(conf.getMap());
+    slave.reset(new Slave("slave", Resources::parse("cpu:8.0;mem:4096"), flags,
                           true, module.get()));
     slavePid = process::spawn(slave.get());
 
@@ -91,7 +93,7 @@ public:
     driver.reset(
       new MesosSchedulerDriver(scheduler.get(), DEFAULT_FRAMEWORK_INFO_WITH_ID,
                                std::string(masterPid)));
-    EXPECT_CALL(allocator, frameworkAdded(_, _)).
+    EXPECT_CALL(allocator, frameworkAdded(_, _, _)).
       WillOnce(DoAll(SaveArg<0>(&masterFrameworkId), Trigger(&gotFramework)));
     driver->start();
     WAIT_UNTIL(gotFramework);

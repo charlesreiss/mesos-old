@@ -36,9 +36,10 @@
 
 #include <process/process.hpp>
 
-#include "common/option.hpp"
+#include <stout/option.hpp>
+#include <stout/os.hpp>
+
 #include "common/type_utils.hpp"
-#include "common/utils.hpp"
 
 #include "master/master.hpp"
 
@@ -257,7 +258,7 @@ public:
     ON_CALL(*this, initialize(_))
       .WillByDefault(Invoke(&real, &T::initialize));
 
-    ON_CALL(*this, frameworkAdded(_, _))
+    ON_CALL(*this, frameworkAdded(_, _, _))
       .WillByDefault(Invoke(&real, &T::frameworkAdded));
 
     ON_CALL(*this, frameworkDeactivated(_))
@@ -291,7 +292,9 @@ public:
     EXPECT_CALL(*this, executorRemoved(_, _, _)).Times(testing::AnyNumber());
   }
   MOCK_METHOD1(initialize, void(const process::PID<master::Master>&));
-  MOCK_METHOD2(frameworkAdded, void(const FrameworkID&, const FrameworkInfo&));
+  MOCK_METHOD3(frameworkAdded, void(const FrameworkID&,
+                                    const FrameworkInfo&,
+                                    const Resources&));
   MOCK_METHOD1(frameworkDeactivated, void(const FrameworkID&));
   MOCK_METHOD1(frameworkRemoved, void(const FrameworkID&));
   MOCK_METHOD3(slaveAdded, void(const SlaveID&,
@@ -322,12 +325,12 @@ public:
 
 // The following actions make up for the fact that DoDefault
 // cannot be used inside a DoAll, for example:
-// EXPECT_CALL(allocator, frameworkAdded(_))
+// EXPECT_CALL(allocator, frameworkAdded(_, _, _))
 //   .WillOnce(DoAll(InvokeFrameworkAdded(&allocator),
 //                   Trigger(&frameworkAddedTrigger)));
 ACTION_P(InvokeFrameworkAdded, allocator)
 {
-  allocator->real.frameworkAdded(arg0, arg1);
+  allocator->real.frameworkAdded(arg0, arg1, arg2);
 }
 
 
@@ -429,6 +432,7 @@ ACTION_TEMPLATE(SaveArgField,
 struct trigger
 {
   trigger() : value(false) {}
+  operator bool () const { return value; }
   bool value;
 };
 
@@ -437,6 +441,24 @@ struct trigger
  * Definition of the Trigger action to be used with gmock.
  */
 ACTION_P(Trigger, trigger) { trigger->value = true; }
+
+
+/**
+ * Definition of an 'increment' action to be used with gmock.
+ */
+ACTION_P(Increment, variable)
+{
+  *variable = *variable + 1;
+}
+
+
+/**
+ * Definition of a 'decrement' action to be used with gmock.
+ */
+ACTION_P(Decrement, variable)
+{
+  *variable = *variable - 1;
+}
 
 
 /**
@@ -462,21 +484,21 @@ ACTION_P(SendStatusUpdateForId, state) {
 }
 
 /**
- * This macro can be used to wait until some trigger has
- * occured. Currently, a test will wait no longer than approxiamtely 2
+ * This macro can be used to wait until some expression evaluates to
+ * true. Currently, a test will wait no longer than approxiamtely 2
  * seconds (10 us * 200000). At some point we may add a mechanism to
  * specify how long to try and wait.
  */
-#define WAIT_UNTIL(trigger)                                             \
+#define WAIT_UNTIL(e)                                                   \
   do {                                                                  \
     int sleeps = 0;                                                     \
     do {                                                                \
       __sync_synchronize();                                             \
-      if ((trigger).value)                                              \
+      if (e)                                                            \
         break;                                                          \
       usleep(10);                                                       \
       if (sleeps++ >= 200000) {                                         \
-        FAIL() << "Waited too long for trigger!";                       \
+        FAIL() << "Waited too long for '" #e "'";                       \
         ::exit(-1); /* TODO(benh): Figure out how not to exit! */       \
         break;                                                          \
       }                                                                 \
@@ -503,7 +525,7 @@ public:
 
   virtual ~TestingIsolationModule() {}
 
-  virtual void initialize(const Configuration& conf,
+  virtual void initialize(const slave::Flags& flags,
                           bool local,
                           const process::PID<slave::Slave>& _slave)
   {
@@ -524,19 +546,19 @@ public:
 
       directories[executorInfo.executor_id()] = directory;
 
-      utils::os::setenv("MESOS_LOCAL", "1");
-      utils::os::setenv("MESOS_DIRECTORY", directory);
-      utils::os::setenv("MESOS_SLAVE_PID", slave);
-      utils::os::setenv("MESOS_FRAMEWORK_ID", frameworkId.value());
-      utils::os::setenv("MESOS_EXECUTOR_ID", executorInfo.executor_id().value());
+      os::setenv("MESOS_LOCAL", "1");
+      os::setenv("MESOS_DIRECTORY", directory);
+      os::setenv("MESOS_SLAVE_PID", slave);
+      os::setenv("MESOS_FRAMEWORK_ID", frameworkId.value());
+      os::setenv("MESOS_EXECUTOR_ID", executorInfo.executor_id().value());
 
       driver->start();
 
-      utils::os::unsetenv("MESOS_LOCAL");
-      utils::os::unsetenv("MESOS_DIRECTORY");
-      utils::os::unsetenv("MESOS_SLAVE_PID");
-      utils::os::unsetenv("MESOS_FRAMEWORK_ID");
-      utils::os::unsetenv("MESOS_EXECUTOR_ID");
+      os::unsetenv("MESOS_LOCAL");
+      os::unsetenv("MESOS_DIRECTORY");
+      os::unsetenv("MESOS_SLAVE_PID");
+      os::unsetenv("MESOS_FRAMEWORK_ID");
+      os::unsetenv("MESOS_EXECUTOR_ID");
     } else {
       FAIL() << "Cannot launch executor";
     }

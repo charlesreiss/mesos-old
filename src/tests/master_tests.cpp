@@ -24,11 +24,18 @@
 #include <mesos/executor.hpp>
 #include <mesos/scheduler.hpp>
 
+#include <stout/os.hpp>
+
 #include "detector/detector.hpp"
 
 #include "local/local.hpp"
 
+#include "logging/flags.hpp"
+
+#include "flags/flags.hpp"
+
 #include "master/dominant_share_allocator.hpp"
+#include "master/flags.hpp"
 #include "master/frameworks_manager.hpp"
 #include "master/master.hpp"
 
@@ -106,7 +113,7 @@ protected:
       allocPtr = &mockAllocator;
       EXPECT_CALL(mockAllocator, initialize(_)).Times(1);
       EXPECT_CALL(mockAllocator, slaveAdded(_, _, _)).Times(1);
-      EXPECT_CALL(mockAllocator, frameworkAdded(_, _)).Times(1);
+      EXPECT_CALL(mockAllocator, frameworkAdded(_, _, _)).Times(1);
     }
     m.reset(new Master(allocPtr));
     master = process::spawn(m.get());
@@ -730,7 +737,7 @@ protected:
 
   virtual ~WhitelistFixture()
   {
-    utils::os::rm(path);
+    os::rm(path);
   }
 
   const string path;
@@ -748,15 +755,15 @@ TEST_F(WhitelistFixture, WhitelistSlave)
     .WillRepeatedly(Return(false));
 
   // Add some hosts to the white list.
-  Try<string> hostname = utils::os::hostname();
+  Try<string> hostname = os::hostname();
   ASSERT_TRUE(hostname.isSome());
   string hosts = hostname.get() + "\n" + "dummy-slave";
-  CHECK (utils::os::write(path, hosts).isSome()) << "Error writing whitelist";
+  CHECK (os::write(path, hosts).isSome()) << "Error writing whitelist";
 
   DominantShareAllocator a;
-  Configuration conf;
-  conf.set("whitelist", "file://" + path);
-  Master m(&a, conf);
+  flags::Flags<logging::Flags, master::Flags> flags;
+  flags.whitelist = "file://" + path;
+  Master m(&a, flags);
   PID<Master> master = process::spawn(&m);
 
   trigger slaveRegisteredMsg;

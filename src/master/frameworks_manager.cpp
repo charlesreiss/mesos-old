@@ -19,11 +19,13 @@
 #include <process/delay.hpp>
 #include <process/dispatch.hpp>
 
+#include <stout/foreach.hpp>
+
 #include "master/frameworks_manager.hpp"
 
-#include "common/foreach.hpp"
-#include "common/logging.hpp"
 #include "common/type_utils.hpp"
+
+#include "logging/logging.hpp"
 
 using std::map;
 

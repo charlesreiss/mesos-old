@@ -65,9 +65,11 @@ public:
     mockMaster.reset(new FakeProtobufProcess);
     mockMaster->setFilter(&mockFilter);
     mockMasterPid = mockMaster->start();
-    module.reset(new FakeIsolationModule(taskTracker));
     conf.set("resources", "cpus:4.0;mem:4096");
-    slave.reset(new Slave(conf, true, module.get()));
+    module.reset(new FakeIsolationModule(conf, taskTracker));
+    slave::Flags flags;
+    flags.load(conf.getMap());
+    slave.reset(new Slave(flags, true, module.get()));
     slavePid = process::spawn(slave.get());
 
     trigger askedToRegister;

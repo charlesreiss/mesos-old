@@ -23,32 +23,37 @@
 
 #include <boost/lexical_cast.hpp>
 
+#include <process/http.hpp>
 #include <process/dispatch.hpp>
 
-#include "common/fatal.hpp"
-#include "common/strings.hpp"
+#include <stout/fatal.hpp>
+#include <stout/strings.hpp>
+#include <stout/utils.hpp>
+
+#include "flags/flags.hpp"
+
+#include "master/master.hpp"
+#include "master/slaves_manager.hpp"
 
 #include "zookeeper/zookeeper.hpp"
 
-#include "master.hpp"
-#include "slaves_manager.hpp"
-
-using namespace mesos;
-using namespace mesos::internal;
-using namespace mesos::internal::master;
+namespace mesos {
+namespace internal {
+namespace master {
 
 using boost::bad_lexical_cast;
 using boost::lexical_cast;
 
 using process::Future;
-using process::HttpInternalServerErrorResponse;
-using process::HttpNotFoundResponse;
-using process::HttpOKResponse;
-using process::HttpResponse;
-using process::HttpRequest;
 using process::PID;
 using process::Process;
 using process::UPID;
+
+using process::http::InternalServerError;
+using process::http::NotFound;
+using process::http::OK;
+using process::http::Response;
+using process::http::Request;
 
 using std::ostringstream;
 using std::map;
@@ -583,13 +588,12 @@ bool ZooKeeperSlavesManagerStorage::parse(
 }
 
 
-SlavesManager::SlavesManager(const Configuration& conf,
-                             const PID<Master>& _master)
+SlavesManager::SlavesManager(const Flags& flags, const PID<Master>& _master)
   : process::ProcessBase("slaves"),
     master(_master)
 {
-  // Create the slave manager storage based on configuration.
-  const string& slaves = conf.get<string>("slaves", "*");
+  // Create the slave manager storage based on flags.
+  const string& slaves = flags.slaves;
 
   // Check if 'slaves' starts with "zoo://".
   string zoo = "zoo://";
@@ -635,12 +639,12 @@ SlavesManager::SlavesManager(const Configuration& conf,
   }
 
   // Setup our HTTP endpoints.
-  route("add", &SlavesManager::add);
-  route("remove", &SlavesManager::remove);
-  route("activate", &SlavesManager::activate);
-  route("deactivate", &SlavesManager::deactivate);
-  route("activated", &SlavesManager::activated);
-  route("deactivated", &SlavesManager::deactivated);
+  route("/add", &SlavesManager::add);
+  route("/remove", &SlavesManager::remove);
+  route("/activate", &SlavesManager::activate);
+  route("/deactivate", &SlavesManager::deactivate);
+  route("/activated", &SlavesManager::activated);
+  route("/deactivated", &SlavesManager::deactivated);
 }
 
 
@@ -649,15 +653,6 @@ SlavesManager::~SlavesManager()
   process::terminate(storage->self());
   process::wait(storage->self());
   delete storage;
-}
-
-
-void SlavesManager::registerOptions(Configurator* configurator)
-{
-  configurator->addOption<string>("slaves",
-                                  "Initial slaves that should be "
-                                  "considered part of this cluster "
-                                  "(or if using ZooKeeper a URL)", "*");
 }
 
 
@@ -813,7 +808,7 @@ void SlavesManager::updateInactive(
 }
 
 
-Future<HttpResponse> SlavesManager::add(const HttpRequest& request)
+Future<Response> SlavesManager::add(const Request& request)
 {
   // Parse the query to get out the slave hostname and port.
   string hostname = "";
@@ -826,11 +821,11 @@ Future<HttpResponse> SlavesManager::add(const HttpRequest& request)
   if (pairs.count("hostname") == 0) {
     LOG(WARNING) << "Slaves manager expecting 'hostname' in query string"
                  << " when trying to add a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   } else if (pairs.count("port") == 0) {
     LOG(WARNING) << "Slaves manager expecting 'port' in query string"
                  << " when trying to add a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   }
 
   hostname = pairs["hostname"].front();
@@ -842,21 +837,21 @@ Future<HttpResponse> SlavesManager::add(const HttpRequest& request)
     LOG(WARNING) << "Slaves manager failed to parse 'port = "
 		 << pairs["port"].front()
                  << "'  when trying to add a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   }
 
   LOG(INFO) << "Slaves manager received HTTP request to add slave at "
 	    << hostname << ":" << port;
 
   if (add(hostname, port)) {
-    return HttpOKResponse();
+    return OK();
   } else {
-    return HttpInternalServerErrorResponse();
+    return InternalServerError();
   }
 }
 
 
-Future<HttpResponse> SlavesManager::remove(const HttpRequest& request)
+Future<Response> SlavesManager::remove(const Request& request)
 {
   // Parse the query to get out the slave hostname and port.
   string hostname = "";
@@ -869,11 +864,11 @@ Future<HttpResponse> SlavesManager::remove(const HttpRequest& request)
   if (pairs.count("hostname") == 0) {
     LOG(WARNING) << "Slaves manager expecting 'hostname' in query string"
                  << " when trying to remove a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   } else if (pairs.count("port") == 0) {
     LOG(WARNING) << "Slaves manager expecting 'port' in query string"
                  << " when trying to remove a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   }
 
   hostname = pairs["hostname"].front();
@@ -885,21 +880,21 @@ Future<HttpResponse> SlavesManager::remove(const HttpRequest& request)
     LOG(WARNING) << "Slaves manager failed to parse 'port = "
 		 << pairs["port"].front()
                  << "'  when trying to remove a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   }
 
   LOG(INFO) << "Slaves manager received HTTP request to remove slave at "
 	    << hostname << ":" << port;
 
   if (remove(hostname, port)) {
-    return HttpOKResponse();
+    return OK();
   } else {
-    return HttpInternalServerErrorResponse();
+    return InternalServerError();
   }
 }
 
 
-Future<HttpResponse> SlavesManager::activate(const HttpRequest& request)
+Future<Response> SlavesManager::activate(const Request& request)
 {
   // Parse the query to get out the slave hostname and port.
   string hostname = "";
@@ -912,11 +907,11 @@ Future<HttpResponse> SlavesManager::activate(const HttpRequest& request)
   if (pairs.count("hostname") == 0) {
     LOG(WARNING) << "Slaves manager expecting 'hostname' in query string"
                  << " when trying to activate a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   } else if (pairs.count("port") == 0) {
     LOG(WARNING) << "Slaves manager expecting 'port' in query string"
                  << " when trying to activate a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   }
 
   hostname = pairs["hostname"].front();
@@ -928,21 +923,21 @@ Future<HttpResponse> SlavesManager::activate(const HttpRequest& request)
     LOG(WARNING) << "Slaves manager failed to parse 'port = "
 		 << pairs["port"].front()
                  << "'  when trying to activate a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   }
 
   LOG(INFO) << "Slaves manager received HTTP request to activate slave at "
 	    << hostname << ":" << port;
 
   if (activate(hostname, port)) {
-    return HttpOKResponse();
+    return OK();
   } else {
-    return HttpInternalServerErrorResponse();
+    return InternalServerError();
   }
 }
 
 
-Future<HttpResponse> SlavesManager::deactivate(const HttpRequest& request)
+Future<Response> SlavesManager::deactivate(const Request& request)
 {
   // Parse the query to get out the slave hostname and port.
   string hostname = "";
@@ -955,11 +950,11 @@ Future<HttpResponse> SlavesManager::deactivate(const HttpRequest& request)
   if (pairs.count("hostname") == 0) {
     LOG(WARNING) << "Slaves manager expecting 'hostname' in query string"
                  << " when trying to deactivate a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   } else if (pairs.count("port") == 0) {
     LOG(WARNING) << "Slaves manager expecting 'port' in query string"
                  << " when trying to deactivate a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   }
 
   hostname = pairs["hostname"].front();
@@ -971,21 +966,21 @@ Future<HttpResponse> SlavesManager::deactivate(const HttpRequest& request)
     LOG(WARNING) << "Slaves manager failed to parse 'port = "
 		 << pairs["port"].front()
                  << "'  when trying to deactivate a slave";
-    return HttpNotFoundResponse();
+    return NotFound();
   }
 
   LOG(INFO) << "Slaves manager received HTTP request to deactivate slave at "
 	    << hostname << ":" << port;
 
   if (deactivate(hostname, port)) {
-    return HttpOKResponse();
+    return OK();
   } else {
-    return HttpInternalServerErrorResponse();
+    return InternalServerError();
   }
 }
 
 
-Future<HttpResponse> SlavesManager::activated(const HttpRequest& request)
+Future<Response> SlavesManager::activated(const Request& request)
 {
   LOG(INFO) << "Slaves manager received HTTP request for activated slaves";
 
@@ -995,7 +990,7 @@ Future<HttpResponse> SlavesManager::activated(const HttpRequest& request)
     out << hostname << ":" << port << "\n";
   }
 
-  HttpOKResponse response;
+  OK response;
   response.headers["Content-Type"] = "text/plain";
   response.headers["Content-Length"] = lexical_cast<string>(out.str().size());
   response.body = out.str().data();
@@ -1003,7 +998,7 @@ Future<HttpResponse> SlavesManager::activated(const HttpRequest& request)
 }
 
 
-Future<HttpResponse> SlavesManager::deactivated(const HttpRequest& request)
+Future<Response> SlavesManager::deactivated(const Request& request)
 {
   LOG(INFO) << "Slaves manager received HTTP request for deactivated slaves";
 
@@ -1013,9 +1008,13 @@ Future<HttpResponse> SlavesManager::deactivated(const HttpRequest& request)
     out << hostname << ":" << port << "\n";
   }
 
-  HttpOKResponse response;
+  OK response;
   response.headers["Content-Type"] = "text/plain";
   response.headers["Content-Length"] = lexical_cast<string>(out.str().size());
   response.body = out.str().data();
   return response;
 }
+
+} // namespace master {
+} // namespace internal {
+} // namespace mesos {

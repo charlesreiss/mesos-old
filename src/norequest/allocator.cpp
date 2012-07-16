@@ -26,7 +26,6 @@
 #include <process/timer.hpp>
 #include <process/timeout.hpp>
 
-#include "common/utils.hpp"
 #include "norequest/allocator.hpp"
 #define DO_ALLOC_USAGE_LOG
 #ifdef DO_ALLOC_USAGE_LOG
@@ -142,7 +141,8 @@ NoRequestAllocator::removeFiltersFor(const FrameworkID& frameworkId)
 
 void
 NoRequestAllocator::frameworkAdded(const FrameworkID& frameworkId,
-                                   const FrameworkInfo& info) {
+                                   const FrameworkInfo& info,
+                                   const Resources& used) {
   frameworks[frameworkId] = info;
   allRefusers.clear();
   makeNewOffers();

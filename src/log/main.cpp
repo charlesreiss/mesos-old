@@ -22,14 +22,19 @@
 
 #include <process/process.hpp>
 
-#include "common/foreach.hpp"
-#include "common/logging.hpp"
-#include "common/utils.hpp"
+#include <stout/foreach.hpp>
+#include <stout/option.hpp>
+#include <stout/os.hpp>
 
 #include "configurator/configurator.hpp"
 #include "configurator/configuration.hpp"
 
+#include "flags/flags.hpp"
+
 #include "log/replica.hpp"
+
+#include "logging/flags.hpp"
+#include "logging/logging.hpp"
 
 using namespace mesos;
 using namespace mesos::internal;
@@ -43,7 +48,7 @@ using std::string;
 
 void usage(const char* argv0, const Configurator& configurator)
 {
-  cerr << "Usage: " << utils::os::basename(argv0) << " [...] path/to/log"
+  cerr << "Usage: " << os::basename(argv0) << " [...] path/to/log"
        << endl
        << "Supported options:" << endl
        << configurator.getUsage();
@@ -52,40 +57,44 @@ void usage(const char* argv0, const Configurator& configurator)
 
 int main(int argc, char** argv)
 {
-  Configurator configurator;
+  flags::Flags<logging::Flags> flags;
 
-  logging::registerOptions(&configurator);
+  Option<uint64_t> from;
+  flags.add(&from,
+            "from",
+            "Position from which to start reading in the log");
 
-  configurator.addOption<uint64_t>(
-      "from",
-      "Position from which to start reading in the log");
+  Option<uint64_t> to;
+  flags.add(&to,
+            "to",
+            "Position from which to stop reading in the log");
 
-  configurator.addOption<uint64_t>(
-      "to",
-      "Position from which to stop reading in the log");
+  bool help;
+  flags.add(&help,
+            "help",
+            "Prints this help message",
+            false);
 
-  configurator.addOption<bool>(
-      "help",
-      'h',
-      "Prints this usage message");
-
-  Configuration conf;
+  Configurator configurator(flags);
+  Configuration configuration;
   try {
-    conf = configurator.load(argc, argv);
-  } catch (const ConfigurationException& e) {
+    configuration = configurator.load(argc, argv);
+  } catch (ConfigurationException& e) {
     cerr << "Configuration error: " << e.what() << endl;
     usage(argv[0], configurator);
     exit(1);
   }
 
-  if (argc < 2 || conf.contains("help")) {
+  flags.load(configuration.getMap());
+
+  if (help) {
     usage(argv[0], configurator);
     exit(1);
   }
 
   process::initialize();
 
-  logging::initialize(argv[0], conf);
+  logging::initialize(argv[0], flags);
 
   string path = argv[argc - 1];
 
@@ -100,13 +109,22 @@ int main(int argc, char** argv)
   CHECK(begin.isReady());
   CHECK(end.isReady());
 
-  uint64_t from = conf.get<uint64_t>("from", begin.get());
-  uint64_t to = conf.get<uint64_t>("to", end.get());
+  if (!from.isSome()) {
+    from = begin.get();
+  }
+
+  if (!to.isSome()) {
+    to = end.get();
+  }
+
+  CHECK(from.isSome());
+  CHECK(to.isSome());
 
   cerr << endl << "Attempting to read the log from "
-       << from << " to " << to << endl << endl;
+       << from.get() << " to " << to.get() << endl << endl;
 
-  process::Future<std::list<Action> > actions = replica.read(from, to);
+  process::Future<std::list<Action> > actions =
+    replica.read(from.get(), to.get());
 
   actions.await();
 

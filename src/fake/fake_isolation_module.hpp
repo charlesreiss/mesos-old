@@ -35,6 +35,7 @@
 #include "mesos/executor.hpp"
 
 #include "fake/fake_task.hpp"
+#include "slave/flags.hpp"
 
 #include <pthread.h>
 
@@ -97,9 +98,9 @@ class FakeIsolationModule : public IsolationModule {
 public:
   static void registerOptions(Configurator* configurator);
 
-  FakeIsolationModule(const FakeTaskTracker& fakeTasks_);
+  FakeIsolationModule(const Configuration& conf, const FakeTaskTracker& fakeTasks_);
 
-  void initialize(const Configuration& conf, bool local,
+  void initialize(const slave::Flags& flags, bool local,
                   const process::PID<Slave>& slave);
 
   void launchExecutor(const FrameworkID& frameworkId,

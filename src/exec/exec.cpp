@@ -29,12 +29,13 @@
 #include <process/process.hpp>
 #include <process/protobuf.hpp>
 
-#include "common/fatal.hpp"
+#include <stout/fatal.hpp>
+#include <stout/uuid.hpp>
+
 #include "common/lock.hpp"
-#include "common/logging.hpp"
 #include "common/type_utils.hpp"
-#include "common/utils.hpp"
-#include "common/uuid.hpp"
+
+#include "logging/logging.hpp"
 
 #include "messages/messages.hpp"
 

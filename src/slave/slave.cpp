@@ -26,14 +26,18 @@
 #include <process/dispatch.hpp>
 #include <process/id.hpp>
 
-#include "common/build.hpp"
-#include "common/option.hpp"
-#include "common/strings.hpp"
-#include "common/time.hpp"
-#include "common/try.hpp"
-#include "common/type_utils.hpp"
-#include "common/utils.hpp"
+#include <stout/option.hpp>
+#include <stout/os.hpp>
+#include <stout/path.hpp>
+#include <stout/strings.hpp>
+#include <stout/time.hpp>
+#include <stout/try.hpp>
+#include <stout/utils.hpp>
 
+#include "common/build.hpp"
+#include "common/type_utils.hpp"
+
+#include "slave/flags.hpp"
 #include "slave/slave.hpp"
 
 namespace params = std::tr1::placeholders;
@@ -69,66 +73,73 @@ Slave::Slave(const Resources& _resources,
 {}
 
 
-Slave::Slave(const Configuration& _conf,
+Slave::Slave(const Flags& _flags,
              bool _local,
              IsolationModule* _isolationModule)
   : ProcessBase(ID::generate("slave")),
-    conf(_conf),
+    flags(_flags),
     local(_local),
     isolationModule(_isolationModule)
 {
-  Try<long> cpus = utils::os::cpus();
-  Try<long> mem = utils::os::memory();
+  if (flags.resources.isNone()) {
+    // TODO(benh): Move this compuation into Flags as the "default".
+    Try<long> cpus = os::cpus();
+    Try<long> mem = os::memory();
 
-  if (!cpus.isSome()) {
-    LOG(WARNING) << "Failed to auto-detect the number of cpus to use,"
-                 << " defaulting to 1";
-    cpus = Try<long>::some(1);
-  }
-
-  if (!mem.isSome()) {
-    LOG(WARNING) << "Failed to auto-detect the size of main memory,"
-                 << " defaulting to 1024 MB";
-    mem = Try<long>::some(1024);
-  } else {
-    // Convert to MB.
-    mem = mem.get() / 1048576;
-
-    // Leave 1 GB free if we have more than 1 GB, otherwise, use all!
-    // TODO(benh): Have better default scheme (e.g., % of mem not
-    // greater than 1 GB?)
-    if (mem.get() > 1024) {
-      mem = Try<long>::some(mem.get() - 1024);
+    if (!cpus.isSome()) {
+      LOG(WARNING) << "Failed to auto-detect the number of cpus to use,"
+                   << " defaulting to 1";
+      cpus = Try<long>::some(1);
     }
+
+    if (!mem.isSome()) {
+      LOG(WARNING) << "Failed to auto-detect the size of main memory,"
+                   << " defaulting to 1024 MB";
+      mem = Try<long>::some(1024);
+    } else {
+      // Convert to MB.
+      mem = mem.get() / 1048576;
+
+      // Leave 1 GB free if we have more than 1 GB, otherwise, use all!
+      // TODO(benh): Have better default scheme (e.g., % of mem not
+      // greater than 1 GB?)
+      if (mem.get() > 1024) {
+        mem = Try<long>::some(mem.get() - 1024);
+      }
+    }
+
+    Try<string> defaults =
+      strings::format("cpus:%d;mem:%d", cpus.get(), mem.get());
+
+    CHECK(defaults.isSome());
+
+    resources = Resources::parse(defaults.get());
+  } else {
+    resources = Resources::parse(flags.resources.get());
   }
 
-  Try<string> defaults =
-    strings::format("cpus:%d;mem:%d", cpus.get(), mem.get());
-
-  CHECK(defaults.isSome());
-
-  resources =
-    Resources::parse(conf.get<string>("resources", defaults.get()));
-
-  attributes =
-    Attributes::parse(conf.get<string>("attributes", ""));
+  if (flags.attributes.isSome()) {
+    attributes = Attributes::parse(flags.attributes.get());
+  }
 }
 
 
 Slave::Slave(const std::string& name,
              const Resources& _resources,
-             const Configuration& _conf,
+             const Flags& _flags,
              bool _local,
              IsolationModule* _isolationModule)
   : ProcessBase(name),
     resources(_resources),
     local(_local),
-    conf(_conf),
+    flags(_flags),
     isolationModule(_isolationModule)
 {
-  attributes =
-    Attributes::parse(conf.get<string>("attributes", ""));
+  if (flags.attributes.isSome()) {
+    attributes = Attributes::parse(flags.attributes.get());
+  }
 }
+
 Slave::~Slave()
 {
   // TODO(benh): Shut down frameworks?
@@ -145,66 +156,13 @@ Slave::~Slave()
 }
 
 
-void Slave::registerOptions(Configurator* configurator)
-{
-  // TODO(benh): Is there a way to specify units for the resources?
-  configurator->addOption<string>(
-      "resources",
-      "Total consumable resources per slave\n");
-
-  configurator->addOption<string>(
-      "attributes",
-      "Attributes of machine\n");
-
-  configurator->addOption<string>(
-      "work_dir",
-      "Where to place framework work directories\n"
-      "(default: /tmp/mesos)");
-
-  configurator->addOption<string>(
-      "hadoop_home",
-      "Where to find Hadoop installed (for\n"
-      "fetching framework executors from HDFS)\n"
-      "(default: look for HADOOP_HOME in\n"
-      "environment or find hadoop on PATH)");
-
-  configurator->addOption<bool>(
-      "switch_user",
-      "Whether to run tasks as the user who\n"
-      "submitted them rather than the user running\n"
-      "the slave (requires setuid permission)",
-      true);
-
-  configurator->addOption<string>(
-      "frameworks_home",
-      "Directory prepended to relative executor\n"
-      "paths (no default)");
-
-  configurator->addOption<double>(
-      "executor_shutdown_timeout_seconds",
-      "Amount of time (in seconds) to wait for an executor to shut down\n",
-      EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS);
-
-  configurator->addOption<bool>(
-      "no_create_work_dir",
-      "Do not create work directories. (Likely to break any real "
-      "deployments.)");
-  
-  configurator->addOption<double>(
-      "gc_timeout_hours",
-      "Amount of time (in hours) to wait before cleaning up \n"
-      "executor directories\n",
-      GC_TIMEOUT_HOURS);
-}
-
-
 void Slave::initialize()
 {
   LOG(INFO) << "Slave started on " << string(self()).substr(6);
   LOG(INFO) << "Slave resources: " << resources;
 
   // Determine our hostname.
-  Try<string> result = utils::os::hostname();
+  Try<string> result = os::hostname();
 
   if (result.isError()) {
     LOG(FATAL) << "Failed to get hostname: " << result.error();
@@ -224,12 +182,9 @@ void Slave::initialize()
   // Initialize slave info.
   info.set_hostname(hostname);
   info.set_webui_hostname(webui_hostname);
-  info.set_webui_port(conf.get<int>("webui_port", 8081));
+  info.set_webui_port(flags.webui_port);
   info.mutable_resources()->MergeFrom(resources);
   info.mutable_attributes()->MergeFrom(attributes);
-
-
-  workRootDir = conf.get<string>("work_dir", "/tmp/mesos");
 
   // Spawn and initialize the isolation module.
   // TODO(benh): Seems like the isolation module should really be
@@ -237,7 +192,7 @@ void Slave::initialize()
   spawn(isolationModule);
   dispatch(isolationModule,
            &IsolationModule::initialize,
-           conf, local, self());
+           flags, local, self());
 
   // Start all the statistics at 0.
   stats.tasks[TASK_STAGING] = 0;
@@ -333,10 +288,9 @@ void Slave::initialize()
   install("PING", &Slave::ping);
 
   // Setup some HTTP routes.
-  route("vars", bind(&http::vars, cref(*this), params::_1));
-  route("stats.json", bind(&http::json::stats, cref(*this), params::_1));
-  route("state.json", bind(&http::json::state, cref(*this), params::_1));
-
+  route("/vars", bind(&http::vars, cref(*this), params::_1));
+  route("/stats.json", bind(&http::json::stats, cref(*this), params::_1));
+  route("/state.json", bind(&http::json::state, cref(*this), params::_1));
   delay(1.0, self(), &Slave::queueUsageUpdates);
 }
 
@@ -397,7 +351,7 @@ void Slave::registered(const SlaveID& slaveId)
 
   connected = true;
 
-  garbageCollectSlaveDirs(workRootDir + "/slaves");
+  garbageCollectSlaveDirs(path::join(flags.work_dir, "slaves"));
 }
 
 
@@ -461,7 +415,7 @@ void Slave::runTask(const FrameworkInfo& frameworkInfo,
 
   Framework* framework = getFramework(frameworkId);
   if (framework == NULL) {
-    framework = new Framework(frameworkId, frameworkInfo, pid, conf);
+    framework = new Framework(frameworkId, frameworkInfo, pid, flags);
     frameworks[frameworkId] = framework;
   }
 
@@ -1089,10 +1043,8 @@ void Slave::shutdownExecutor(Framework* framework, Executor* executor)
   executor->shutdown = true;
 
   // Prepare for sending a kill if the executor doesn't comply.
-  double timeout = conf.get<double>("executor_shutdown_timeout_seconds",
-                                    EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS);
-
-  delay(timeout, self(),
+  delay(flags.executor_shutdown_timeout_seconds,
+        self(),
         &Slave::shutdownExecutorTimeout,
         framework->id, executor->id, executor->uuid);
 }
@@ -1131,7 +1083,7 @@ void Slave::shutdownExecutorTimeout(const FrameworkID& frameworkId,
 
 void Slave::garbageCollectExecutorDir(const string& dir)
 {
-  hours timeout(conf.get<double>("gc_timeout_hours", GC_TIMEOUT_HOURS));
+  hours timeout(flags.gc_timeout_hours);
   std::list<string> result;
 
   LOG(INFO) << "Scheduling executor directory " << dir << " for deletion";
@@ -1143,14 +1095,15 @@ void Slave::garbageCollectExecutorDir(const string& dir)
 
 void Slave::garbageCollectSlaveDirs(const string& dir)
 {
-  hours timeout(conf.get<double>("gc_timeout_hours", GC_TIMEOUT_HOURS));
+  hours timeout(flags.gc_timeout_hours);
+
   std::list<string> result;
 
-  foreach (const string& d, utils::os::listdir(dir)) {
+  foreach (const string& d, os::listdir(dir)) {
     if (d != "." && d != ".." && d != id.value()) {
       const string& path = dir + "/" + d;
-      Try<long> modtime = utils::os::modtime(path);
-      if (utils::os::exists(path, true) && // Check if its a directory.
+      Try<long> modtime = os::modtime(path);
+      if (os::exists(path, true) && // Check if its a directory.
         modtime.isSome() && (Clock::now() - modtime.get()) > timeout.secs()) {
         LOG(INFO) << "Scheduling slave directory " << path << " for deletion";
         result.push_back(path);
@@ -1165,7 +1118,7 @@ void Slave::garbageCollect(const std::list<string>& directories)
 {
   foreach (const string& dir, directories) {
     LOG(INFO) << "Deleting directory " << dir;
-    utils::os::rmdir(dir);
+    os::rmdir(dir);
   }
 }
 
@@ -1177,7 +1130,7 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
             << executorId << "' of framework " << frameworkId;
 
   std::ostringstream out(std::ios_base::app | std::ios_base::out);
-  out << workRootDir
+  out << flags.work_dir
       << "/slaves/" << id
       << "/frameworks/" << frameworkId
       << "/executors/" << executorId;
@@ -1191,12 +1144,12 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
 
   for (int i = 0; i < INT_MAX; i++) {
     out << i;
-    if (conf.get<bool>("no_create_work_dir", false)) {
+    if (flags.no_create_work_dir) {
       return out.str();
     }
     VLOG(1) << "Checking if " << out.str() << " already exists";
-    if (!utils::os::exists(out.str())) {
-      bool created = utils::os::mkdir(out.str());
+    if (!os::exists(out.str())) {
+      bool created = os::mkdir(out.str());
       CHECK(created) << "Error creating work directory: " << out.str();
       return out.str();
     } else {

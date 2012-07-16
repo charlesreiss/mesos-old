@@ -23,11 +23,12 @@
 
 #include <mesos/mesos.hpp>
 
+#include <stout/strings.hpp>
+
 #include "construct.hpp"
 #include "convert.hpp"
 
-#include "common/logging.hpp"
-#include "common/strings.hpp"
+#include "logging/logging.hpp"
 
 using namespace mesos;
 

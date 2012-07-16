@@ -30,11 +30,11 @@
 #include <process/protobuf.hpp>
 #include <process/timeout.hpp>
 
-#include "common/foreach.hpp"
-#include "common/lambda.hpp"
-#include "common/logging.hpp"
-#include "common/time.hpp"
-#include "common/utils.hpp"
+#include <stout/foreach.hpp>
+#include <stout/lambda.hpp>
+#include <stout/time.hpp>
+
+#include "logging/logging.hpp"
 
 #include "zookeeper/group.hpp"
 

@@ -22,16 +22,23 @@
 #include <sstream>
 
 #include <process/delay.hpp>
+#include <process/id.hpp>
 #include <process/run.hpp>
+
+#include <stout/os.hpp>
+#include <stout/path.hpp>
+#include <stout/utils.hpp>
+#include <stout/uuid.hpp>
 
 #include "common/build.hpp"
 #include "common/date_utils.hpp"
-#include "common/logging.hpp"
-#include "common/strings.hpp"
-#include "common/utils.hpp"
-#include "common/uuid.hpp"
+
+#include "flags/flags.hpp"
+
+#include "logging/flags.hpp"
 
 #include "master/allocator.hpp"
+#include "master/flags.hpp"
 #include "master/master.hpp"
 #include "master/slaves_manager.hpp"
 
@@ -78,7 +85,7 @@ protected:
 
       // TODO(vinod): Ensure this read is atomic w.r.t external
       // writes/updates to this file.
-      Result<string> result = utils::os::read(path.substr(strlen("file://")));
+      Result<string> result = os::read(path.substr(strlen("file://")));
       if (result.isError()) {
         LOG(ERROR) << "Error reading whitelist file "
                    << result.error() << ". Retrying";
@@ -121,7 +128,8 @@ public:
                 const SlaveInfo& _slaveInfo,
                 const SlaveID& _slaveId,
                 const PID<Master>& _master)
-    : slave(_slave),
+    : ProcessBase(ID::generate("slave-observer")),
+      slave(_slave),
       slaveInfo(_slaveInfo),
       slaveId(_slaveId),
       master(_master),
@@ -136,7 +144,7 @@ protected:
   {
     send(slave, "PING");
     pinged = true;
-    delay(SLAVE_PONG_TIMEOUT, self(), &SlaveObserver::timeout);
+    delay(SLAVE_PING_TIMEOUT, self(), &SlaveObserver::timeout);
   }
 
   void pong(const UPID& from, const string& body)
@@ -148,7 +156,7 @@ protected:
   void timeout()
   {
     if (pinged) { // So we haven't got back a pong yet ...
-      if (++timeouts >= MAX_SLAVE_TIMEOUTS) {
+      if (++timeouts >= MAX_SLAVE_PING_TIMEOUTS) {
         deactivate();
         return;
       }
@@ -156,7 +164,7 @@ protected:
 
     send(slave, "PING");
     pinged = true;
-    delay(SLAVE_PONG_TIMEOUT, self(), &SlaveObserver::timeout);
+    delay(SLAVE_PING_TIMEOUT, self(), &SlaveObserver::timeout);
   }
 
   void deactivate()
@@ -251,14 +259,16 @@ struct SlaveReregistrar
 
 Master::Master(Allocator* _allocator)
   : ProcessBase("master"),
-    allocator(_allocator)
+    allocator(_allocator),
+    flags()
 {}
 
 
-Master::Master(Allocator* _allocator, const Configuration& conf)
+Master::Master(Allocator* _allocator,
+               const flags::Flags<logging::Flags, master::Flags>& _flags)
   : ProcessBase("master"),
     allocator(_allocator),
-    conf(conf)
+    flags(_flags)
 {}
 
 
@@ -288,22 +298,6 @@ Master::~Master()
 }
 
 
-void Master::registerOptions(Configurator* configurator)
-{
-  SlavesManager::registerOptions(configurator);
-
-  configurator->addOption<bool>(
-      "root_submissions",
-      "Can root submit frameworks?",
-      true);
-
-  configurator->addOption<string>(
-        "whitelist",
-        "Path to a file with a list of slaves (one per line) to advertise resource offers for.\n"
-        "Should be of the form: file://path/to/file\n");
-}
-
-
 void Master::initialize()
 {
   LOG(INFO) << "Master started on " << string(self()).substr(7);
@@ -324,7 +318,7 @@ void Master::initialize()
   LOG(INFO) << "Master ID: " << info.id();
 
   // Setup slave manager.
-  slavesManager = new SlavesManager(conf, self());
+  slavesManager = new SlavesManager(flags, self());
   spawn(slavesManager);
 
   // Spawn the allocator.
@@ -332,8 +326,7 @@ void Master::initialize()
   dispatch(allocator, &Allocator::initialize, self());
 
   // Parse the white list
-  whitelistWatcher = new WhitelistWatcher(conf.get<string>("whitelist", "*"),
-                                          allocator);
+  whitelistWatcher = new WhitelistWatcher(flags.whitelist, allocator);
   spawn(whitelistWatcher);
 
   elected = false;
@@ -457,22 +450,18 @@ void Master::initialize()
   install<AllocatorEstimates>(&Master::forwardAllocatorEstimates);
 
   // Setup HTTP request handlers.
-  route("vars", bind(&http::vars, cref(*this), params::_1));
-  route("stats.json", bind(&http::json::stats, cref(*this), params::_1));
-  route("state.json", bind(&http::json::state, cref(*this), params::_1));
-  route("log.json", bind(&http::json::log, cref(*this), params::_1));
+  route("/vars", bind(&http::vars, cref(*this), params::_1));
+  route("/stats.json", bind(&http::json::stats, cref(*this), params::_1));
+  route("/state.json", bind(&http::json::state, cref(*this), params::_1));
+  route("/log.json", bind(&http::json::log, cref(*this), params::_1));
 
-  // Use either a directory specified via configuration options (which
-  // is necessary for running out of the build directory before 'make
-  // install') or the directory determined at build time via the
-  // preprocessor macro '-DMESOS_WEBUI_DIR' set in the Makefile.
-  std::string directory = conf.get<std::string>("webui_dir", MESOS_WEBUI_DIR);
-
-  // Remove any trailing '/' in directory.
-  directory = strings::remove(directory, "/", strings::SUFFIX);
-
-  provide("", directory + "/master/static/index.html");
-  provide("static", directory + "/master/static");
+  // Provide HTTP assets from a "webui" directory. This is either
+  // specified via flags (which is necessary for running out of the
+  // build directory before 'make install') or determined at build
+  // time via the preprocessor macro '-DMESOS_WEBUI_DIR' set in the
+  // Makefile.
+  provide("", path::join(flags.webui_dir, "master/static/index.html"));
+  provide("static", path::join(flags.webui_dir, "master/static"));
 }
 
 
@@ -601,7 +590,7 @@ void Master::registerFramework(const FrameworkInfo& frameworkInfo)
 
   LOG(INFO) << "Registering framework " << framework->id << " at " << from;
 
-  bool rootSubmissions = conf.get<bool>("root_submissions", true);
+  bool rootSubmissions = flags.root_submissions;
 
   if (framework->info.user() == "root" && rootSubmissions == false) {
     LOG(INFO) << framework << " registering as root, but "
@@ -686,8 +675,6 @@ void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
 
     // TODO(benh): Check for root submissions like above!
 
-    addFramework(framework);
-
     // Add any running tasks reported by slaves for this framework.
     foreachvalue (Slave* slave, slaves) {
       foreachvalue (Task* task, slave->tasks) {
@@ -703,6 +690,11 @@ void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
         }
       }
     }
+
+    // N.B. Need to add the framwwork _after_ we add it's tasks
+    // (above) so that we can properly determine the resources it's
+    // currently using!
+    addFramework(framework);
   }
 
   CHECK(frameworks.count(frameworkInfo.id()) > 0);
@@ -926,14 +918,14 @@ void Master::registerSlave(const SlaveInfo& slaveInfo)
             << " at " << slave->pid;
 
   // TODO(benh): We assume all slaves can register for now.
-  CHECK(conf.get<string>("slaves", "*") == "*");
+  CHECK(flags.slaves == "*");
   activatedSlaveHostnamePort(slave->info.hostname(), slave->pid.port);
   addSlave(slave);
 
 //   // Checks if this slave, or if all slaves, can be accepted.
 //   if (slaveHostnamePorts.contains(slaveInfo.hostname(), from.port)) {
 //     run(&SlaveRegistrar::run, slave, self());
-//   } else if (conf.get<string>("slaves", "*") == "*") {
+//   } else if (flags.slaves == "*") {
 //     run(&SlaveRegistrar::run, slave, self(), slavesManager->self());
 //   } else {
 //     LOG(WARNING) << "Cannot register slave at "
@@ -982,14 +974,14 @@ void Master::reregisterSlave(const SlaveID& slaveId,
                 << slave->pid << " (" << slave->info.hostname() << ")";
 
       // TODO(benh): We assume all slaves can register for now.
-      CHECK(conf.get<string>("slaves", "*") == "*");
+      CHECK(flags.slaves == "*");
       activatedSlaveHostnamePort(slave->info.hostname(), slave->pid.port);
       readdSlave(slave, executorInfos, tasks);
 
 //       // Checks if this slave, or if all slaves, can be accepted.
 //       if (slaveHostnamePorts.contains(slaveInfo.hostname(), from.port)) {
 //         run(&SlaveReregistrar::run, slave, executorInfos, tasks, self());
-//       } else if (conf.get<string>("slaves", "*") == "*") {
+//       } else if (flags.slaves == "*") {
 //         run(&SlaveReregistrar::run,
 //             slave, executorInfos, tasks, self(), slavesManager->self());
 //       } else {
@@ -1690,7 +1682,7 @@ void Master::addFramework(Framework* framework)
   send(framework->pid, message);
 
   dispatch(allocator, &Allocator::frameworkAdded,
-           framework->id, framework->info);
+           framework->id, framework->info, framework->resources);
 }
 
 
@@ -1715,7 +1707,7 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
   framework->active = true;
 
   dispatch(allocator, &Allocator::frameworkAdded,
-           framework->id, framework->info);
+           framework->id, framework->info, framework->resources);
 
   framework->reregisteredTime = Clock::now();
 

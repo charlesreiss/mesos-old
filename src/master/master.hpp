@@ -22,22 +22,26 @@
 #include <string>
 #include <vector>
 
+#include <process/http.hpp>
 #include <process/process.hpp>
 #include <process/protobuf.hpp>
 
-#include "common/foreach.hpp"
-#include "common/hashmap.hpp"
-#include "common/hashset.hpp"
-#include "common/multihashmap.hpp"
-#include "common/option.hpp"
+#include <stout/foreach.hpp>
+#include <stout/hashmap.hpp>
+#include <stout/hashset.hpp>
+#include <stout/multihashmap.hpp>
+#include <stout/option.hpp>
+
 #include "common/resources.hpp"
 #include "common/type_utils.hpp"
 #include "common/units.hpp"
-#include "common/utils.hpp"
 
-#include "configurator/configurator.hpp"
+#include "flags/flags.hpp"
+
+#include "logging/flags.hpp"
 
 #include "master/constants.hpp"
+#include "master/flags.hpp"
 #include "master/http.hpp"
 
 #include "messages/messages.hpp"
@@ -74,12 +78,11 @@ class Master : public ProtobufProcess<Master>, public AllocatorMasterInterface
 public:
   using Process<Master>::self;
 
-  Master(Allocator* _allocator);
-  Master(Allocator* _allocator, const Configuration& conf);
+  Master(Allocator* allocator);
+  Master(Allocator* allocator,
+         const flags::Flags<logging::Flags, master::Flags>& flags);
 
   virtual ~Master();
-
-  static void registerOptions(Configurator* configurator);
 
   void submitScheduler(const std::string& name);
   void newMasterDetected(const UPID& pid);
@@ -204,26 +207,26 @@ private:
   friend struct SlaveRegistrar;
   friend struct SlaveReregistrar;
 
-  // Http handlers, friends of the master in order to access state,
+  // HTTP handlers, friends of the master in order to access state,
   // they get invoked from within the master so there is no need to
   // use synchronization mechanisms to protect state.
-  friend Future<HttpResponse> http::vars(
+  friend Future<process::http::Response> http::vars(
       const Master& master,
-      const HttpRequest& request);
+      const process::http::Request& request);
 
-  friend Future<HttpResponse> http::json::stats(
+  friend Future<process::http::Response> http::json::stats(
       const Master& master,
-      const HttpRequest& request);
+      const process::http::Request& request);
 
-  friend Future<HttpResponse> http::json::state(
+  friend Future<process::http::Response> http::json::state(
       const Master& master,
-      const HttpRequest& request);
+      const process::http::Request& request);
 
-  friend Future<HttpResponse> http::json::log(
+  friend Future<process::http::Response> http::json::log(
       const Master& master,
-      const HttpRequest& request);
+      const process::http::Request& request);
 
-  const Configuration conf;
+  const flags::Flags<logging::Flags, master::Flags> flags;
 
   bool elected;
 
@@ -400,7 +403,7 @@ struct Slave
 
   ResourceHints resourcesOffered; // Resources currently in offers.
   Resources resourcesInUse;   // Resources currently used by tasks.
-  Resources resourcesGaurenteed; 
+  Resources resourcesGaurenteed;
   Resources resourcesObservedUsed; // Used resources based on last usage
                                    // message.
 

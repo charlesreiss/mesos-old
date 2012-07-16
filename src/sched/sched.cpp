@@ -38,18 +38,25 @@
 #include <process/process.hpp>
 #include <process/protobuf.hpp>
 
-#include "configurator/configuration.hpp"
+#include <stout/fatal.hpp>
+#include <stout/hashmap.hpp>
+#include <stout/os.hpp>
+#include <stout/uuid.hpp>
 
-#include "common/fatal.hpp"
-#include "common/hashmap.hpp"
+#include "configurator/configuration.hpp"
+#include "configurator/configurator.hpp"
+
 #include "common/lock.hpp"
-#include "common/logging.hpp"
 #include "common/type_utils.hpp"
-#include "common/uuid.hpp"
 
 #include "detector/detector.hpp"
 
+#include "flags/flags.hpp"
+
 #include "local/local.hpp"
+
+#include "logging/flags.hpp"
+#include "logging/logging.hpp"
 
 #include "messages/messages.hpp"
 
@@ -80,19 +87,38 @@ public:
   SchedulerProcess(MesosSchedulerDriver* _driver,
                    Scheduler* _scheduler,
                    const FrameworkInfo& _framework,
+                   const string& _url,
                    pthread_mutex_t* _mutex,
                    pthread_cond_t* _cond)
     : ProcessBase(ID::generate("scheduler")),
       driver(_driver),
       scheduler(_scheduler),
       framework(_framework),
+      url(_url),
       mutex(_mutex),
       cond(_cond),
       master(UPID()),
       failover(_framework.has_id() && !framework.id().value().empty()),
       connected(false),
-      aborted(false)
+      aborted(false),
+      // TODO(benh): Add Try().
+      detector(Try<MasterDetector*>::error("uninitialized"))
+  {}
+
+  virtual ~SchedulerProcess() {}
+
+protected:
+  virtual void initialize()
   {
+    // The master detector needs to be created after this process is
+    // running so that the "master detected" message is not dropped.
+    detector = MasterDetector::create(url, self(), false, false);
+    if (detector.isError()) {
+      driver->abort();
+      scheduler->error(driver, detector.error());
+      return;
+    }
+
     install<NewMasterDetectedMessage>(
         &SchedulerProcess::newMasterDetected,
         &NewMasterDetectedMessage::pid);
@@ -140,11 +166,13 @@ public:
         &FrameworkErrorMessage::message);
   }
 
-  virtual ~SchedulerProcess() {
-    LOG(INFO) << "~SchedulerProcess (" << (void*) this << " " << framework.id() << ")";
+  virtual void finalize()
+  {
+    if (detector.isSome()) {
+      MasterDetector::destroy(detector.get());
+    }
   }
 
-protected:
   void newMasterDetected(const UPID& pid)
   {
     VLOG(1) << "New master at " << pid << " for " << (void*) this;
@@ -577,6 +605,7 @@ private:
   MesosSchedulerDriver* driver;
   Scheduler* scheduler;
   FrameworkInfo framework;
+  string url; // URL for the master (e.g., zk://, file://, etc).
   pthread_mutex_t* mutex;
   pthread_cond_t* cond;
   bool failover;
@@ -584,6 +613,8 @@ private:
 
   volatile bool connected; // Flag to indicate if framework is registered.
   volatile bool aborted; // Flag to indicate if the driver is aborted.
+
+  Try<MasterDetector*> detector;
 
   hashmap<OfferID, hashmap<SlaveID, UPID> > savedOffers;
   hashmap<SlaveID, UPID> savedSlavePids;
@@ -614,22 +645,20 @@ MesosSchedulerDriver::MesosSchedulerDriver(
     framework(_framework),
     master(_master),
     process(NULL),
-    detector(NULL),
     status(DRIVER_NOT_STARTED)
 {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
-  // Load the configuration.
+  // Load the configuration. For now, we just load all key/value pairs
+  // from the environment (and possibly a file if specified) but don't
+  // actually do any validation on them (since we don't register any
+  // options). Any "validation" necessary will be done when we load
+  // the configuration into flags (i.e., below when we initialize
+  // logging or inside of local::launch).
   Configurator configurator;
-
-  logging::registerOptions(&configurator);
-
-  if (master == "local" || master == "localquiet") {
-    local::registerOptions(&configurator);
-  }
-
+  Configuration configuration;
   try {
-    conf = new Configuration(configurator.load());
+    configuration = configurator.load();
   } catch (ConfigurationException& e) {
     status = DRIVER_ABORTED;
     string message = string("Configuration error: ") + e.what();
@@ -637,24 +666,55 @@ MesosSchedulerDriver::MesosSchedulerDriver(
     return;
   }
 
+  flags::Flags<logging::Flags> flags;
+
+  flags.load(configuration.getMap());
+
   // Initialize libprocess.
   process::initialize();
 
   // TODO(benh): Consider eliminating 'localquiet' so that we don't
   // have to have weird semantics when the 'quiet' option is set to
   // false but 'localquiet' is being used.
-  conf->set("quiet", master == "localquiet");
+  configuration.set("quiet", master == "localquiet");
 
   // TODO(benh): Replace whitespace in framework.name() with '_'?
-  logging::initialize(framework.name(), *conf);
+  logging::initialize(framework.name(), flags);
 
-  // Initialize mutex and condition variable.
+  // Initialize mutex and condition variable. TODO(benh): Consider
+  // using a libprocess Latch rather than a pthread mutex and
+  // condition variable for signaling.
   pthread_mutexattr_t attr;
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
   pthread_mutex_init(&mutex, &attr);
   pthread_mutexattr_destroy(&attr);
   pthread_cond_init(&cond, 0);
+
+  // TODO(benh): Check the user the framework wants to run tasks as,
+  // see if the current user can switch to that user, or via an
+  // authentication module ensure this is acceptable.
+
+  // If no user specified, just use the current user.
+  if (framework.user() == "") {
+    framework.set_user(os::user());
+  }
+
+  // Launch a local cluster if necessary.
+  Option<UPID> pid;
+  if (master == "local" || master == "localquiet") {
+    pid = local::launch(configuration);
+  }
+
+  CHECK(process == NULL);
+
+  if (pid.isSome()) {
+    process = new SchedulerProcess(
+        this, scheduler, framework, pid.get(), &mutex, &cond);
+  } else {
+    process = new SchedulerProcess(
+        this, scheduler, framework, master, &mutex, &cond);
+  }
 }
 
 
@@ -684,13 +744,6 @@ MesosSchedulerDriver::~MesosSchedulerDriver()
   pthread_mutex_destroy(&mutex);
   pthread_cond_destroy(&cond);
 
-  if (detector != NULL) {
-    MasterDetector::destroy(detector);
-  }
-
-  // Delete conf since we always create it ourselves with new
-  delete conf;
-
   // Check and see if we need to shutdown a local cluster.
   if (master == "local" || master == "localquiet") {
     local::shutdown();
@@ -706,35 +759,9 @@ Status MesosSchedulerDriver::start()
     return status;
   }
 
-  // TODO(benh): Check the user the framework wants to run tasks as,
-  // see if the current user can switch to that user, or via an
-  // authentication module ensure this is acceptable.
-
-  // Set up framework info.
-  framework.set_allocates_min(scheduler->allocatesMin());
-  // If no user specified, just use the current user.
-  if (framework.user() == "") {
-    framework.set_user(utils::os::user());
-  }
-
-  CHECK(process == NULL);
-
-  // TODO(benh): Consider using a libprocess Latch rather than a
-  // pthread mutex and condition variable for signaling.
-  process = new SchedulerProcess(this, scheduler, framework, &mutex, &cond);
+  CHECK(process != NULL);
 
   spawn(process);
-
-  // Launch a local cluster if necessary.
-  if (master == "local") {
-    detector = new BasicMasterDetector(local::launch(*conf), process->self());
-  } else if (master == "localquiet") {
-    conf->set("quiet", 1);
-    detector = new BasicMasterDetector(local::launch(*conf), process->self());
-  } else {
-    detector =
-      MasterDetector::create(master, process->self(), false, false).get();
-  }
 
   return status = DRIVER_RUNNING;
 }

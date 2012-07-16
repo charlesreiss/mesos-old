@@ -166,7 +166,7 @@ protected:
   void makeAndAddFramework(const std::string& name) {
     FrameworkInfo emptyInfo;
     process::dispatch(allocator, &Allocator::frameworkAdded,
-        framework(name), emptyInfo);
+        framework(name), emptyInfo, Resources());
   }
 
   void setSlaveFree(const std::string& name,

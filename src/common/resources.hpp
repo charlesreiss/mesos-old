@@ -24,10 +24,10 @@
 
 #include <mesos/mesos.hpp>
 
-#include "messages/messages.hpp"  // for mesos::internal::Task
+#include <stout/foreach.hpp>
+#include <stout/option.hpp>
 
-#include "common/foreach.hpp"
-#include "common/option.hpp"
+#include "messages/messages.pb.h"
 #include "common/values.hpp"
 
 

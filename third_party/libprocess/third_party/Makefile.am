@@ -14,7 +14,7 @@ CONFIGURE_ARGS = @CONFIGURE_ARGS@ --enable-shared=no --with-pic --srcdir=.
 
 include versions.am
 
-BOOST = boost-$(BOOST_VERSION)
+BOOST = boost_$(BOOST_VERSION)
 GLOG = glog-$(GLOG_VERSION)
 GMOCK = gmock-$(GMOCK_VERSION)
 GTEST = $(GMOCK)/gtest

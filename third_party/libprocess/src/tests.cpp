@@ -20,26 +20,21 @@
 #include <process/io.hpp>
 #include <process/process.hpp>
 #include <process/run.hpp>
+#include <process/thread.hpp>
 
 #include "encoder.hpp"
-#include "thread.hpp"
-
-// Definition of a Set action to be used with gmock.
-ACTION_P2(Set, variable, value) { *variable = value; }
 
 using namespace process;
 
 using testing::_;
+using testing::Assign;
 using testing::Return;
 using testing::ReturnArg;
 
 
-TEST(libprocess, thread)
+TEST(Process, thread)
 {
-  pthread_key_t key;
-  ASSERT_EQ(0, pthread_key_create(&key, NULL));
-
-  ThreadLocal<ProcessBase>* _process_ = new ThreadLocal<ProcessBase>(key);
+  ThreadLocal<ProcessBase>* _process_ = new ThreadLocal<ProcessBase>();
 
   ProcessBase* process = new ProcessBase();
 
@@ -56,12 +51,10 @@ TEST(libprocess, thread)
 
   delete process;
   delete _process_;
-
-  ASSERT_EQ(0, pthread_key_delete(key));
 }
 
 
-TEST(libprocess, event)
+TEST(Process, event)
 {
   Event* event = new TerminateEvent(UPID());
   EXPECT_FALSE(event->is<MessageEvent>());
@@ -71,7 +64,7 @@ TEST(libprocess, event)
 }
 
 
-TEST(libprocess, future)
+TEST(Process, future)
 {
   Promise<bool> promise;
   promise.set(true);
@@ -80,7 +73,7 @@ TEST(libprocess, future)
 }
 
 
-TEST(libprocess, associate)
+TEST(Process, associate)
 {
   Promise<bool> promise1;
   Future<bool> future1(true);
@@ -119,7 +112,7 @@ std::string itoa2(int* const& i)
 }
 
 
-TEST(libprocess, then)
+TEST(Process, then)
 {
   Promise<int*> promise;
 
@@ -149,7 +142,7 @@ public:
 };
 
 
-TEST(libprocess, spawn)
+TEST(Process, spawn)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -181,7 +174,7 @@ public:
 };
 
 
-TEST(libprocess, dispatch)
+TEST(Process, dispatch)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -217,7 +210,7 @@ TEST(libprocess, dispatch)
 }
 
 
-TEST(libprocess, defer)
+TEST(Process, defer1)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -289,6 +282,86 @@ TEST(libprocess, defer)
 }
 
 
+template <typename T>
+void set(T* t1, const T& t2)
+{
+  *t1 = t2;
+}
+
+
+class DeferProcess : public Process<DeferProcess>
+{
+public:
+  DeferProcess(volatile bool* _bool1, volatile bool* _bool2)
+    : bool1(_bool1), bool2(_bool2) {}
+
+protected:
+  virtual void initialize()
+  {
+    deferred<void(bool)> set1 =
+      defer(std::tr1::function<void(bool)>(
+                std::tr1::bind(&set<volatile bool>,
+                               bool1,
+                               std::tr1::placeholders::_1)));
+
+    set1(true);
+
+    deferred<void(bool)> set2 =
+      defer(std::tr1::function<void(bool)>(
+                std::tr1::bind(&set<volatile bool>,
+                               bool2,
+                               std::tr1::placeholders::_1)));
+
+    set2(true);
+  }
+
+private:
+  volatile bool* bool1;
+  volatile bool* bool2;
+};
+
+
+TEST(Process, defer2)
+{
+  ASSERT_TRUE(GTEST_IS_THREADSAFE);
+
+  volatile bool bool1 = false;
+  volatile bool bool2 = false;
+
+  DeferProcess process(&bool1, &bool2);
+
+  PID<DeferProcess> pid = spawn(process);
+
+  while (!bool1);
+  while (!bool2);
+
+  terminate(pid);
+  wait(pid);
+
+  bool1 = false;
+  bool2 = false;
+
+  deferred<void(bool)> set1 =
+    defer(std::tr1::function<void(bool)>(
+              std::tr1::bind(&set<volatile bool>,
+                             &bool1,
+                             std::tr1::placeholders::_1)));
+
+  set1(true);
+
+  deferred<void(bool)> set2 =
+    defer(std::tr1::function<void(bool)>(
+              std::tr1::bind(&set<volatile bool>,
+                             &bool2,
+                             std::tr1::placeholders::_1)));
+
+  set2(true);
+
+  while (!bool1);
+  while (!bool2);
+}
+
+
 class HandlersProcess : public Process<HandlersProcess>
 {
 public:
@@ -301,7 +374,7 @@ public:
 };
 
 
-TEST(libprocess, handlers)
+TEST(Process, handlers)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -337,7 +410,7 @@ public:
 };
 
 
-TEST(libprocess, inheritance)
+TEST(Process, inheritance)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -368,7 +441,7 @@ TEST(libprocess, inheritance)
 }
 
 
-TEST(libprocess, thunk)
+TEST(Process, thunk)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -413,7 +486,7 @@ public:
 };
 
 
-TEST(libprocess, delegate)
+TEST(Process, delegate)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -454,7 +527,7 @@ TEST(libprocess, delegate)
 // };
 
 
-// TEST(libprocess, terminate)
+// TEST(Process, terminate)
 // {
 //   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -483,7 +556,7 @@ public:
 };
 
 
-TEST(libprocess, delay)
+TEST(Process, delay)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -494,7 +567,7 @@ TEST(libprocess, delay)
   TimeoutProcess process;
 
   EXPECT_CALL(process, timeout())
-    .WillOnce(Set(&timeoutCalled, true));
+    .WillOnce(Assign(&timeoutCalled, true));
 
   spawn(process);
 
@@ -524,7 +597,7 @@ public:
 };
 
 
-TEST(libprocess, order)
+TEST(Process, order)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -535,7 +608,7 @@ TEST(libprocess, order)
   volatile bool timeoutCalled = false;
 
   EXPECT_CALL(process1, timeout())
-    .WillOnce(Set(&timeoutCalled, true));
+    .WillOnce(Assign(&timeoutCalled, true));
 
   spawn(process1);
 
@@ -579,7 +652,7 @@ public:
 };
 
 
-TEST(libprocess, donate)
+TEST(Process, donate)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -602,7 +675,7 @@ public:
 };
 
 
-TEST(libprocess, exited)
+TEST(Process, exited)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -613,8 +686,8 @@ TEST(libprocess, exited)
   volatile bool exitedCalled = false;
 
   EXPECT_CALL(process, exited(pid))
-    .WillOnce(Set(&exitedCalled, true));
-  
+    .WillOnce(Assign(&exitedCalled, true));
+
   spawn(process);
 
   terminate(pid);
@@ -626,7 +699,7 @@ TEST(libprocess, exited)
 }
 
 
-TEST(libprocess, select)
+TEST(Process, select)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -652,7 +725,7 @@ TEST(libprocess, select)
 }
 
 
-TEST(libprocess, collect)
+TEST(Process, collect)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -718,7 +791,7 @@ public:
 };
 
 
-TEST(libprocess, settle)
+TEST(Process, settle)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -767,7 +840,7 @@ TEST(libprocess, settle)
 // }
 
 
-TEST(libprocess, pid)
+TEST(Process, pid)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -805,7 +878,7 @@ public:
 };
 
 
-TEST(libprocess, listener)
+TEST(Process, listener)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -835,7 +908,7 @@ public:
 };
 
 
-TEST(libprocess, executor)
+TEST(Process, executor)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -845,10 +918,10 @@ TEST(libprocess, executor)
   EventReceiver receiver;
 
   EXPECT_CALL(receiver, event1(42))
-    .WillOnce(Set(&event1Called, true));
+    .WillOnce(Assign(&event1Called, true));
 
   EXPECT_CALL(receiver, event2("event2"))
-    .WillOnce(Set(&event2Called, true));
+    .WillOnce(Assign(&event2Called, true));
 
   Executor executor;
 
@@ -883,7 +956,7 @@ public:
 };
 
 
-TEST(libprocess, remote)
+TEST(Process, remote)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -892,7 +965,7 @@ TEST(libprocess, remote)
   volatile bool handlerCalled = false;
 
   EXPECT_CALL(process, handler(_, _))
-    .WillOnce(Set(&handlerCalled, true));
+    .WillOnce(Assign(&handlerCalled, true));
 
   spawn(process);
 
@@ -931,21 +1004,21 @@ class HttpProcess : public Process<HttpProcess>
 public:
   HttpProcess()
   {
-    route("handler", &HttpProcess::handler);
+    route("/handler", &HttpProcess::handler);
   }
 
-  MOCK_METHOD1(handler, Future<HttpResponse>(const HttpRequest&));
+  MOCK_METHOD1(handler, Future<http::Response>(const http::Request&));
 };
 
 
-TEST(libprocess, http)
+TEST(Process, http)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
   HttpProcess process;
 
   EXPECT_CALL(process, handler(_))
-    .WillOnce(Return(HttpOKResponse()));
+    .WillOnce(Return(http::OK()));
 
   spawn(process);
 
@@ -987,7 +1060,7 @@ TEST(libprocess, http)
 }
 
 
-TEST(libprocess, poll)
+TEST(Process, poll)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 

@@ -21,9 +21,11 @@
 
 #include <vector>
 
-#include "common/hashmap.hpp"
-#include "common/multihashmap.hpp"
-#include "common/option.hpp"
+#include <stout/hashmap.hpp>
+#include <stout/multihashmap.hpp>
+#include <stout/option.hpp>
+
+#include "configurator/configuration.hpp"
 
 #include "master/allocator.hpp"
 
@@ -45,10 +47,11 @@ public:
 
   virtual ~DominantShareAllocator() {}
 
-  virtual void initialize(const process::PID<Master>& _master);
+  virtual void initialize(const process::PID<Master>& master);
 
   virtual void frameworkAdded(const FrameworkID& frameworkId,
-                              const FrameworkInfo& frameworkInfo);
+                              const FrameworkInfo& frameworkInfo,
+                              const Resources& used);
 
   virtual void frameworkDeactivated(const FrameworkID& frameworkId);
 

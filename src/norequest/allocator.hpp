@@ -70,7 +70,8 @@ public:
   }
 
   virtual void frameworkAdded(const FrameworkID& frameworkId,
-                              const FrameworkInfo& frameworkInfo);
+                              const FrameworkInfo& frameworkInfo,
+                              const Resources& used);
 
   virtual void frameworkDeactivated(const FrameworkID& frameworkId);
   virtual void frameworkRemoved(const FrameworkID& frameworkId) {

@@ -337,9 +337,6 @@ UsageTrackerImpl::placeUsage(const FrameworkID& frameworkId,
                              const Resources& minResources,
                              const Option<Resources>& estResources,
                              int numTasks) {
-  LOG(INFO) << "placeUsage(" << frameworkId << "," << executorId
-            << "," << slaveId << ", min: " << minResources
-            << ", est: " << estResources << ", " << numTasks << ")";
   ResourceEstimates* executor = estimateFor(frameworkId, executorId, slaveId);
   executor->setMin(lastTickTime, minResources);
   if (estResources.isSome()) {

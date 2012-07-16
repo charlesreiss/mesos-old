@@ -20,10 +20,10 @@
 
 #include <gmock/gmock.h>
 
-#include "common/option.hpp"
-#include "common/try.hpp"
+#include <stout/foreach.hpp>
+#include <stout/option.hpp>
+#include <stout/try.hpp>
 
-#include "common/foreach.hpp"
 #include "linux/fs.hpp"
 
 using namespace mesos;
@@ -69,9 +69,7 @@ TEST(FsTest, MountTableHasOption)
   }
 
   ASSERT_TRUE(proc.isSome());
-  EXPECT_TRUE(proc.get().hasOption("rw"));
-  EXPECT_TRUE(proc.get().hasOption("noexec"));
-  EXPECT_TRUE(proc.get().hasOption("nodev"));
+  EXPECT_TRUE(proc.get().hasOption(MNTOPT_RW));
 }
 
 

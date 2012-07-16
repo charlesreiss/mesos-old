@@ -21,6 +21,7 @@
 
 #include "allocator.hpp"
 
+#include "configurator/configuration.hpp"
 #include "common/factory.hpp"
 
 namespace mesos { namespace internal { namespace master {
