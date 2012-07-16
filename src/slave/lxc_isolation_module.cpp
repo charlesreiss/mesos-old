@@ -370,21 +370,27 @@ namespace {
 void getBlkioStats(const string& prefix,
                    const string& stats,
                    double duration,
+                   bool haveCols,
                    hashmap<string, int64_t>* prev,
                    Resources* result)
 {
   std::istringstream is(stats);
   int64_t value;
-  std::string disk, type;
+  std::string disk;
   while (is >> disk) {
+    std::string label;
     if (disk == "Total") {
       disk = "all";
-      type = "Total";
       is >> value;
-    } else {
+      label = "total";
+    } else if (haveCols) {
+      std::string type;
       is >> type >> value;
+      label = disk + "_" + type;
+    } else {
+      label = disk;
+      is >> value;
     }
-    std::string label = disk + "_" + type;
     if (prev->count(label) > 0) {
       double delta = (value - (*prev)[label]) / duration;
       mesos::Resource resource;
@@ -466,16 +472,16 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
     }
   }
   if (haveBlkioTime) {
-    getBlkioStats("disk_time", diskTime, duration, &info->lastDiskTime,
-        &psuedoResult);
+    getBlkioStats("disk_time", diskTime, duration, false,
+        &info->lastDiskTime, &psuedoResult);
   }
   if (haveBlkioServiced) {
-    getBlkioStats("disk_serviced", diskServiced, duration,
+    getBlkioStats("disk_serviced", diskServiced, duration, true,
         &info->lastDiskServiced, &psuedoResult);
   }
   if (haveBlkioBytes) {
-    getBlkioStats("disk_bytes", diskBytes, duration, &info->lastDiskBytes,
-        &psuedoResult);
+    getBlkioStats("disk_bytes", diskBytes, duration, true,
+        &info->lastDiskBytes, &psuedoResult);
   }
   info->haveSample = true;
   if (result.size() > 0) {
