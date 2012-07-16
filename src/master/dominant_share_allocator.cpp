@@ -57,14 +57,22 @@ public:
 
   virtual bool filter(const SlaveID& slaveId, const Resources& resources)
   {
+    LOG(INFO) << "Checking " << slaveId << " " << resources
+              << " v " << this->slaveId << " " << this->resources
+              << " t " << timeout.remaining();
     return slaveId == this->slaveId &&
       resources <= this->resources &&
-      timeout.remaining() < 0.0;
+      timeout.remaining() > 0.0;
+  }
+
+  virtual ~RefusedFilter() {
+    process::timers::cancel(expireTimer);
   }
 
   const SlaveID slaveId;
   const Resources resources;
   const Timeout timeout;
+  process::Timer expireTimer;
 };
 
 
@@ -290,11 +298,13 @@ void DominantShareAllocator::resourcesUnused(
 	      << " for " << timeout << " seconds";
 
     // Create a new filter and delay it's expiration.
-    Filter* filter = new RefusedFilter(slaveId, resources, timeout);
+    RefusedFilter* filter = new RefusedFilter(slaveId, resources, timeout);
     this->filters.put(frameworkId, filter);
 
     // TODO(benh): Use 'this' and '&This::' as appropriate.
-    delay(timeout, PID<DominantShareAllocator>(this), &DominantShareAllocator::expire,
+    filter->expireTimer =
+      delay(timeout, PID<DominantShareAllocator>(this),
+          &DominantShareAllocator::expire,
 	  frameworkId, filter);
   }
 
@@ -441,6 +451,7 @@ void DominantShareAllocator::allocate(const hashset<SlaveID>& slaveIds)
       bool filtered = false;
 
       foreach (Filter* filter, filters.get(frameworkId)) {
+        LOG(INFO) << "Checking filter for " << frameworkId;
         if (filter->filter(slaveId, resources)) {
           VLOG(1) << "Filtered " << resources
                   << " on slave " << slaveId
@@ -476,6 +487,7 @@ void DominantShareAllocator::expire(
     const FrameworkID& frameworkId,
     Filter* filter)
 {
+  LOG(INFO) << "expiring a filter for " << frameworkId;
   // Framework might have been removed, in which case it's filters
   // should also already have been deleted.
   if (frameworks.contains(frameworkId)) {

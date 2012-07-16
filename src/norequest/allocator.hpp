@@ -115,6 +115,8 @@ public:
   }
 
 private:
+  void removeFiltersFor(const FrameworkID& framework);
+
   void makeUsageReoffers() {
     pendingReoffer = false;
     std::vector<SlaveID> offerSlaves(

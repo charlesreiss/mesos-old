@@ -49,8 +49,9 @@ using process::Timeout;
 class Filter
 {
 public:
-  virtual ~Filter() {}
+  virtual ~Filter() { process::timers::cancel(expireTimer); }
   virtual bool filter(const SlaveID& slaveId, const ResourceHints& resources) = 0;
+  process::Timer expireTimer;
 };
 
 namespace {
@@ -131,6 +132,15 @@ NoRequestAllocator::initialize(
 }
 
 void
+NoRequestAllocator::removeFiltersFor(const FrameworkID& frameworkId)
+{
+  foreach (Filter* filter, filters.get(frameworkId)) {
+    filters.remove(frameworkId, filter);
+    delete filter;
+  }
+}
+
+void
 NoRequestAllocator::frameworkAdded(const FrameworkID& frameworkId,
                                    const FrameworkInfo& info) {
   frameworks[frameworkId] = info;
@@ -146,7 +156,7 @@ NoRequestAllocator::frameworkDeactivated(const FrameworkID& frameworkId) {
     refuserSet.erase(frameworkId);
   }
   frameworks.erase(frameworkId);
-  filters.erase(frameworkId);
+  removeFiltersFor(frameworkId);
 }
 
 void
@@ -200,6 +210,7 @@ NoRequestAllocator::taskRemoved(
              Option<ExecutorInfo>::none());
   refusers.erase(task.slave_id());
   allRefusers.erase(task.slave_id());
+  removeFiltersFor(frameworkId);
   std::vector<SlaveID> slave_alone;
   slave_alone.push_back(task.slave_id());
   makeNewOffers(slave_alone);
@@ -223,6 +234,7 @@ NoRequestAllocator::executorRemoved(const FrameworkID& frameworkId,
   knownTasks.erase(ExecutorKey(frameworkId, info.executor_id(), slaveId));
   refusers.erase(slaveId);
   allRefusers.erase(slaveId);
+  removeFiltersFor(frameworkId);
   std::vector<SlaveID> slave_alone;
   slave_alone.push_back(slaveId);
   // TODO(Charles): Unit test for this happening
@@ -507,7 +519,8 @@ void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
     this->filters.put(frameworkId, filter);
 
     // TODO(benh): Use 'this' and '&This::' as appropriate.
-    delay(timeout, self(), &NoRequestAllocator::expire, frameworkId, filter);
+    filter->expireTimer =
+      delay(timeout, self(), &NoRequestAllocator::expire, frameworkId, filter);
   }
 
   /* Before recording a framework as a refuser, make sure we would offer
@@ -549,6 +562,7 @@ void NoRequestAllocator::resourcesRecovered(const FrameworkID& frameworkId,
                                             const SlaveID& slaveId,
                                             const ResourceHints& unusedResources) {
   // FIXME: do we need to inform usagetracker about this?
+  removeFiltersFor(frameworkId);
   refusers[slaveId].erase(frameworkId);
   allRefusers.erase(slaveId);
   if (aggressiveReoffer) {
@@ -562,6 +576,7 @@ void NoRequestAllocator::resourcesRecovered(const FrameworkID& frameworkId,
 
 void NoRequestAllocator::offersRevived(const FrameworkID& frameworkId) {
   LOG(INFO) << "offersRevived for " << frameworkId;
+  removeFiltersFor(frameworkId); // TODO: test this (and elsewhere)
   std::vector<SlaveID> revivedSlaves;
   foreachpair (SlaveID slave, boost::unordered_set<FrameworkID>& refuserSet,
                refusers) {
