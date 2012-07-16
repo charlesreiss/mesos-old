@@ -37,6 +37,7 @@ namespace norequest {
 
 using master::Allocator;
 using master::AllocatorMasterInterface;
+using master::Master;
 
 struct Filter;
 
@@ -57,10 +58,9 @@ public:
 
   using process::Process<NoRequestAllocator>::self;
 
-  void initialize(const process::PID<master::Master>& _master) {
+  void initialize(const process::PID<Master>& _master) {
     initialize(_master.operator process::PID<AllocatorMasterInterface>());
   }
-
   void initialize(const process::PID<AllocatorMasterInterface>& _master);
   void resourcesRequested(const FrameworkID& frameworkId,
       const std::vector<Request>& requests) {}
@@ -106,6 +106,13 @@ public:
   std::vector<FrameworkID> getOrderedFrameworks();
   void stopMakingOffers() { dontMakeOffers = true; }
   void startMakingOffers() { dontMakeOffers = false; }
+  void wipeOffers() {
+    allRefusers.clear();
+    refusers.clear();
+    offered.clear();
+    frameworkOffered.clear();
+    filters.clear();
+  }
 
 private:
   void makeUsageReoffers() {
@@ -193,6 +200,7 @@ private:
   hashset<SlaveID> usageReofferSlaves;
   bool pendingReoffer;
   process::Timer usageReofferTimer;
+  process::Timer tickTimer;
 
   bool useLocalPriorities;
 

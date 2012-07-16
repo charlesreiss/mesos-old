@@ -99,6 +99,7 @@ public:
 
   void stopScheduler() {
     trigger lostFramework;
+    EXPECT_CALL(allocator, frameworkDeactivated(_));
     EXPECT_CALL(allocator, frameworkRemoved(_)).
       WillOnce(Trigger(&lostFramework));
     driver->stop();
@@ -211,6 +212,7 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
   WAIT_UNTIL(offerComplete);
   WAIT_UNTIL(gotStatus);
   LOG(INFO) << "gotStatus";
+  EXPECT_CALL(allocator, gotUsage(_));
   tick();  // task should schedule by now.
   WAIT_UNTIL(tookUsage);
   LOG(INFO) << "tookUsage";
@@ -218,6 +220,8 @@ TEST_F(MasterSlaveFakeTest, RunSchedulerRunOneTick) {
   trigger tookFinished;
   EXPECT_CALL(task, takeUsage(_, _, _)).
     WillOnce(DoAll(Trigger(&tookFinished), Return(TASK_FINISHED)));
+  EXPECT_CALL(allocator, gotUsage(_));
+  EXPECT_CALL(allocator, resourcesRecovered(_, _, _)).WillOnce(Return());
   LOG(INFO) << "about to tick";
   tick();
   WAIT_UNTIL(tookFinished);

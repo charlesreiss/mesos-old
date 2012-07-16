@@ -1507,6 +1507,7 @@ void Master::processTasks(Offer* offer,
         LOG(ERROR) << "Framework " << framework->id
                    << " requested min resources but it is allocates_min";
       }
+      LOG(INFO) << "Copying " << task.resources() << " to min resources";
       task.mutable_min_resources()->MergeFrom(task.resources());
       task.clear_resources();
     }
@@ -1582,14 +1583,7 @@ void Master::processTasks(Offer* offer,
 	     filters);
   }
 
-  FrameworkID frameworkId = offer->framework_id();
-  SlaveID slaveId = offer->slave_id();
-
   removeOffer(offer);
-
-  foreach (Task* t, launchedTasks) {
-    dispatch(allocator, &Allocator::taskAdded, *t);
-  }
 }
 
 ResourceHints Master::launchTask(const TaskInfo& task,
@@ -1653,6 +1647,8 @@ ResourceHints Master::launchTask(const TaskInfo& task,
   message.set_pid(framework->pid);
   message.mutable_task()->MergeFrom(task);
   send(slave->pid, message);
+
+  process::dispatch(allocator, &Allocator::taskAdded, framework->id, task);
 
   stats.tasks[TASK_STAGING]++;
 
@@ -2010,8 +2006,19 @@ void Master::removeTask(Task* task)
   CHECK(slave != NULL);
   slave->removeTask(task);
 
-  // TODO(charles): remove??
-  dispatch(allocator, &Allocator::taskRemoved, *task);
+  {
+    TaskInfo info;
+    info.mutable_slave_id()->MergeFrom(task->slave_id());
+    info.set_name(task->name());
+    if (task->has_executor_id()) {
+      info.mutable_executor()->mutable_executor_id()->MergeFrom(
+          task->executor_id());
+    }
+    info.mutable_task_id()->MergeFrom(task->task_id());
+    info.mutable_resources()->MergeFrom(task->resources());
+    info.mutable_min_resources()->MergeFrom(task->min_resources());
+    dispatch(allocator, &Allocator::taskRemoved, task->framework_id(), info);
+  }
 
   // Tell the allocator about the recovered resources.
   dispatch(allocator, &Allocator::resourcesRecovered,
@@ -2145,6 +2152,7 @@ SlaveID Master::newSlaveId()
 
 
 void Master::updateUsage(const UsageMessage& message) {
+  LOG(INFO) << "got usage message";
   Slave* slave = getSlave(message.slave_id());
   if (slave) {
     slave->addUsageMessage(message);

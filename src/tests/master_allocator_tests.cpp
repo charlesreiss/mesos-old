@@ -71,22 +71,25 @@ protected:
   void TearDown()
   {
     EXPECT_CALL(allocator, resourcesRecovered(_, _, _)).Times(AnyNumber());
-    if (frameworkPid) {
-      EXPECT_CALL(allocator, frameworkRemoved(_)).Times(1);
-    }
     if (slavePid) {
-      EXPECT_CALL(allocator, slaveRemoved(_)).Times(1);
+      trigger slaveDone;
+      EXPECT_CALL(allocator, slaveRemoved(_)).
+        WillOnce(Trigger(&slaveDone));
+      process::terminate(slavePid);
+      process::wait(slavePid);
+      WAIT_UNTIL(slaveDone);
+    }
+    if (frameworkPid) {
+      trigger frameworkDone;
+      EXPECT_CALL(allocator, frameworkDeactivated(_)).Times(1);
+      EXPECT_CALL(allocator, frameworkRemoved(_)).
+        WillOnce(Trigger(&frameworkDone));
+      process::terminate(frameworkPid);
+      process::wait(frameworkPid);
+      WAIT_UNTIL(frameworkDone);
     }
     process::terminate(masterPid);
     process::wait(masterPid);
-    if (slavePid) {
-      process::terminate(slavePid);
-      process::wait(slavePid);
-    }
-    if (frameworkPid) {
-      process::terminate(frameworkPid);
-      process::wait(frameworkPid);
-    }
     process::filter(0);
     process::Clock::resume();
     master.reset(0);
@@ -186,7 +189,8 @@ protected:
 
   void unregisterSlave()
   {
-    EXPECT_CALL(allocator, slaveRemoved(_)).Times(1);
+    EXPECT_CALL(allocator, slaveRemoved(_)).
+      WillOnce(Return());
     UnregisterSlaveMessage unregisterMessage;
     unregisterMessage.mutable_slave_id()->MergeFrom(slaveId);
     slave->send(masterPid, unregisterMessage);
@@ -343,11 +347,14 @@ TEST_F(MasterAllocatorTest, KillTask) {
   registerFramework();
   makeFullOffer(&theOffer);
   vector<TaskInfo> tasks;
-  EXPECT_CALL(allocator, taskAdded(_, _));
+  trigger taskLaunched;
+  EXPECT_CALL(allocator, taskAdded(_, _)).
+    WillOnce(Trigger(&taskLaunched));
   EXPECT_CALL(allocator, executorAdded(_, _, EqProto(DEFAULT_EXECUTOR_INFO)));
   addTask(theOffer, theOffer.resources(), theOffer.min_resources(),
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
+  WAIT_UNTIL(taskLaunched);
   trigger gotReturned;
   EXPECT_CALL(allocator,
               resourcesRecovered(_, _, WithResourceHints(

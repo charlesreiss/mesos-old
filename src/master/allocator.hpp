@@ -84,8 +84,6 @@ public:
   // TODO(charles): do we need these?
   virtual void taskAdded(const FrameworkID& frameworkID, const TaskInfo& task) {}
   virtual void taskRemoved(const FrameworkID& frameworkId, const TaskInfo& task) {}
-  virtual void taskAdded(const Task& task) {}
-  virtual void taskRemoved(const Task& task) {}
   // Because executors have usage, too
   virtual void executorAdded(const FrameworkID& frameworkId,
                              const SlaveID& slaveId,

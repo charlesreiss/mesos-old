@@ -104,6 +104,9 @@ protected:
     Allocator* allocPtr = &allocator;
     if (useMockAllocator) {
       allocPtr = &mockAllocator;
+      EXPECT_CALL(mockAllocator, initialize(_)).Times(1);
+      EXPECT_CALL(mockAllocator, slaveAdded(_, _, _)).Times(1);
+      EXPECT_CALL(mockAllocator, frameworkAdded(_, _)).Times(1);
     }
     m.reset(new Master(allocPtr));
     master = process::spawn(m.get());
@@ -157,6 +160,7 @@ protected:
   {
     vector<std::string> taskIds;
     taskIds.push_back(taskId);
+    LOG(INFO) << "Launching for " << offer.DebugString();
     launchTasksForOffer(offer, taskIds, offer.resources(), expectState);
   }
 
@@ -209,6 +213,10 @@ protected:
   }
 
   void stopScheduler() {
+    if (useMockAllocator) {
+      EXPECT_CALL(mockAllocator, frameworkDeactivated(_)).Times(1);
+      EXPECT_CALL(mockAllocator, frameworkRemoved(_)).Times(1);
+    }
     schedDriver->stop();
     schedDriver->join();
     WAIT_UNTIL(shutdownCall); // To ensure can deallocate MockExecutor.
@@ -263,6 +271,7 @@ TEST_F(MasterSlaveTest, TaskRunning)
   stopMasterAndSlave();
 }
 
+#if 0 // requires allocator to make min offers...
 TEST_F(MasterSlaveTest, AllocateMinimumIfMarked)
 {
   useMockAllocator = true;
@@ -278,6 +287,7 @@ TEST_F(MasterSlaveTest, AllocateMinimumIfMarked)
                           Resources::parse("cpus:2;mem:1024")),
       isolationModule->lastResources[DEFAULT_EXECUTOR_ID]);
 }
+#endif
 
 TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered)
 {
@@ -290,6 +300,8 @@ TEST_F(MasterSlaveTest, RejectMinimumMoreThanOffered)
   offers[0].clear_resources();
   offers[0].mutable_resources()->MergeFrom(
       Resources::parse("cpus:4;mem:4096"));
+  EXPECT_CALL(mockAllocator, resourcesUnused(_, _, _, _))
+    .WillOnce(Return());
   launchTaskForOffer(offers[0], "testTaskId", TASK_LOST);
   stopScheduler();
   stopMasterAndSlave(false);
@@ -362,16 +374,19 @@ TEST_F(MasterSlaveTest, ClearFilterOnEndTask)
   {
     trigger gotMoreOffers;
     trigger killTaskCall;
+    trigger gotUpdate;
     EXPECT_CALL(exec, killTask(_, _))
       .WillOnce(DoAll(SendStatusUpdateForId(TASK_KILLED),
                       Trigger(&killTaskCall)));
     TaskID taskId;
     taskId.set_value("task1");
     EXPECT_CALL(sched, statusUpdate(schedDriver.get(),
-                                    UpdateForTaskId("task1")));
+                                    UpdateForTaskId("task1")))
+      .WillOnce(Trigger(&gotUpdate));
     getMoreOffers(&offers, &gotMoreOffers);
     schedDriver->killTask(taskId);
     WAIT_UNTIL(gotMoreOffers);
+    WAIT_UNTIL(gotUpdate);
   }
 
   stopScheduler();
@@ -551,10 +566,14 @@ TEST_F(MasterSlaveTest, AccumulateUsage) {
     WillOnce(Trigger(&gotUsage));
   process::post(master, usage);
   WAIT_UNTIL(gotUsage);
-#if 0 // XXX FIXME need a way to test
+#if 0 // XXX FIXME use json stuff to test.
   EXPECT_EQ(Resources::parse("cpus:1.5;mem:800"),
             m->getActiveSlaves()[0]->resourcesObservedUsed);
+#endif
+  EXPECT_CALL(mockAllocator, executorRemoved(_, _, _));
+  EXPECT_CALL(mockAllocator, resourcesRecovered(_, _, _));
   stopScheduler();
+#if 0
   EXPECT_EQ(Resources::parse("cpus:0;mem:0"),
             m->getActiveSlaves()[0]->resourcesObservedUsed);
 #endif

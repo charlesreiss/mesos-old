@@ -40,6 +40,7 @@ using std::vector;
 
 using namespace mesos;
 using namespace mesos::internal;
+using namespace mesos::internal::test;
 using namespace mesos::internal::master;
 using namespace mesos::internal::norequest;
 
@@ -119,8 +120,13 @@ protected:
   void SetUp()
   {
     process::Clock::pause();
-    allocator.reset(new NoRequestAllocator(&tracker, Configuration()));
-    allocator->initialize(master.self());
+    allocatorPtr.reset(new NoRequestAllocator(&tracker, Configuration()));
+    allocator = nrAllocator = process::spawn(allocatorPtr.get());
+    masterPid = process::spawn(&master);
+    process::dispatch(nrAllocator,
+        static_cast<void(NoRequestAllocator::*)(
+          const process::PID<AllocatorMasterInterface>&)>(
+            &NoRequestAllocator::initialize), masterPid);
     ON_CALL(tracker, nextUsedForExecutor(_, _, _)).
       WillByDefault(Return(Resources()));
     EXPECT_CALL(tracker, nextUsedForExecutor(_, _, _)).
@@ -130,6 +136,7 @@ protected:
     EXPECT_CALL(tracker, gaurenteedForExecutor(_, _, _)).
       Times(AnyNumber());
     EXPECT_CALL(tracker, nextUsedForFramework(_)).Times(AnyNumber());
+    EXPECT_CALL(tracker, chargeForFramework(_)).Times(AnyNumber());
     // Use dummy resource 'default', so it's easy to see when the default 0
     // value is used.
     testing::DefaultValue<Resources>::Set(Resources::parse("default:0"));
@@ -137,6 +144,10 @@ protected:
 
   void TearDown()
   {
+    process::terminate(allocator);
+    process::wait(allocator);
+    process::terminate(masterPid);
+    process::wait(masterPid);
     process::Clock::resume();
   }
 
@@ -154,7 +165,8 @@ protected:
 
   void makeAndAddFramework(const std::string& name) {
     FrameworkInfo emptyInfo;
-    allocator->frameworkAdded(framework(name), emptyInfo);
+    process::dispatch(allocator, &Allocator::frameworkAdded,
+        framework(name), emptyInfo);
   }
 
   void setSlaveFree(const std::string& name,
@@ -172,20 +184,23 @@ protected:
       .Times(1);
     SlaveInfo info;
     info.mutable_resources()->MergeFrom(resources);
-    allocator->slaveAdded(slave(name), info, hashmap<FrameworkID, Resources>());
+    process::dispatch(allocator, &Allocator::slaveAdded, slave(name), info,
+        hashmap<FrameworkID, Resources>());
   }
 
   void expectOffer(const FrameworkID& frameworkId, const SlaveID& slaveId,
-                   const Resources& resources, const Resources& minResources) {
+                   const Resources& resources, const Resources& minResources,
+                   trigger* trig) {
     EXPECT_CALL(master, offer(Eq(frameworkId),
                               WithOffer(slaveId, resources, minResources))).
-      Times(1);
+      WillOnce(Trigger(trig));
   }
 
   void returnOffer(const FrameworkID& frameworkId, const SlaveID& slaveId,
                    const Resources& resources, const Resources& minResources) {
-    allocator->resourcesUnused(frameworkId, slaveId,
-        ResourceHints(resources, minResources), Option<Filters>::none());
+    process::dispatch(allocator, &Allocator::resourcesUnused,
+        frameworkId, slaveId, ResourceHints(resources, minResources),
+        Option<Filters>::none());
   }
 
   void runUnequalFrameworksOneSlave() {
@@ -195,26 +210,33 @@ protected:
       WillRepeatedly(Return(Resources::parse("cpus:1")));
     makeAndAddFramework("framework0");
     makeAndAddFramework("framework1");
+    trigger firstOffer;
     expectOffer(framework("framework1"), slave("slave0"),
                 Resources::parse("cpus:32;mem:1024"),
-                Resources::parse("cpus:32;mem:1024"));
+                Resources::parse("cpus:32;mem:1024"), &firstOffer);
     makeAndAddSlave("slave0", Resources::parse("cpus:32;mem:1024"));
+    WAIT_UNTIL(firstOffer);
+    allocatorPtr->wipeOffers();
   }
 
   void initTwoFrameworksOneSlave() {
-    allocator->stopMakingOffers();
+    allocatorPtr->stopMakingOffers();
     makeAndAddFramework("framework0");
     makeAndAddFramework("framework1");
     makeAndAddSlave("slave0", Resources::parse("cpus:32;mem:1024"));
-    allocator->startMakingOffers();
+    process::Clock::settle();
+    allocatorPtr->startMakingOffers();
   }
 
   void initTwoFrameworksHoldingOffer(const Resources& offer) {
     initTwoFrameworksOneSlave();
     setSlaveFree("slave0", offer, offer);
-    expectOffer(framework("framework0"), slave("slave0"), offer, offer);
+    trigger firstOffer;
+    expectOffer(framework("framework0"), slave("slave0"), offer, offer,
+        &firstOffer);
     EXPECT_CALL(tracker, timerTick(_));
-    allocator->timerTick();
+    process::Clock::advance(1.0f);
+    WAIT_UNTIL(firstOffer);
   }
 
   void runAllRefuserTwoFrameworks() {
@@ -223,38 +245,48 @@ protected:
       WillRepeatedly(Return(Resources::parse("")));
     EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework1"))).
       WillRepeatedly(Return(Resources::parse("")));
+    trigger firstOffer;
     expectOffer(framework("framework0"), slave("slave0"),
                 Resources::parse("cpus:32;mem:1024"),
-                Resources::parse("cpus:32;mem:1024"));
-    EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now())))
+                Resources::parse("cpus:32;mem:1024"),
+                &firstOffer);
+    EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now() + 1.0f)))
         .Times(1);
-    allocator->timerTick();
+    process::Clock::advance(1.0f);
+    WAIT_UNTIL(firstOffer);
 
     LOG(INFO) << "refusing 0 (1st time)";
 
+    trigger secondOffer;
     expectOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-                  Resources::parse("cpus:32;mem:1024"));
+                  Resources::parse("cpus:32;mem:1024"), &secondOffer);
     returnOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
                   Resources::parse("cpus:32;mem:1024"));
+    WAIT_UNTIL(secondOffer);
 
     LOG(INFO) << "refusing 1 (1st time)";
 
+    trigger thirdOffer;
     expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-                  Resources::parse("cpus:32;mem:1024"));
+                  Resources::parse("cpus:32;mem:1024"), &thirdOffer);
     returnOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
                   Resources::parse("cpus:32;mem:1024"));
+    WAIT_UNTIL(thirdOffer);
 
     LOG(INFO) << "refusing 0 (2nd time)";
 
+    trigger fourthOffer;
     expectOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-                  Resources::parse("cpus:32;mem:1024"));
+                  Resources::parse("cpus:32;mem:1024"), &fourthOffer);
     returnOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
                   Resources::parse("cpus:32;mem:1024"));
+    WAIT_UNTIL(fourthOffer);
 
     LOG(INFO) << "refusing 1 (2nd time)";
     EXPECT_CALL(master, offer(_, _)).Times(0);
     returnOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
                   Resources::parse("cpus:32;mem:1024"));
+    process::Clock::settle();
   }
 
   void expectPlaceUsage(const std::string& frameworkId,
@@ -290,39 +322,50 @@ protected:
     task.mutable_task_id()->set_value(taskId);
     task.mutable_resources()->MergeFrom(taskResources);
     task.mutable_min_resources()->MergeFrom(minTaskResources);
-    allocator->taskAdded(frameworkId, task);
+    task.mutable_executor()->MergeFrom(DEFAULT_EXECUTOR_INFO);
+    process::dispatch(allocator, &Allocator::taskAdded, frameworkId, task);
+    process::Clock::settle();
     return task;
   }
 
   void addExecutor(Framework* framework, Slave* slave,
                    const ExecutorInfo& info) {
     slave->executors[framework->id][info.executor_id()] = info;
-    allocator->executorAdded(framework->id, slave->id,  info);
+    process::dispatch(allocator, &Allocator::executorAdded,
+        framework->id, slave->id,  info);
+    process::Clock::settle();
   }
 
   void removeTask(const FrameworkID& frameworkId, const TaskInfo& taskInfo) {
-    allocator->taskRemoved(frameworkId, taskInfo);
+    process::dispatch(allocator, &Allocator::taskRemoved,
+        frameworkId, taskInfo);
+    process::Clock::settle();
   }
 
-  boost::ptr_vector<Slave> slaves;
-  boost::ptr_vector<Framework> frameworks;
-  boost::scoped_ptr<NoRequestAllocator> allocator;
+  boost::scoped_ptr<NoRequestAllocator> allocatorPtr;
+  PID<NoRequestAllocator> nrAllocator;
+  PID<Allocator> allocator;
   MockAllocatorMasterInterface master;
+  PID<MockAllocatorMasterInterface> masterPid;
   MockUsageTracker tracker;
 };
 
 TEST_F(NoRequestAllocatorTest, AddFrameworkOffers) {
   makeAndAddSlave("slave0", Resources::parse("cpus:32;mem:1024"));
-  expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:32;mem:1024"));
+  trigger gotOffer;
+  expectOffer(framework("framework0"), slave("slave0"),
+              Resources::parse("cpus:32;mem:1024"),
+              Resources::parse("cpus:32;mem:1024"), &gotOffer);
   makeAndAddFramework("framework0");
+  WAIT_UNTIL(gotOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, TimerTick) {
   process::Clock::pause();
-  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now())))
+  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now() + 1.0f)))
     .Times(1);
-  allocator->timerTick();
+  process::Clock::advance(1.0f);
+  process::Clock::settle();
 }
 
 TEST_F(NoRequestAllocatorTest, TwoFrameworkOffers) {
@@ -331,10 +374,18 @@ TEST_F(NoRequestAllocatorTest, TwoFrameworkOffers) {
 
 TEST_F(NoRequestAllocatorTest, ReOfferAfterRefuser) {
   runUnequalFrameworksOneSlave();
+  trigger firstOffer;
+  expectOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
+              Resources::parse("cpus:32;mem:1024"), &firstOffer);
+  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now() + 1.0f)));
+  process::Clock::advance(1.0f);
+  WAIT_UNTIL(firstOffer);
+  trigger secondOffer;
   expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:32;mem:1024"));
+              Resources::parse("cpus:32;mem:1024"), &secondOffer);
   returnOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
               Resources::parse("cpus:32;mem:1024"));
+  WAIT_UNTIL(secondOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, NoReOfferLoop) {
@@ -343,28 +394,38 @@ TEST_F(NoRequestAllocatorTest, NoReOfferLoop) {
 
 TEST_F(NoRequestAllocatorTest, ClearAllRefusersOnTick) {
   runAllRefuserTwoFrameworks();
+  trigger gotOffer;
   expectOffer(framework("framework0"), slave("slave0"),
               Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:32;mem:1024"));
-  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now()))).Times(1);
-  allocator->timerTick();
+              Resources::parse("cpus:32;mem:1024"), &gotOffer);
+  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now() + 1.0f))).Times(1);
+  process::Clock::advance(1.0f);
+  process::Clock::settle();
+  WAIT_UNTIL(gotOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, RefuserCountOnDeadFramework) {
   runAllRefuserTwoFrameworks();
-  allocator->frameworkRemoved(framework("framework1"));
+  process::dispatch(allocator, &Allocator::frameworkRemoved,
+      framework("framework1"));
+  process::Clock::settle(); // no offer yet
+  trigger gotOffer;
   expectOffer(framework("framework0"), slave("slave0"),
               Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:32;mem:1024"));
-  allocator->offersRevived(framework("framework0"));
+              Resources::parse("cpus:32;mem:1024"), &gotOffer);
+  process::dispatch(allocator, &Allocator::offersRevived,
+      framework("framework0"));
+  WAIT_UNTIL(gotOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, ReserveWhilePending) {
   runUnequalFrameworksOneSlave();
+  trigger gotOffer;
   expectOffer(framework("framework1"), slave("slave1"),
               Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:32;mem:1024"));
+              Resources::parse("cpus:32;mem:1024"), &gotOffer);
   makeAndAddSlave("slave1", Resources::parse("cpus:32;mem:1024"));
+  WAIT_UNTIL(gotOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, InitTwoFrameworksAndOneSlave) {
@@ -408,10 +469,12 @@ TEST_F(NoRequestAllocatorTest, TaskRemovedCallsPlaceUsageAndOffers) {
   setSlaveFree("slave0", Resources::parse("cpus:32;mem:1024"),
                          Resources::parse("cpus:16;mem:1024"));
   expectPlaceUsage("framework1", "slave0", Resources(), Resources(), 0);
+  trigger gotOffer;
   expectOffer(framework("framework0"), slave("slave0"),
               Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:16;mem:1024"));
+              Resources::parse("cpus:16;mem:1024"), &gotOffer);
   removeTask(framework("framework1"), task);
+  WAIT_UNTIL(gotOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, TaskPlacedHandlesMinUsage) {
@@ -424,33 +487,43 @@ TEST_F(NoRequestAllocatorTest, TaskPlacedHandlesMinUsage) {
 
 TEST_F(NoRequestAllocatorTest, ReOfferPartialAfterRefuser) {
   runUnequalFrameworksOneSlave();
+  expectPlaceUsage("framework1", "slave0",
+      Option<Resources>(Resources::parse("cpus:24;mem:768")),
+      Resources(), 1);
   addTask("task1", framework("framework1"), slave("slave0"),
           Resources::parse("cpus:24;mem:768"));
   EXPECT_CALL(tracker, freeForSlave(EqId("slave0"))).
     WillRepeatedly(Return(Resources::parse("cpus:8;mem:256")));
+  trigger gotOffer;
   expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:8;mem:256"),
-              Resources::parse("cpus:32;mem:1024"));
+              Resources::parse("cpus:32;mem:1024"), &gotOffer);
   returnOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:8;mem:256"),
               Resources::parse("cpus:32;mem:1024"));
+  WAIT_UNTIL(gotOffer);
 }
 
 // Disabled due to autorevive after timerTick hack.
 TEST_F(NoRequestAllocatorTest, DISABLED_ReOfferAfterRevive) {
   makeAndAddSlave("slave0", Resources::parse("cpus:32;mem:1024"));
 
+  trigger firstOffer;
   expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:32;mem:1024"));
+              Resources::parse("cpus:32;mem:1024"), &firstOffer);
   makeAndAddFramework("framework0");
+  WAIT_UNTIL(firstOffer);
   returnOffer(framework("framework0"), slave("slave0"),
               Resources::parse("cpus:32;mem:1024"),
               Resources::parse("cpus:32;mem:1024"));
 
-  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now()))).Times(1);
-  allocator->timerTick();  // no offers yet
+  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now() + 1.0f))).Times(1);
+  process::Clock::advance(1.0f);
 
+  trigger secondOffer;
   expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:32;mem:1024"));
-  allocator->offersRevived(framework("framework0"));
+              Resources::parse("cpus:32;mem:1024"), &secondOffer);
+  process::dispatch(allocator, &Allocator::offersRevived,
+      framework("framework0"));
+  WAIT_UNTIL(secondOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, GaurenteedOffer) {
@@ -460,39 +533,53 @@ TEST_F(NoRequestAllocatorTest, GaurenteedOffer) {
     WillRepeatedly(Return(Resources()));
   makeAndAddFramework("framework0");
   makeAndAddFramework("framework1");
+  trigger firstOffer, secondOffer;
   expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:10;mem:5000"),
-              Resources::parse("cpus:10;mem:5000"));
+              Resources::parse("cpus:10;mem:5000"), &firstOffer);
   makeAndAddSlave("slave0", Resources::parse("cpus:10;mem:5000"));
+  WAIT_UNTIL(firstOffer);
   setSlaveFree("slave0", Resources::parse("cpus:0.5;mem:500"),
                Resources::parse("cpus:6.0;mem:4500"));
   EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework0"))).
     WillRepeatedly(Return(Resources::parse("cpus:9.5;mem:4500")));
+  allocatorPtr->wipeOffers();
   expectOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:0.5;mem:500"),
-               Resources::parse("cpus:6.0;mem:4500"));
+               Resources::parse("cpus:6.0;mem:4500"), &secondOffer);
   returnOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:0.5;mem:500"),
               Resources::parse("cpus:6.0;mem:4500"));
+  WAIT_UNTIL(secondOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, TwoFrameworksTimerTickOffer) {
   initTwoFrameworksOneSlave();
+  trigger gotOffer;
   expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:32;mem:1024"));
-  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now()))).Times(1);
-  allocator->timerTick();
+              Resources::parse("cpus:32;mem:1024"), &gotOffer);
+  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now() + 1.0f))).Times(1);
+  process::Clock::advance(1.0f);
+  WAIT_UNTIL(gotOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, ResourcesUnusedHandlesMinRes) {
+  trigger firstOffer, secondOffer;
+
   initTwoFrameworksOneSlave();
   expectOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
+              Resources::parse("cpus:32;mem:1024"), &firstOffer);
+  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now() + 1.0f))).Times(1);
+  process::Clock::advance(1.0f);
+  WAIT_UNTIL(firstOffer);
+  setSlaveFree("slave0", Resources::parse(""),
+      Resources::parse("cpus:32;mem:1024"));
+  expectPlaceUsage("framework0", "slave0", Option<Resources>::some(
+        Resources::parse("cpus:32;mem:1024")), Resources(), 1);
+  addTask("task0-0", framework("framework0"), slave("slave0"),
+      Resources::parse("cpus:32;mem:1024"), Resources::parse(""));
+  expectOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:0;mem:0"),
+              Resources::parse("cpus:32;mem:1024"), &secondOffer);
+  returnOffer(framework("framework0"), slave("slave0"), Resources::parse(""),
               Resources::parse("cpus:32;mem:1024"));
-  EXPECT_CALL(tracker, timerTick(Eq(process::Clock::now()))).Times(1);
-  allocator->timerTick();
-  setSlaveFree("slave0", Resources::parse("cpus:32;mem:1024"),
-               Resources::parse("cpus:0;mem:0"));
-  expectOffer(framework("framework1"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-              Resources::parse("cpus:0;mem:0"));
-  returnOffer(framework("framework0"), slave("slave0"), Resources::parse("cpus:32;mem:1024"),
-              Resources::parse(""));
+  WAIT_UNTIL(secondOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, ExecutorAddedDoesPlaceUsageNoTasks) {
@@ -507,7 +594,9 @@ TEST_F(NoRequestAllocatorTest, ExecutorAddedDoesPlaceUsageNoTasks) {
   expectPlaceUsage("framework0", "slave0",
       Resources::parse("cpus:0.5;mem:256"),
       Resources::parse("cpus:0.1;mem:512"), 0);
-  allocator->executorAdded(frameworks[0].id, slaves[0].id, executorInfo);
+  process::dispatch(allocator, &Allocator::executorAdded,
+      framework("framework0"), slave("slave0"), executorInfo);
+  process::Clock::settle();
 }
 
 TEST_F(NoRequestAllocatorTest, ExecutorAddedDoesPlaceUsageOneTask) {
@@ -536,7 +625,9 @@ TEST_F(NoRequestAllocatorTest, ExecutorAddedDoesPlaceUsageOneTask) {
                                          EqId("framework0"),
                                          Eq(DEFAULT_EXECUTOR_ID))).
     WillByDefault(Return(Resources::parse("cpus:0.5;mem:200")));
-  allocator->executorAdded(frameworks[0].id, slaves[0].id, executorInfo);
+  process::dispatch(allocator, &Allocator::executorAdded,
+      framework("framework0"), slave("slave0"), executorInfo);
+  process::Clock::settle();
 }
 
 TEST_F(NoRequestAllocatorTest, ExecutorRemovedDoesForgetUsage) {
@@ -551,10 +642,15 @@ TEST_F(NoRequestAllocatorTest, ExecutorRemovedDoesForgetUsage) {
   expectPlaceUsage("framework0", "slave0",
       Resources::parse("cpus:0.5;mem:256"),
       Resources::parse("cpus:0.1;mem:512"), 0);
-  allocator->executorAdded(frameworks[0].id, slaves[0].id, executorInfo);
-  EXPECT_CALL(tracker, forgetExecutor(frameworks[0].id, DEFAULT_EXECUTOR_ID,
-                                      slaves[0].id, false));
-  allocator->executorRemoved(frameworks[0].id, slaves[0].id, executorInfo);
+  process::dispatch(allocator, &Allocator::executorAdded,
+      framework("framework0"), slave("slave0"), executorInfo);
+  process::Clock::settle(); // Better order enforcement?
+  EXPECT_CALL(tracker, forgetExecutor(EqId("framework0"), DEFAULT_EXECUTOR_ID,
+                                      EqId("slave0"), false));
+  setSlaveFree("slave0", Resources(), Resources());
+  process::dispatch(allocator, &Allocator::executorRemoved,
+      framework("framework0"), slave("slave0"), executorInfo);
+  process::Clock::settle();
 }
 
 TEST_F(NoRequestAllocatorTest, GotUsageForwards) {
@@ -566,19 +662,20 @@ TEST_F(NoRequestAllocatorTest, GotUsageForwards) {
   update.set_timestamp(51.0);
   update.set_duration(2.0);
   EXPECT_CALL(tracker, recordUsage(EqProto(update)));
-  allocator->gotUsage(update);
+  process::dispatch(allocator, &Allocator::gotUsage, update);
+  process::Clock::settle();
 }
 
 TEST_F(NoRequestAllocatorTest, ReOfferAfterUsage) {
   process::Clock::pause();
   initTwoFrameworksOneSlave();
-  allocator->stopMakingOffers();
+  allocatorPtr->stopMakingOffers();
   expectPlaceUsage("framework1", "slave0",
                    Option<Resources>(Resources::parse("cpus:24;mem:768")),
                    Resources(), 1);
   addTask("task-framework1-1", framework("framework1"), slave("slave0"),
           Resources::parse("cpus:24;mem:768"));
-  allocator->startMakingOffers();
+  allocatorPtr->startMakingOffers();
   UsageMessage update;
   update.mutable_slave_id()->set_value("slave0");
   update.mutable_framework_id()->set_value("framework1");
@@ -590,51 +687,78 @@ TEST_F(NoRequestAllocatorTest, ReOfferAfterUsage) {
     WillRepeatedly(Return(Resources::parse("")));
   EXPECT_CALL(tracker, nextUsedForFramework(EqId("framework1"))).
     WillRepeatedly(Return(Resources::parse("cpus:5.0;mem:128")));
+  trigger gotOffer;
   setSlaveFree("slave0",
                Resources::parse("cpus:27;mem:896"),
                Resources::parse("cpus:32;mem:1024"));
   expectOffer(framework("framework0"), slave("slave0"),
               Resources::parse("cpus:27.0;mem:896"),
-              Resources::parse("cpus:32.0;mem:1024"));
+              Resources::parse("cpus:32.0;mem:1024"), &gotOffer);
   EXPECT_CALL(tracker, recordUsage(EqProto(update)));
-  allocator->gotUsage(update);
-  process::Clock::resume();
+  process::dispatch(allocator, &Allocator::gotUsage, update);
+  WAIT_UNTIL(gotOffer);
 }
 
+// Supposed to test that we don't reoffer until we get the pending
+// offer back?
 TEST_F(NoRequestAllocatorTest, DelayOfferOnPendingOffer) {
-  process::Clock::pause();
   initTwoFrameworksHoldingOffer(Resources::parse("cpus:1;mem:2"));
-  setSlaveFree("slave0", Resources::parse("cpus:2;mem:1"),
-               Resources::parse("cpus:2;mem:1"));
-  // No offer in response to this.
+  setSlaveFree("slave0", Resources::parse("cpus:2;mem:3"),
+               Resources::parse("cpus:2;mem:3"));
+  trigger firstOffer;
+  expectOffer(framework("framework1"), slave("slave0"),
+      Resources::parse("cpus:1;mem:1"), Resources::parse("cpus:1;mem:1"),
+      &firstOffer);
+  process::dispatch(allocator, &Allocator::offersRevived,
+      framework("framework1"));
+  WAIT_UNTIL(firstOffer);
+
   returnOffer(framework("framework1"), slave("slave0"),
-              Resources::parse("cpus:2;mem:1"),
-              Resources::parse("cpus:2;mem:1"));
+      Resources::parse("cpus:1;mem:1"), Resources::parse("cpus:1;mem:1"));
+  process::Clock::settle(); // no offers
+
   setSlaveFree("slave0", Resources::parse("cpus:3;mem:3"), Resources::parse("cpus:3;mem:3"));
+  trigger gotOffer;
   expectOffer(framework("framework0"), slave("slave0"),
               Resources::parse("cpus:3;mem:3"),
-              Resources::parse("cpus:3;mem:3"));
-  returnOffer(framework("framework1"), slave("slave0"),
+              Resources::parse("cpus:3;mem:3"), &gotOffer);
+  returnOffer(framework("framework0"), slave("slave0"),
               Resources::parse("cpus:1;mem:2"),
               Resources::parse("cpus:1;mem:2"));
+  WAIT_UNTIL(gotOffer);
 }
 
 TEST_F(NoRequestAllocatorTest, DelayOfferTillAccept) {
   process::Clock::pause();
-  initTwoFrameworksHoldingOffer(Resources::parse("cpus:2;mem:1"));
-  setSlaveFree("slave0", Resources::parse("cpus:2;mem:1"), Resources::parse("cpus:2;mem:1"));
+  initTwoFrameworksHoldingOffer(Resources::parse("cpus:1;mem:2"));
+  setSlaveFree("slave0", Resources::parse("cpus:2;mem:3"),
+               Resources::parse("cpus:2;mem:3"));
+
+  trigger firstOffer;
+  expectOffer(framework("framework1"), slave("slave0"),
+      Resources::parse("cpus:1;mem:1"), Resources::parse("cpus:1;mem:1"),
+      &firstOffer);
+  process::dispatch(allocator, &Allocator::offersRevived,
+      framework("framework1"));
+  WAIT_UNTIL(firstOffer);
+
   // No offer in response to this.
   returnOffer(framework("framework1"), slave("slave0"),
-              Resources::parse("cpus:2;mem:1"),
-              Resources::parse("cpus:2;mem:1"));
-  setSlaveFree("slave0", Resources::parse("cpus:2;mem:1"), Resources::parse("cpus:2;mem:1"));
+              Resources::parse("cpus:1;mem:1"),
+              Resources::parse("cpus:1;mem:1"));
+  process::Clock::settle();
+  setSlaveFree("slave0",
+      Resources::parse("cpus:2;mem:1"), Resources::parse("cpus:2;mem:1"));
+
+  trigger gotOffer;
   // XXX FIXME setSlaveOffered(slave("slave0"), Resources::parse(""), Resources::parse(""));
   expectOffer(framework("framework0"), slave("slave0"),
               Resources::parse("cpus:2;mem:1"),
-              Resources::parse("cpus:2;mem:1"));
+              Resources::parse("cpus:2;mem:1"), &gotOffer);
   expectPlaceUsage("framework0", "slave0",
-      Option<Resources>(Resources::parse("cpus:2;mem:1")),
-      Resources(), 1);
+      Option<Resources>(Resources::parse("cpus:1;mem:2")),
+      Resources::parse("cpus:1;mem:2"), 1);
   addTask("task0", framework("framework0"), slave("slave0"),
-          Resources::parse("cpus:2;mem:1"));
+          Resources::parse("cpus:1;mem:2"), Resources::parse("cpus:1;mem:2"));
+  WAIT_UNTIL(gotOffer);
 }

@@ -67,6 +67,8 @@ public:
 
   virtual bool filter(const SlaveID& slaveId, const ResourceHints& resources)
   {
+    LOG(INFO) << "Checking " << slaveId << " " << resources << " v "
+              << this->slaveId << " " << this->resources;
     return slaveId == this->slaveId &&
       resources <= this->resources &&
       timeout.remaining() < 0.0;
@@ -82,6 +84,7 @@ public:
 // XXX FIXME
 void NoRequestAllocator::expire(const FrameworkID& frameworkId, Filter* filter)
 {
+  LOG(INFO) << "Expiring a filter for " << frameworkId;
   if (frameworks.contains(frameworkId)) {
     if (filters.contains(frameworkId, filter)) {
       filters.remove(frameworkId, filter);
@@ -97,6 +100,8 @@ void NoRequestAllocator::expire(const FrameworkID& frameworkId, Filter* filter)
 bool NoRequestAllocator::checkFilters(const FrameworkID& frameworkId,
     const SlaveID& slaveId, const ResourceHints& offer)
 {
+  LOG(INFO) << "Checking filters for " << frameworkId << " on " << slaveId
+            << " for " << offer;
   foreach (Filter* filter, filters.get(frameworkId)) {
     if (filter->filter(slaveId, offer)) {
       VLOG(1) << "Filtered " << offer
@@ -122,6 +127,7 @@ NoRequestAllocator::initialize(
     dontDeleteTracker = false;
   }
   usageReofferDelay =  conf.get<double>("norequest_usage_reoffer_delay", -1.);
+  tickTimer = delay(1.0, self(), &NoRequestAllocator::timerTick);
 }
 
 void
@@ -325,7 +331,8 @@ struct ChargedShareComparator {
 
 // TODO(Charles): Cache DRF calculations over longer time scales for speed.
 vector<FrameworkID>
-NoRequestAllocator::getOrderedFrameworks() {
+NoRequestAllocator::getOrderedFrameworks()
+{
   vector<FrameworkID> result;
   foreachkey (const FrameworkID& frameworkId, frameworks) {
     result.push_back(frameworkId);
@@ -510,13 +517,18 @@ void NoRequestAllocator::resourcesUnused(const FrameworkID& frameworkId,
   ResourceHints freeResources = nextOfferForSlave(slaveId);
   waitingOffers.erase(slaveId);
   if (freeResources <= unusedResources) {
-    DLOG(INFO) << "adding refuser";
+    LOG(INFO) << "adding refuser";
     if (enoughResources(offered[slaveId].expectedResources) ||
         enoughResources(offered[slaveId].minResources)) {
-      DLOG(INFO) << "delaying response for " << slaveId.value();
+      // When some resources are still being offered for the slave, we want
+      // give us an oppertunity to collapse the resources into a larger offer.
+      // If we do not (e.g. the remaining offer is being hoarded),
+      // then we will reoffer these resources on the next timer tick.
+      LOG(INFO) << "delaying response for " << slaveId.value()
+                << " because offers are still pending.";
       waitingOffers.insert(slaveId);
     } else {
-      DLOG(INFO) << "marking " << frameworkId << " as a refuser";
+      LOG(INFO) << "marking " << frameworkId << " as a refuser";
       refusers[slaveId].insert(frameworkId);
     }
   }
@@ -549,7 +561,7 @@ void NoRequestAllocator::resourcesRecovered(const FrameworkID& frameworkId,
 }
 
 void NoRequestAllocator::offersRevived(const FrameworkID& frameworkId) {
-  DLOG(INFO) << "offersRevived for " << frameworkId;
+  LOG(INFO) << "offersRevived for " << frameworkId;
   std::vector<SlaveID> revivedSlaves;
   foreachpair (SlaveID slave, boost::unordered_set<FrameworkID>& refuserSet,
                refusers) {
@@ -565,6 +577,7 @@ void NoRequestAllocator::offersRevived(const FrameworkID& frameworkId) {
 }
 
 void NoRequestAllocator::timerTick() {
+  tickTimer = delay(1.0, self(), &NoRequestAllocator::timerTick);
   tracker->timerTick(process::Clock::now());
   if (aggressiveReoffer) {
     // FIXME: Charles -- this is a workaround for an unknown bug where we miss
@@ -645,6 +658,8 @@ void NoRequestAllocator::completeOffer(
     const FrameworkID& frameworkId, const SlaveID& slaveId,
     const ResourceHints& resources)
 {
+  LOG(INFO) << "complete offer " << frameworkId << " " << slaveId << " "
+            << resources;
   offered[slaveId] -= resources;
   frameworkOffered[frameworkId] -= resources;
 }
@@ -653,6 +668,8 @@ void NoRequestAllocator::accountOffer(
     const FrameworkID& frameworkId, const SlaveID& slaveId,
     const ResourceHints& resources)
 {
+  LOG(INFO) << "account offer " << frameworkId << " " << slaveId << " "
+            << resources;
   offered[slaveId] += resources;
   frameworkOffered[frameworkId] += resources;
 }

@@ -288,7 +288,7 @@ public:
     EXPECT_CALL(*this, taskRemoved(_, _)).Times(testing::AnyNumber());
 
     EXPECT_CALL(*this, executorAdded(_, _, _)).Times(testing::AnyNumber());
-    EXPECT_CALL(*this, executorAdded(_, _, _)).Times(testing::AnyNumber());
+    EXPECT_CALL(*this, executorRemoved(_, _, _)).Times(testing::AnyNumber());
   }
   MOCK_METHOD1(initialize, void(const process::PID<master::Master>&));
   MOCK_METHOD2(frameworkAdded, void(const FrameworkID&, const FrameworkInfo&));
