@@ -655,7 +655,7 @@ public class FrameworkScheduler implements Scheduler {
   private void killExcessTasks(JobInProgress job) {
     LOG.info("Need to run more maps for " + job.getJobID());
     int numToKill = Math.max(1, 
-        Math.min(job.failedMapTasks, job.runningReduceTasks / 2));
+        Math.min(job.pendingMaps(), job.runningReduceTasks / 2));
     LOG.info("Killing " + numToKill +
         " reduce tasks to open map slots");
     List<TaskInProgress> reduces = new ArrayList<TaskInProgress>();
@@ -695,7 +695,7 @@ public class FrameworkScheduler implements Scheduler {
       if (numMaps == 0) {
         LOG.info("Not running any maps; checking if reducers are stalled");
         for (JobInProgress job : jobs) {
-          if (job.runningReduceTasks > 0 && job.failedMapTasks > 0) {
+          if (job.runningReduceTasks > 0 && job.pendingMaps() > 0) {
             killExcessTasks(job);
           }
         }
