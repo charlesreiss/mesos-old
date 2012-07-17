@@ -652,9 +652,40 @@ public class FrameworkScheduler implements Scheduler {
     }
   }
 
+  private void killExcessTasks(JobInProgress job) {
+    LOG.info("Need to run more maps for " + job.getJobID());
+    int numToKill = Math.max(1, 
+        Math.min(job.failedMapTasks, job.runningReduceTasks / 2));
+    LOG.info("Killing " + numToKill +
+        " reduce tasks to open map slots");
+    List<TaskInProgress> reduces = new ArrayList<TaskInProgress>();
+    reduces.addAll(job.runningReduces);
+    // TODO (Charles): Account for speculative tasks.
+    Collections.sort(reduces,
+        new java.util.Comparator<TaskInProgress>() {
+          public final int compare(TaskInProgress a, TaskInProgress b) {
+            return Double.compare(b.getProgress(), a.getProgress());
+          }
+        });
+    for (int i = 0; i < numToKill; ++i) {
+      TaskInProgress tip = reduces.get(i);
+      for (TaskAttemptID id: tip.getAllTaskAttemptIDs()) {
+        if (tip.isRunningTask(id)) {
+          if (tip.killTask(id, false)) {
+            break;
+          } else {
+            LOG.info("Failed to kill task attempt " + id);
+          }
+        }
+      }
+    }
+  }
+
   // Check to see if we're only running reduce tasks but can run non-backup
   // map tasks for the same job.
-  public boolean killExcessTasks() {
+  //
+  // TOOD(Charles): Ideally, we'd check this on reduce fetch failures.
+  private void killExcessTasks() {
     synchronized (jobTracker)  {
       Collection<JobInProgress> jobs = jobTracker.jobs.values();
       int numMaps = 0;
@@ -665,32 +696,7 @@ public class FrameworkScheduler implements Scheduler {
         LOG.info("Not running any maps; checking if reducers are stalled");
         for (JobInProgress job : jobs) {
           if (job.runningReduceTasks > 0 && job.failedMapTasks > 0) {
-            LOG.info("Need to run more maps for " + job.getJobID());
-            int numToKill = Math.max(1, 
-                Math.min(job.failedMapTasks, job.runningReduceTasks / 2));
-            LOG.info("Killing " + numToKill +
-                " reduce tasks to open map slots");
-            List<TaskInProgress> reduces = new ArrayList<TaskInProgress>();
-            reduces.addAll(job.runningReduces);
-            // TODO (Charles): Account for speculative tasks.
-            Collections.sort(reduces,
-                new Comparator<TaskInProgress>() {
-                  int compare(TaskInProgress a, TaskInProgress b) {
-                    return Double.compare(bProgress, aProgress);
-                  }
-                });
-            for (int i = 0; i < numToKill; ++i) {
-              TaskInProgress tip = reduces.get(i);
-              for (TaskAttemptID id: tip.getAllTaskAttemptIDs()) {
-                if (tip.isRunningTask(id)) {
-                  if (tip.killTask(id, false)) {
-                    break;
-                  } else {
-                    LOG.info("Failed to kill task attempt " + id);
-                  }
-                }
-              }
-            }
+            killExcessTasks(job);
           }
         }
       }
@@ -708,6 +714,7 @@ public class FrameworkScheduler implements Scheduler {
         killTimedOutTasks(tt.maps, minCreationTime);
         killTimedOutTasks(tt.reduces, minCreationTime);
       }
+      killExcessTasks();
       driver.reviveOffers();
     }
   }
