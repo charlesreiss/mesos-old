@@ -35,6 +35,8 @@
 #include "master/master.hpp"
 #include "master/slaves_manager.hpp"
 
+#include "usage_log/usage_log.pb.h"
+
 namespace params = std::tr1::placeholders;
 
 using std::list;
@@ -404,6 +406,8 @@ void Master::initialize()
       &Master::registerUsageListener,
       &RegisterUsageListenerMessage::pid);
 
+  install<AllocatorEstimates>(&Master::forwardAllocatorEstimates);
+
   // Setup HTTP request handlers.
   route("vars", bind(&http::vars, cref(*this), params::_1));
   route("stats.json", bind(&http::json::stats, cref(*this), params::_1));
@@ -635,7 +639,7 @@ void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
     addFramework(framework);
 
     // Add any running tasks reported by slaves for this framework.
-    foreachpair (const SlaveID& slaveId, Slave* slave, slaves) {
+    foreachvalue (Slave* slave, slaves) {
       foreachvalue (Task* task, slave->tasks) {
         if (framework->id == task->framework_id()) {
           framework->addTask(task);
@@ -739,10 +743,12 @@ void Master::launchTasks(const FrameworkID& frameworkId,
         update->mutable_framework_id()->MergeFrom(frameworkId);
         TaskStatus* status = update->mutable_status();
         status->mutable_task_id()->MergeFrom(task.task_id());
+        update->mutable_slave_id()->MergeFrom(task.slave_id());
         status->set_state(TASK_LOST);
         status->set_message("Task launched with invalid offer");
         update->set_timestamp(Clock::now());
         update->set_uuid(UUID::random().toBytes());
+        recordStatusUpdate(*update);
         send(framework->pid, message);
       }
     }
@@ -802,6 +808,7 @@ void Master::killTask(const FrameworkID& frameworkId,
       status->set_message("Task not found");
       update->set_timestamp(Clock::now());
       update->set_uuid(UUID::random().toBytes());
+      recordStatusUpdate(*update);
       send(framework->pid, message);
     }
   }
@@ -960,6 +967,16 @@ void Master::unregisterSlave(const SlaveID& slaveId)
 }
 
 
+void Master::recordStatusUpdate(const StatusUpdate& update)
+{
+  foreach (const UPID& listener, usageListeners) {
+    StatusUpdateMessage message;
+    message.mutable_update()->MergeFrom(update);
+    send(listener, message);
+  }
+}
+
+
 void Master::statusUpdate(const StatusUpdate& update, const UPID& pid)
 {
   const TaskStatus& status = update.status();
@@ -969,11 +986,7 @@ void Master::statusUpdate(const StatusUpdate& update, const UPID& pid)
             << " of framework " << update.framework_id()
             << " is now in state " << status.state();
 
-  foreach (const UPID& listener, usageListeners) {
-    StatusUpdateMessage message;
-    message.mutable_update()->MergeFrom(update);
-    send(listener, message);
-  }
+  recordStatusUpdate(update);
 
   Slave* slave = getSlave(update.slave_id());
   if (slave != NULL) {
@@ -1169,6 +1182,15 @@ void Master::makeOffers(Framework* framework,
         slave->executors[framework->id];
       foreachkey (const ExecutorID& executorId, executors) {
         offer->add_executor_ids()->MergeFrom(executorId);
+      }
+    }
+
+    {
+      OfferRecord offerRecord;
+      offerRecord.mutable_offer()->MergeFrom(*offer);
+      offerRecord.set_timestamp(process::Clock::now());
+      foreach (UPID pid, usageListeners) {
+        send(pid, offerRecord);
       }
     }
 
@@ -1576,6 +1598,24 @@ ResourceHints Master::launchTask(const TaskInfo& task,
 
   stats.tasks[TASK_STAGING]++;
 
+  // For the purpose of usage logging, record a dummy status update to
+  // TASK_STAGING:
+  {
+    StatusUpdate update;
+    update.mutable_framework_id()->MergeFrom(framework->id);
+    TaskStatus* status = update.mutable_status();
+    status->mutable_task_id()->MergeFrom(t->task_id());
+    update.mutable_slave_id()->MergeFrom(t->slave_id());
+    if (executorId.isSome()) {
+      update.mutable_executor_id()->MergeFrom(executorId.get());
+    }
+    status->set_state(TASK_STAGING);
+    status->set_message("[implicit update for RunTasksMessage]");
+    update.set_timestamp(Clock::now());
+    update.set_uuid("[implicit-update]");
+    recordStatusUpdate(update);
+  }
+
   *pTask = t;
 
   return ResourceHints(resources, minResources);
@@ -1824,6 +1864,7 @@ void Master::removeSlave(Slave* slave)
       status->set_message("Slave removed");
       update->set_timestamp(Clock::now());
       update->set_uuid(UUID::random().toBytes());
+      recordStatusUpdate(*update);
       send(framework->pid, message);
     }
     removeTask(task);
@@ -2034,11 +2075,26 @@ void Master::updateUsage(const UsageMessage& message) {
   }
 }
 
+void Master::forwardAllocatorEstimates(const AllocatorEstimates& estimates)
+{
+  foreach (UPID pid, usageListeners) {
+    send(pid, estimates);
+  }
+}
+
 void Master::registerUsageListener(const UPID& pid) {
   usageListeners.insert(pid);
   UsageListenerRegisteredMessage registered;
   link(pid);
   send(pid, registered);
+}
+
+void Master::sendFrameworkPriorities(const FrameworkPrioritiesMessage&
+    priorities)
+{
+  foreachvalue (Slave* slave, slaves) {
+    send(slave->pid, priorities);
+  }
 }
 
 } // namespace master {

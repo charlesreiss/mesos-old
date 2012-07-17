@@ -61,6 +61,9 @@ public:
   virtual void sampleUsage(const FrameworkID& frameworkId,
                            const ExecutorID& executorId);
 
+  virtual void setFrameworkPriorities(
+      const hashmap<FrameworkID, double>& priorites);
+
 private:
   // No copying, no assigning.
   LxcIsolationModule(const LxcIsolationModule&);
@@ -77,10 +80,20 @@ private:
                             const std::string& property,
                             int64_t *value);
 
+  bool getControlGroupString(const std::string& container,
+			     const std::string& group,
+                             const std::string& property,
+                             std::string *value);
+
   std::string cgroupRoot;
   bool cgroupTypeLabel;
+  bool measureSwapAsMemory;
 
-  std::vector<std::string> getControlGroupOptions(const ResourceHints& resources);
+  struct ContainerInfo;
+
+  std::vector<std::string> getControlGroupOptions(ContainerInfo* info);
+
+  double computeCpuShares(ContainerInfo* info);
 
   // Per-framework information object maintained in info hashmap.
   struct ContainerInfo
@@ -94,6 +107,9 @@ private:
     bool haveSample;
     double lastSample;
     int64_t lastCpu;
+    hashmap<std::string, int64_t> lastDiskTime;
+    hashmap<std::string, int64_t> lastDiskServiced;
+    hashmap<std::string, int64_t> lastDiskBytes;
   };
 
   // TODO(benh): Make variables const by passing them via constructor.
@@ -103,6 +119,11 @@ private:
   bool initialized;
   Reaper* reaper;
   hashmap<FrameworkID, hashmap<ExecutorID, ContainerInfo*> > infos;
+  Resources slaveResources;
+  double maxContainerMemory;
+  bool noLimits;
+  bool priorityShares;
+  hashmap<FrameworkID, double> priorities;
 };
 
 }}} // namespace mesos { namespace internal { namespace slave {

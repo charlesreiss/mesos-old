@@ -42,6 +42,8 @@
 
 #include "messages/messages.hpp"
 
+#include "usage_log/usage_log.pb.h"
+
 
 namespace mesos {
 namespace internal {
@@ -67,6 +69,10 @@ public:
 
   virtual void makeOffers(Framework* framework,
                           const hashmap<Slave*, ResourceHints>& offered) = 0;
+
+  virtual void forwardAllocatorEstimates(const AllocatorEstimates& estimates) {}
+
+  virtual void sendFrameworkPriorities(const FrameworkPrioritiesMessage& priorities) {}
 };
 
 class Master : public ProtobufProcess<Master>, public AllocatorMasterInterface
@@ -107,6 +113,7 @@ public:
                        const std::vector<Task>& tasks);
   void unregisterSlave(const SlaveID& slaveId);
   void statusUpdate(const StatusUpdate& update, const UPID& pid);
+  void recordStatusUpdate(const StatusUpdate& update);
   void executorMessage(const SlaveID& slaveId,
                        const FrameworkID& frameworkId,
                        const ExecutorID& executorId,
@@ -123,6 +130,8 @@ public:
 
   void updateUsage(const UsageMessage& update);
 
+  void forwardAllocatorEstimates(const AllocatorEstimates& estimates);
+
   void registerUsageListener(const UPID& pid);
 
   // Return connected frameworks that are not in the process of being removed
@@ -133,6 +142,8 @@ public:
 
   void makeOffers(Framework* framework,
                   const hashmap<Slave*, ResourceHints>& offered);
+
+  void sendFrameworkPriorities(const FrameworkPrioritiesMessage& priorities);
 
 protected:
   virtual void initialize();

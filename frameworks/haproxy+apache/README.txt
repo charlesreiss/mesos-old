@@ -1,14 +1,19 @@
 haproxy load balancer + Apache web server Mesos framework Readme
 ----------------------------------------------------------------
 
-First you will need to be able to run apache on the slave nodes in your cluster.
+Installation instructions:
+- Install Apache on all slaves. It must be in the same path.
+- Install haproxy on the machine where the scheduler will run.
+- If you want to use a non-standard port number, modify haproxy.config.template
+  to specify it. Haproxy must be configured to serve stats from a request
+  for /stats;csv
 
-In ubuntu, you can run 'sudo apt-get install apache2'
+haproxy+apache is a wrapper script which runs the scheduler.
 
-Then 'sudo /etc/init.d/apache2 restart'
+It locates its python dependencies using either:
+- the PROTOBUF_EGG and MESOS_EGG environment variables (pointing to these
+  egg files); or 
+- the MESOS_BUILD_DIR environment variable (pointing to the MESOS_BUILD_DIR)
 
-
-You need to have haproxy installed, currently it is assumed (in haproxy+apache.py) to be in /root/haproxy-1.3.20/haproxy.
-
-installation instructions are here: http://www.lastengine.com/99/installing-haproxy-load-balancing-for-http-and-https/
+haproxy+apache takes many command-line arguments, see 'haproxy+apache --help'.
 

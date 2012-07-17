@@ -247,6 +247,9 @@ message UsageMessage {
 
   // Extra fields for simulation convenience...
   repeated Resource expected_resources = 8;
+ 
+  // Non-allocatable "resources" considered for monitoring purposes only. 
+  repeated Resource pseudo_resources = 9;
 }
 
 // Tells a slave to shut down all executors of the given framework.
@@ -325,4 +328,11 @@ message NewMasterDetectedMessage {
 
 message GotMasterTokenMessage {
   required string token = 1;
+}
+
+
+// Extension for setting per-framework local priorites/shares
+message FrameworkPrioritiesMessage {
+  repeated FrameworkID framework_id = 1;
+  repeated double priority = 2;
 }

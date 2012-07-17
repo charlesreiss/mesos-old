@@ -17,6 +17,7 @@
  */
 
 #include <algorithm>
+#include <iterator>
 #include <sstream>
 #include <fstream>
 #include <map>
@@ -50,7 +51,8 @@ using std::vector;
 
 namespace {
 
-const int32_t CPU_SHARES_PER_CPU = 1024;
+const int32_t CPU_SHARES_PER_CPU = 4096; // Too small with priority stuff?
+const int32_t CPU_SHARES_PER_PRIORITY = 512;
 const int32_t MIN_CPU_SHARES = 10;
 const int64_t MIN_MEMORY_MB = 128 * Megabyte;
 
@@ -102,8 +104,16 @@ void LxcIsolationModule::initialize(
 
   cgroupRoot = conf.get<std::string>("cgroup_root", "/sys/fs/cgroup/");
   cgroupTypeLabel = conf.get<bool>("cgroup_type_label", true);
+  slaveResources = Resources::parse(
+      conf.get<std::string>("resources", "cpus:1;mem:1024"));
+  maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value()
+    * 1.1;
+  noLimits = conf.get<bool>("lxc_no_limits", false);
+  measureSwapAsMemory = conf.get<bool>("lxc_measure_swap_as_mem", true);
 
   LOG(INFO) << "cgroup_type_label = " << cgroupTypeLabel;
+  LOG(INFO) << "maxContainerMemory = " << maxContainerMemory;
+  LOG(INFO) << "noLimits = " << maxContainerMemory;
 
   initialized = true;
 }
@@ -199,7 +209,7 @@ void LxcIsolationModule::launchExecutor(
 
     // Construct the initial control group options that specify the
     // initial resources limits for this executor.
-    const vector<string>& options = getControlGroupOptions(resources);
+    const vector<string>& options = getControlGroupOptions(info);
 
     const char** args = (const char**) new char*[3 + options.size() + 2];
 
@@ -298,11 +308,8 @@ void LxcIsolationModule::resourcesChanged(
   string property;
   uint64_t value;
 
-  double cpu = resources.minResources.get("cpu", Value::Scalar()).value();
-  int32_t cpu_shares = max(CPU_SHARES_PER_CPU * (int32_t) cpu, MIN_CPU_SHARES);
-
   property = "cpu.shares";
-  value = cpu_shares;
+  value = computeCpuShares(info);
 
   if (!setControlGroupValue(container, property, value)) {
     // TODO(benh): Kill the executor, but do it in such a way that the
@@ -310,17 +317,28 @@ void LxcIsolationModule::resourcesChanged(
     return;
   }
 
-  double mem = resources.minResources.get("mem", Value::Scalar()).value();
-  int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
+  if (!noLimits) {
 
-  property = "memory.soft_limit_in_bytes";
-  value = limit_in_bytes;
+    double mem = resources.minResources.get("mem", Value::Scalar()).value();
+    int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
 
-  if (!setControlGroupValue(container, property, value)) {
-    // TODO(benh): Kill the executor, but do it in such a way that the
-    // slave finds out about it exiting.
-    return;
+    property = "memory.soft_limit_in_bytes";
+    value = limit_in_bytes;
+
+    if (!setControlGroupValue(container, property, value)) {
+      // TODO(benh): Kill the executor, but do it in such a way that the
+      // slave finds out about it exiting.
+      return;
+    }
+
   }
+
+  // Probably prevent the container from swapping and exceeding the memory
+  // allocated to Mesos on its own.
+  setControlGroupValue(container, "memory.memsw.limit_in_bytes",
+      (long long) maxContainerMemory * 1024LL * 1024LL);
+  setControlGroupValue(container, "memory.limit_in_bytes",
+      (long long) maxContainerMemory * 1024LL * 1024LL);
 
   // TODO(charles): We need to handle OOM better since setting the soft limit
   //                surely isn't enough.
@@ -347,6 +365,46 @@ void LxcIsolationModule::processExited(pid_t pid, int status)
   }
 }
 
+namespace {
+
+void getBlkioStats(const string& prefix,
+                   const string& stats,
+                   double duration,
+                   bool haveCols,
+                   hashmap<string, int64_t>* prev,
+                   Resources* result)
+{
+  std::istringstream is(stats);
+  int64_t value;
+  std::string disk;
+  while (is >> disk) {
+    std::string label;
+    if (disk == "Total") {
+      disk = "all";
+      is >> value;
+      label = "total";
+    } else if (haveCols) {
+      std::string type;
+      is >> type >> value;
+      label = disk + "_" + type;
+    } else {
+      label = disk;
+      is >> value;
+    }
+    if (prev->count(label) > 0) {
+      double delta = (value - (*prev)[label]) / duration;
+      mesos::Resource resource;
+      resource.set_name(prefix + label);
+      resource.set_type(Value::SCALAR);
+      resource.mutable_scalar()->set_value(delta);
+      *result += resource;
+    }
+    (*prev)[label] = value;
+  }
+}
+
+}  // unnamed namespace
+
 void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
                                      const ExecutorID& executorId) {
   if (!infos.contains(frameworkId) ||
@@ -358,16 +416,44 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
 
   int64_t curCpu;
   int64_t curMemBytes;
+  string memoryStats;
+  string diskTime;
+  string diskServiced;
+  string diskBytes;
 
   bool haveCpu = getControlGroupValue(info->container, "cpuacct", "usage",
                                       &curCpu);
-  bool haveMem = getControlGroupValue(info->container, "memory", 
+  bool haveMem = getControlGroupValue(info->container, "memory",
 				      "usage_in_bytes", &curMemBytes);
+  bool haveMemStats = getControlGroupString(info->container, "memory", "stat",
+      &memoryStats);
+  bool haveBlkioTime = getControlGroupString(info->container, "blkio", "time",
+      &diskTime);
+  bool haveBlkioServiced = getControlGroupString(info->container, "blkio",
+      "io_serviced", &diskServiced);
+  bool haveBlkioBytes = getControlGroupString(info->container, "blkio",
+      "io_service_bytes", &diskBytes);
 
   double now = process::Clock::now();
   double duration = now - info->lastSample;
   info->lastSample = now;
   Resources result;
+  Resources psuedoResult;
+  if (haveMemStats) {
+    std::istringstream is(memoryStats);
+    std::string label;
+    uint64_t value;
+    while (is >> label >> value) {
+      mesos::Resource res;
+      if (measureSwapAsMemory && label == "swap") {
+        curMemBytes += value / 1024.0 / 1024.0;
+      }
+      res.set_name("mem_" + label);
+      res.set_type(Value::SCALAR);
+      res.mutable_scalar()->set_value(value);
+      psuedoResult += res;
+    }
+  }
   if (haveMem) {
     mesos::Resource mem;
     mem.set_name("mem");
@@ -386,6 +472,18 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
       info->lastCpu = curCpu;
     }
   }
+  if (haveBlkioTime) {
+    getBlkioStats("disk_time", diskTime, duration, false,
+        &info->lastDiskTime, &psuedoResult);
+  }
+  if (haveBlkioServiced) {
+    getBlkioStats("disk_serviced", diskServiced, duration, true,
+        &info->lastDiskServiced, &psuedoResult);
+  }
+  if (haveBlkioBytes) {
+    getBlkioStats("disk_bytes", diskBytes, duration, true,
+        &info->lastDiskBytes, &psuedoResult);
+  }
   info->haveSample = true;
   if (result.size() > 0) {
     UsageMessage message;
@@ -394,6 +492,7 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
     message.mutable_resources()->MergeFrom(result);
     message.mutable_expected_resources()->MergeFrom(
         info->curLimit.expectedResources);
+    message.mutable_pseudo_resources()->MergeFrom(psuedoResult);
     message.set_timestamp(now);
     if (info->haveSample) {
       message.set_duration(duration);
@@ -455,30 +554,100 @@ bool LxcIsolationModule::getControlGroupValue(
   }
 }
 
+bool LxcIsolationModule::getControlGroupString(
+    const string& container, const string& group, const string& property,
+    string* value)
+{
+  *value = "";
+  std::string controlFile = cgroupRoot +
+    (cgroupTypeLabel ? group + "/" : std::string()) + container + "/" +
+    group + "." + property;
+  std::ifstream in(controlFile.c_str());
+  if (!in) {
+    LOG(ERROR) << "Couldn't open " << controlFile;
+    return false;
+  } else {
+    if (std::getline(in, *value, '\0')) {
+      return true;
+    } else {
+      LOG(ERROR) << "Couldn't read " << controlFile.c_str();
+      *value = "";
+      return false;
+    }
+  }
+}
+
 
 
 vector<string> LxcIsolationModule::getControlGroupOptions(
-    const ResourceHints& resources)
+    ContainerInfo* info)
 {
+  const ResourceHints& resources = info->curLimit;
   vector<string> options;
 
   std::ostringstream out;
 
-  double cpu = resources.minResources.get("cpu", Value::Scalar()).value();
-  int32_t cpu_shares = max(CPU_SHARES_PER_CPU * (int32_t) cpu, MIN_CPU_SHARES);
-
   options.push_back("-s");
-  out << "lxc.cgroup.cpu.shares=" << cpu_shares;
+  out << "lxc.cgroup.cpu.shares=" << computeCpuShares(info);
   options.push_back(out.str());
 
+  if (!noLimits) {
+    out.str("");
+
+    double mem = resources.minResources.get("mem", Value::Scalar()).value();
+    int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
+
+    options.push_back("-s");
+    out << "lxc.cgroup.memory.soft_limit_in_bytes=" << limit_in_bytes;
+    options.push_back(out.str());
+  }
+
+  int64_t hard_limit_in_bytes = ((int64_t) maxContainerMemory) * 1024LL * 1024LL;
   out.str("");
-
-  double mem = resources.minResources.get("mem", Value::Scalar()).value();
-  int64_t limit_in_bytes = max((int64_t) mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
-
   options.push_back("-s");
-  out << "lxc.cgroup.memory.soft_limit_in_bytes=" << limit_in_bytes;
+  out << "lxc.cgroup.memory.limit_in_bytes=" << hard_limit_in_bytes;
   options.push_back(out.str());
+
+  /*
+  out.str("");
+  options.push_back("-s");
+  out << "lxc.cgroup.memory.memsw.limit_in_bytes=" << hard_limit_in_bytes;
+  options.push_back(out.str());
+  */
 
   return options;
+}
+
+
+double LxcIsolationModule::computeCpuShares(ContainerInfo* info)
+{
+  if (priorityShares) {
+    int32_t cpuBoost =
+      (int32_t) (priorities[info->frameworkId] * CPU_SHARES_PER_PRIORITY);
+    int32_t cpuBase = info->curLimit.minResources.get(
+        "cpus", Value::Scalar()).value();
+    return max(MIN_CPU_SHARES, cpuBoost + cpuBase);
+  } else if (!noLimits) {
+    int32_t cpuBase = info->curLimit.minResources.get(
+        "cpus", Value::Scalar()).value();
+    return max(MIN_CPU_SHARES, cpuBase);
+  } else {
+    return MIN_CPU_SHARES;
+  }
+}
+
+
+void LxcIsolationModule::setFrameworkPriorities(
+    const hashmap<FrameworkID, double>& priorities_)
+{
+  priorities.clear();
+  std::copy(priorities_.begin(), priorities_.end(),
+      std::inserter(priorities, priorities.end()));
+  typedef hashmap<ExecutorID, ContainerInfo*> ContainerMap;
+  foreachvalue (const ContainerMap& containers, infos) {
+    foreachvalue (ContainerInfo* info, containers) {
+      setControlGroupValue(info->container, "cpu.shares",
+          computeCpuShares(info));
+    }
+  }
 }

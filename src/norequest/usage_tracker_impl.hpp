@@ -149,6 +149,13 @@ private:
   hashmap<ExecutorKey, ResourceEstimates> estimateByExecutor;
   double lastTickTime;
 
+  // Smoothing parameters
+  bool smoothUsage;
+  double smoothDecay;
+  double smoothDecayMem;
+  void smoothUsageUpdate(Resources* observation, double duration,
+                         const Resources& oldUsage);
+
   ResourceEstimates* estimateFor(const FrameworkID& frameworkId,
                                  const ExecutorID& executorId,
                                  const SlaveID& slaveId);

@@ -67,6 +67,7 @@ public:
     aggressiveReoffer = conf.get<bool>("norequest_aggressive", false);
     // TODO(Charles): Fix things so this is not the default.
     useCharge = conf.get<bool>("norequest_charge", false);
+    useLocalPriorities = conf.get<bool>("norequest_local_prio", false);
     if (!tracker) {
       tracker = getUsageTracker(conf);
       dontDeleteTracker = false;
@@ -79,7 +80,7 @@ public:
     conf = _conf;
     aggressiveReoffer = conf.get<bool>("norequest_aggressive", false);
     useCharge = conf.get<bool>("norequest_charge", false);
-    LOG(INFO) <<  "aggressive = " << aggressiveReoffer;
+    useLocalPriorities = conf.get<bool>("norequest_local_prio", false);
     if (!tracker) {
       tracker = getUsageTracker(conf);
       dontDeleteTracker = false;
@@ -187,6 +188,8 @@ private:
   double usageReofferDelay;
   boost::unordered_set<Slave*> usageReofferSlaves;
   process::Timer usageReofferTimer;
+
+  bool useLocalPriorities;
 };
 
 } // namespace norequest
