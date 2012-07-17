@@ -374,10 +374,12 @@ void getBlkioStats(const string& prefix,
                    hashmap<string, int64_t>* prev,
                    Resources* result)
 {
+  LOG(INFO) << "Interpreting " << stats << " for " << prefix;
   std::istringstream is(stats);
   int64_t value;
   std::string disk;
   while (is >> disk) {
+    LOG(INFO) << "read " << disk
     std::string label;
     if (disk == "Total") {
       disk = "all";
@@ -391,12 +393,15 @@ void getBlkioStats(const string& prefix,
       label = disk;
       is >> value;
     }
+    LOG(INFO) << "label= " << label;
     if (prev->count(label) > 0) {
       double delta = (value - (*prev)[label]) / duration;
       mesos::Resource resource;
       resource.set_name(prefix + label);
       resource.set_type(Value::SCALAR);
       resource.mutable_scalar()->set_value(delta);
+    } else {
+      LOG(INFO) << "no prev for label";
     }
     (*prev)[label] = value;
   }
@@ -422,7 +427,7 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
 
   bool haveCpu = getControlGroupValue(info->container, "cpuacct", "usage",
                                       &curCpu);
-  bool haveMem = getControlGroupValue(info->container, "memory", 
+  bool haveMem = getControlGroupValue(info->container, "memory",
 				      "usage_in_bytes", &curMemBytes);
   bool haveMemStats = getControlGroupString(info->container, "memory", "stat",
       &memoryStats);
@@ -569,6 +574,7 @@ bool LxcIsolationModule::getControlGroupString(
     if (std::getline(in, *value, '\0')) {
       return true;
     } else {
+      LOG(ERROR) << "Couldn't read " << controlFile.c_str();
       *value = "";
       return false;
     }
