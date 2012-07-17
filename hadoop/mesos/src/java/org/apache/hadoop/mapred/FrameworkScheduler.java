@@ -206,7 +206,7 @@ public class FrameworkScheduler implements Scheduler {
           cpus[i] = getResource(offer, "cpus");
           mem[i] = getResource(offer, "mem");
           LOG.info("Offer is for " + cpus[i] + " cpus and " + mem[i] +
-                   "mem on " + offer.getHostname())
+                   " mem on " + offer.getHostname());
         }
 
         // Assign tasks to the nodes in a round-robin manner, and stop when we
@@ -230,12 +230,14 @@ public class FrameworkScheduler implements Scheduler {
             Offer offer = offers.get(i);
             TaskInfo task = findTask(
                 offer.getSlaveId(), offer.getHostname(), cpus[i], mem[i]);
-            LOG.info("Launching task for offer " + offer.getId().getValue())
             if (task != null) {
+              LOG.info("Launching task for offer " + offer.getId().getValue());
               cpus[i] -= getResource(task, "cpus");
               mem[i] -= getResource(task, "mem");
               replies.get(i).add(task);
             } else {
+              LOG.info("Could not find task for offer " +
+                       offer.getId().getValue());
               it.remove();
             }
           }
@@ -259,6 +261,8 @@ public class FrameworkScheduler implements Scheduler {
       return ttInfos.get(host);
     } else {
       TaskTrackerInfo info = new TaskTrackerInfo(slaveId.toBuilder().build());
+      LOG.info("Created new TaskTrackerInfo for " + host + " / " +
+          slaveId.getValue());
       ttInfos.put(host, info);
       return info;
     }
@@ -268,6 +272,7 @@ public class FrameworkScheduler implements Scheduler {
   private TaskInfo findTask(
       SlaveID slaveId, String host, double cpus, double mem) {
     if (cpus < cpusPerTask || mem < memPerTask) {
+      LOG.info("Cannot findTask because too few cpus/memory on " + host);
       return null; // Too few resources are left on the node
     }
 
@@ -277,8 +282,8 @@ public class FrameworkScheduler implements Scheduler {
     String taskType = null;
     boolean haveMaps = canLaunchMap(host);
     boolean haveReduces = canLaunchReduce(host);
-    //LOG.info("Looking at " + host + ": haveMaps=" + haveMaps +
-    //         ", haveReduces=" + haveReduces);
+    LOG.info("Looking at " + host + ": haveMaps=" + haveMaps +
+             ", haveReduces=" + haveReduces);
     if (!haveMaps && !haveReduces) {
       return null;
     } else if (haveMaps && !haveReduces) {
@@ -292,7 +297,7 @@ public class FrameworkScheduler implements Scheduler {
       else
         taskType = "map";
     }
-    //LOG.info("Task type chosen: " + taskType);
+    LOG.info("Task type chosen: " + taskType);
 
     // Get a Mesos task ID for the new task
     TaskID mesosId = newMesosTaskId();
@@ -525,6 +530,9 @@ public class FrameworkScheduler implements Scheduler {
         ttInfo.maxMaps = tts.getMaxMapSlots();
         ttInfo.maxReduces = tts.getMaxReduceSlots();
 
+        LOG.info(host + " has " + ttInfo.maxMaps + " map slots and " +
+                 ttInfo.maxReduces + " reduce slots");
+
         int clusterSize = jobTracker.getClusterStatus().getTaskTrackers();
         int numHosts = jobTracker.getNumberOfUniqueHosts();
 
@@ -644,6 +652,51 @@ public class FrameworkScheduler implements Scheduler {
     }
   }
 
+  // Check to see if we're only running reduce tasks but can run non-backup
+  // map tasks for the same job.
+  public boolean killExcessTasks() {
+    synchronized (jobTracker)  {
+      Collection<JobInProgress> jobs = jobTracker.jobs.values();
+      int numMaps = 0;
+      for (JobInProgress job : jobs) {
+        numMaps += job.runningMapTasks;
+      }
+      if (numMaps == 0) {
+        LOG.info("Not running any maps; checking if reducers are stalled");
+        for (JobInProgress job : jobs) {
+          if (job.runningReduceTasks > 0 && job.failedMapTasks > 0) {
+            LOG.info("Need to run more maps for " + job.getJobID());
+            int numToKill = Math.max(1, 
+                Math.min(job.failedMapTasks, job.runningReduceTasks / 2));
+            LOG.info("Killing " + numToKill +
+                " reduce tasks to open map slots");
+            List<TaskInProgress> reduces = new ArrayList<TaskInProgress>();
+            reduces.addAll(job.runningReduces);
+            // TODO (Charles): Account for speculative tasks.
+            Collections.sort(reduces,
+                new Comparator<TaskInProgress>() {
+                  int compare(TaskInProgress a, TaskInProgress b) {
+                    return Double.compare(bProgress, aProgress);
+                  }
+                });
+            for (int i = 0; i < numToKill; ++i) {
+              TaskInProgress tip = reduces.get(i);
+              for (TaskAttemptID id: tip.getAllTaskAttemptIDs()) {
+                if (tip.isRunningTask(id)) {
+                  if (tip.killTask(id, false)) {
+                    break;
+                  } else {
+                    LOG.info("Failed to kill task attempt " + id);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Kill any unlaunched tasks that have timed out
   public void killTimedOutTasks() {
     synchronized (jobTracker) {
@@ -660,22 +713,25 @@ public class FrameworkScheduler implements Scheduler {
   }
 
   private void killTimedOutTasks(List<MesosTask> tasks, long minCreationTime) {
-    List<MesosTask> toRemove = new ArrayList<MesosTask>();
-    for (MesosTask nt: tasks) {
-      if (!nt.isAssigned() && nt.creationTime < minCreationTime) {
-        toRemove.add(nt);
+    synchronized (jobTracker) {
+      List<MesosTask> toRemove = new ArrayList<MesosTask>();
+      for (MesosTask nt: tasks) {
+        if (!nt.isAssigned() && nt.creationTime < minCreationTime) {
+          toRemove.add(nt);
+        }
       }
-    }
-    for (MesosTask nt: toRemove) {
-      LOG.info("Killing timedout task " + nt.mesosId.getValue() +
-               " created at " + nt.creationTime);
-      askExecutorToUpdateStatus(nt, TaskState.TASK_KILLED);
+      for (MesosTask nt: toRemove) {
+        LOG.info("Killing timedout task " + nt.mesosId.getValue() +
+                 " created at " + nt.creationTime);
+        askExecutorToUpdateStatus(nt, TaskState.TASK_KILLED);
+      }
     }
   }
 
   @Override
   public void frameworkMessage(SchedulerDriver d, ExecutorID eId, SlaveID sId, byte[] message) {
     // TODO: Respond to E2S_KILL_REQUEST message by killing a task
+    LOG.info("Unhandled frameworkMessage");
   }
 
   @Override
