@@ -111,7 +111,7 @@ void LxcIsolationModule::initialize(
       flags.resources.isSome() ?
         flags.resources.get() : "cpus:1;mem:1024");
   maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value()
-    * 1.1;
+    * 1.2;
   noLimits = flags.lxc_no_limits;
   measureSwapAsMemory = flags.lxc_measure_swap_as_mem;
 
@@ -368,6 +368,46 @@ void LxcIsolationModule::processExited(pid_t pid, int status)
   }
 }
 
+namespace {
+
+void getBlkioStats(const string& prefix,
+                   const string& stats,
+                   double duration,
+                   bool haveCols,
+                   hashmap<string, int64_t>* prev,
+                   Resources* result)
+{
+  std::istringstream is(stats);
+  int64_t value;
+  std::string disk;
+  while (is >> disk) {
+    std::string label;
+    if (disk == "Total") {
+      disk = "all";
+      is >> value;
+      label = "total";
+    } else if (haveCols) {
+      std::string type;
+      is >> type >> value;
+      label = disk + "_" + type;
+    } else {
+      label = disk;
+      is >> value;
+    }
+    if (prev->count(label) > 0) {
+      double delta = (value - (*prev)[label]) / duration;
+      mesos::Resource resource;
+      resource.set_name(prefix + label);
+      resource.set_type(Value::SCALAR);
+      resource.mutable_scalar()->set_value(delta);
+      *result += resource;
+    }
+    (*prev)[label] = value;
+  }
+}
+
+}  // unnamed namespace
+
 void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
                                      const ExecutorID& executorId) {
   if (!infos.contains(frameworkId) ||
@@ -380,13 +420,22 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
   int64_t curCpu;
   int64_t curMemBytes;
   string memoryStats;
+  string diskTime;
+  string diskServiced;
+  string diskBytes;
 
   bool haveCpu = getControlGroupValue(info->container, "cpuacct", "usage",
                                       &curCpu);
-  bool haveMem = getControlGroupValue(info->container, "memory", 
+  bool haveMem = getControlGroupValue(info->container, "memory",
 				      "usage_in_bytes", &curMemBytes);
   bool haveMemStats = getControlGroupString(info->container, "memory", "stat",
       &memoryStats);
+  bool haveBlkioTime = getControlGroupString(info->container, "blkio", "time",
+      &diskTime);
+  bool haveBlkioServiced = getControlGroupString(info->container, "blkio",
+      "io_serviced", &diskServiced);
+  bool haveBlkioBytes = getControlGroupString(info->container, "blkio",
+      "io_service_bytes", &diskBytes);
 
   double now = process::Clock::now();
   double duration = now - info->lastSample;
@@ -425,6 +474,18 @@ void LxcIsolationModule::sampleUsage(const FrameworkID& frameworkId,
       result += cpu;
       info->lastCpu = curCpu;
     }
+  }
+  if (haveBlkioTime) {
+    getBlkioStats("disk_time", diskTime, duration, false,
+        &info->lastDiskTime, &psuedoResult);
+  }
+  if (haveBlkioServiced) {
+    getBlkioStats("disk_serviced", diskServiced, duration, true,
+        &info->lastDiskServiced, &psuedoResult);
+  }
+  if (haveBlkioBytes) {
+    getBlkioStats("disk_bytes", diskBytes, duration, true,
+        &info->lastDiskBytes, &psuedoResult);
   }
   info->haveSample = true;
   if (result.size() > 0) {
@@ -512,6 +573,7 @@ bool LxcIsolationModule::getControlGroupString(
     if (std::getline(in, *value, '\0')) {
       return true;
     } else {
+      LOG(ERROR) << "Couldn't read " << controlFile.c_str();
       *value = "";
       return false;
     }

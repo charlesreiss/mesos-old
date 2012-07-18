@@ -108,6 +108,9 @@ private:
     bool haveSample;
     double lastSample;
     int64_t lastCpu;
+    hashmap<std::string, int64_t> lastDiskTime;
+    hashmap<std::string, int64_t> lastDiskServiced;
+    hashmap<std::string, int64_t> lastDiskBytes;
   };
 
   // TODO(benh): Make variables const by passing them via constructor.

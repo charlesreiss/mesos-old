@@ -1,7 +1,5 @@
 #!/bin/sh
 
-exec >/scratch/charles/stdout.$$
-
 # This script uses MESOS_SOURCE_DIR and MESOS_BUILD_DIR which come
 # from configuration substitutions.
 MESOS_SOURCE_DIR=@abs_top_srcdir@
