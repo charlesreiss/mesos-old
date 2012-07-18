@@ -146,14 +146,13 @@ NoRequestAllocator::placeUsage(const FrameworkID& frameworkId,
         tracker->nextUsedForExecutor(slaveId, frameworkId, executorId) +
         maybeExecutorInfo.get().resources());
     minResources += maybeExecutorInfo.get().min_resources();
-  } else if (removedTask) {
-    if (tasks->count(removedTask)) {
-      tasks->erase(removedTask);
-      minResources -= removedTask->min_resources();
-      if (tasks->size() == 0) {
-        // TODO(charles): wrong for memory
-        estimate = Option<Resources>::some(Resources());
-      }
+  } else if (removedTask && tasks->count(removedTask)) {
+    // CHECK_EQ(1, tasks->count(removedTask)); // FIXME XXX executorRemoved already called?
+    tasks->erase(removedTask);
+    minResources -= removedTask->min_resources();
+    if (tasks->size() == 0) {
+      // TODO(charles): wrong for memory
+      estimate = Option<Resources>::some(Resources());
     }
   }
 
