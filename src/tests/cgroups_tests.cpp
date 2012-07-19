@@ -16,9 +16,15 @@
  * limitations under the License.
  */
 
+#include <assert.h>
+#include <signal.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include <sys/types.h>
+#include <sys/wait.h>
+
+#include <glog/logging.h>
 
 #include <gmock/gmock.h>
 
@@ -28,6 +34,8 @@
 #include <stout/strings.hpp>
 
 #include "linux/cgroups.hpp"
+
+using namespace process;
 
 
 // Define the test fixture for the cgroups tests.
@@ -380,4 +388,189 @@ TEST_F(CgroupsTest, ROOT_CGROUPS_GetTasks)
   std::set<pid_t> pids = tasks.get();
   EXPECT_NE(pids.find(1), pids.end());
   EXPECT_NE(pids.find(::getpid()), pids.end());
+}
+
+
+TEST_F(CgroupsTest, ROOT_CGROUPS_ListenEvent)
+{
+  // Disable oom killer.
+  Try<bool> disableResult = cgroups::writeControl(hierarchy,
+                                                  "/prof",
+                                                  "memory.oom_control",
+                                                  "1");
+  ASSERT_TRUE(disableResult.isSome());
+
+  // Limit the memory usage of "/prof" to 64MB.
+  size_t limit = 1024 * 1024 * 64;
+  Try<bool> writeResult = cgroups::writeControl(hierarchy,
+                                                "/prof",
+                                                "memory.limit_in_bytes",
+                                                stringify(limit));
+  ASSERT_TRUE(writeResult.isSome());
+
+  // Start listen on oom events for "/prof" cgroup.
+  Future<uint64_t> future =
+    cgroups::listenEvent(hierarchy,
+                         "/prof",
+                         "memory.oom_control");
+  ASSERT_FALSE(future.isFailed());
+
+  pid_t pid = ::fork();
+  ASSERT_NE(-1, pid);
+
+  if (pid) {
+    // In parent process.
+    future.await(5.0); // Timeout in 5 seconds.
+
+    EXPECT_TRUE(future.isReady());
+
+    // Kill the child process.
+    EXPECT_NE(-1, ::kill(pid, SIGKILL));
+
+    // Wait for the child process.
+    int status;
+    EXPECT_NE(-1, ::waitpid((pid_t) -1, &status, 0));
+  } else {
+    // In child process. We try to trigger an oom here.
+    // Put self into the "/prof" cgroup.
+    Try<bool> assignResult = cgroups::assignTask(hierarchy,
+                                                 "/prof",
+                                                 ::getpid());
+    assert(assignResult.isSome()); // Exit the process if not true.
+
+    // Blow up the memory.
+    size_t limit = 1024 * 1024 * 512;
+    char* ptr = (char*) ::malloc(limit);
+    assert(ptr != NULL);
+    for (size_t i = 0; i < limit; i++) {
+      ptr[i] = '\1';
+    }
+
+    // Should not reach here.
+    LOG(FATAL) << "OOM does not happen!";
+  }
+}
+
+
+TEST_F(CgroupsTest, ROOT_CGROUPS_Freezer)
+{
+  pid_t pid = ::fork();
+  ASSERT_NE(-1, pid);
+
+  if (pid) {
+    // In parent process.
+    ::sleep(2); // Enough for the child to start up.
+
+    // Freeze the "/prof" cgroup.
+    Future<std::string> freeze = cgroups::freezeCgroup(hierarchy, "/prof");
+    freeze.await(1.0);
+    EXPECT_TRUE(freeze.isReady());
+    EXPECT_EQ("FROZEN", freeze.get());
+
+    // Thaw the "/prof" cgroup.
+    Future<std::string> thaw = cgroups::thawCgroup(hierarchy, "/prof");
+    thaw.await(1.0);
+    EXPECT_TRUE(thaw.isReady());
+    EXPECT_EQ("THAWED", thaw.get());
+
+    // Kill the child process.
+    EXPECT_NE(-1, ::kill(pid, SIGKILL));
+
+    // Wait for the child process.
+    int status;
+    EXPECT_NE(-1, ::waitpid((pid_t) -1, &status, 0));
+  } else {
+    // In child process.
+    // Put self into the "/prof" cgroup.
+    Try<bool> assign = cgroups::assignTask(hierarchy,
+                                           "/prof",
+                                           ::getpid());
+
+    for (int i = 0; i < 5; i++) {
+      ::sleep(1);
+    }
+
+    ::exit(0);
+  }
+}
+
+
+TEST_F(CgroupsTest, ROOT_CGROUPS_KillTasks)
+{
+  pid_t pid = ::fork();
+  ASSERT_NE(-1, pid);
+
+  if (pid) {
+    // In parent process.
+    ::sleep(2);
+
+    Future<bool> future = cgroups::killTasks(hierarchy, "/prof");
+    future.await(5.0);
+    ASSERT_TRUE(future.isReady());
+    EXPECT_TRUE(future.get());
+
+    int status;
+    EXPECT_NE(-1, ::waitpid((pid_t) -1, &status, 0));
+  } else {
+    // In child process.
+    ::fork();
+    ::fork();
+
+    // Put self into "/prof" cgroup.
+    Try<bool> assign = cgroups::assignTask(hierarchy, "/prof", ::getpid());
+    if (assign.isError()) {
+      LOG(ERROR) << assign.error();
+    }
+
+    // Wait kill signal from parent.
+    while (true) {
+      sleep(1);
+    }
+
+    // Should not reach here.
+    LOG(FATAL) << "Reached an unreachable statement";
+  }
+}
+
+
+TEST_F(CgroupsTest, ROOT_CGROUPS_DestroyCgroup)
+{
+  Future<bool> future = cgroups::destroyCgroup(hierarchy, "/stu/under");
+  future.await(5.0);
+  ASSERT_TRUE(future.isReady());
+  EXPECT_TRUE(future.get());
+
+  pid_t pid = ::fork();
+  ASSERT_NE(-1, pid);
+
+  if (pid) {
+    // In parent process.
+    ::sleep(2);
+
+    Future<bool> future = cgroups::destroyCgroup(hierarchy, "/");
+    future.await(5.0);
+    ASSERT_TRUE(future.isReady());
+    EXPECT_TRUE(future.get());
+
+    int status;
+    EXPECT_NE(-1, ::waitpid((pid_t) -1, &status, 0));
+  } else {
+    // In child process.
+    ::fork();
+    ::fork();
+
+    // Put self into "/prof" cgroup.
+    Try<bool> assign = cgroups::assignTask(hierarchy, "/prof", ::getpid());
+    if (assign.isError()) {
+      LOG(ERROR) << assign.error();
+    }
+
+    // Wait kill signal from parent.
+    while (true) {
+      sleep(1);
+    }
+
+    // Should not reach here.
+    LOG(FATAL) << "Reached an unreachable statement";
+  }
 }

@@ -18,13 +18,26 @@
 
 #include <errno.h>
 #include <fts.h>
+#include <signal.h>
 #include <unistd.h>
+
+#include <sys/syscall.h>
+#include <sys/types.h>
+
+#include <glog/logging.h>
 
 #include <fstream>
 #include <map>
 #include <sstream>
 
+#include <process/collect.hpp>
+#include <process/defer.hpp>
+#include <process/delay.hpp>
+#include <process/io.hpp>
+#include <process/process.hpp>
+
 #include <stout/foreach.hpp>
+#include <stout/lambda.hpp>
 #include <stout/option.hpp>
 #include <stout/os.hpp>
 #include <stout/stringify.hpp>
@@ -33,19 +46,10 @@
 #include "linux/cgroups.hpp"
 #include "linux/fs.hpp"
 
-
+using namespace process;
 using namespace mesos::internal;
 
-
 namespace cgroups {
-
-
-//////////////////////////////////////////////////////////////////////////////
-// The following *internal* functions provide very basic controls over Linux
-// cgroups. Sanity checks are removed from these functions for performance.
-// Users can always wrap these functions to provide various checks if needed.
-//////////////////////////////////////////////////////////////////////////////
-
 
 namespace internal {
 
@@ -296,13 +300,7 @@ static Try<bool> writeControl(const std::string& hierarchy,
   return true;
 }
 
-
 } // namespace internal {
-
-
-//////////////////////////////////////////////////////////////////////////////
-// The following functions are visible to users.
-//////////////////////////////////////////////////////////////////////////////
 
 
 bool enabled()
@@ -748,5 +746,767 @@ Try<bool> assignTask(const std::string& hierarchy,
                                 stringify(pid));
 }
 
+
+namespace internal {
+
+#ifndef __NR_eventfd2
+#error "The eventfd2 syscall is unavailable."
+#endif
+
+#define EFD_SEMAPHORE (1 << 0)
+#define EFD_CLOEXEC O_CLOEXEC
+#define EFD_NONBLOCK O_NONBLOCK
+
+static int eventfd(unsigned int initval, int flags)
+{
+  return ::syscall(__NR_eventfd2, initval, flags);
+}
+
+
+// In cgroups, there is mechanism which allows to get notifications about
+// changing status of a cgroup. It is based on Linux eventfd. See more
+// information in the kernel documentation ("Notification API"). This function
+// will create an eventfd and write appropriate control file to correlate the
+// eventfd with a type of event so that users can start polling on the eventfd
+// to get notified. It returns the eventfd (file descriptor) if the notifier has
+// been successfully opened. This function assumes all the parameters are valid.
+// The eventfd is set to be non-blocking.
+// @param   hierarchy   Path to the hierarchy root.
+// @param   cgroup      Path to the cgroup relative to the hierarchy root.
+// @param   control     Name of the control file.
+// @param   args        Control specific arguments.
+// @return  The eventfd if the operation succeeds.
+//          Error if the operation fails.
+static Try<int> openNotifier(const std::string& hierarchy,
+                             const std::string& cgroup,
+                             const std::string& control,
+                             const Option<std::string>& args =
+                               Option<std::string>::none())
+{
+  int efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+  if (efd < 0) {
+    return Try<int>::error(
+        "Create eventfd failed: " + std::string(strerror(errno)));
+  }
+
+  // Open the control file.
+  std::string path = hierarchy + "/" + cgroup + "/" + control;
+  Try<int> cfd = os::open(path, O_RDWR);
+  if (cfd.isError()) {
+    os::close(efd);
+    return Try<int>::error(cfd.error());
+  }
+
+  // Write the event control file (cgroup.event_control).
+  std::ostringstream ss;
+  ss << std::dec << efd << " " << cfd.get();
+  if (args.isSome()) {
+    ss << " " << args.get();
+  }
+  Try<bool> write = internal::writeControl(hierarchy,
+                                           cgroup,
+                                           "cgroup.event_control",
+                                           ss.str());
+  if (write.isError()) {
+    os::close(efd);
+    os::close(cfd.get());
+    return Try<int>::error(write.error());
+  }
+
+  os::close(cfd.get());
+
+  return efd;
+}
+
+
+// Close a notifier. The parameter fd is the eventfd returned by openNotifier.
+// @param   fd      The eventfd returned by openNotifier.
+// @return  True if the operation succeeds.
+//          Error if the operation fails.
+static Try<bool> closeNotifier(int fd)
+{
+  return os::close(fd);
+}
+
+
+// The process listening on event notifier. This class is invisible to users.
+class EventListener : public Process<EventListener>
+{
+public:
+  EventListener(const std::string& _hierarchy,
+                const std::string& _cgroup,
+                const std::string& _control,
+                const Option<std::string>& _args)
+    : hierarchy(_hierarchy),
+      cgroup(_cgroup),
+      control(_control),
+      args(_args),
+      data(0) {}
+
+  virtual ~EventListener() {}
+
+  Future<uint64_t> future() { return promise.future(); }
+
+protected:
+  virtual void initialize()
+  {
+    // Stop the listener if no one cares. Note that here we explicitly specify
+    // the type of the terminate function because it is an overloaded function.
+    // The compiler complains if we do not do it.
+    promise.future().onDiscarded(lambda::bind(
+        static_cast<void (*)(const UPID&, bool)>(terminate), self(), true));
+
+    // Open the event file.
+    Try<int> fd = internal::openNotifier(hierarchy, cgroup, control, args);
+    if (fd.isError()) {
+      promise.fail(fd.error());
+      terminate(self());
+      return;
+    }
+
+    // Remember the opened event file.
+    eventfd = fd.get();
+
+    // Perform nonblocking read on the event file. The nonblocking read will
+    // start polling on the event file until it becomes readable. If we can
+    // successfully read 8 bytes (sizeof uint64_t) from the event file, it
+    // indicates an event has occurred.
+    reading = io::read(eventfd.get(), &data, sizeof(data));
+    reading.get().onAny(defer(self(), &EventListener::notified));
+  }
+
+  virtual void finalize()
+  {
+    // Discard the nonblocking read if needed.
+    if (reading.isSome()) {
+      reading.get().discard();
+    }
+
+    // Close the eventfd if needed.
+    if (eventfd.isSome()) {
+      Try<bool> close = internal::closeNotifier(eventfd.get());
+      if (close.isError()) {
+        LOG(ERROR) << "Closing eventfd " << eventfd.get()
+                   << " failed: " << close.error();
+      }
+    }
+  }
+
+private:
+  // This function is called when the nonblocking read on the eventfd has
+  // result, either because the event has happened, or an error has occurred.
+  void notified()
+  {
+    // Ignore this function if the promise is no longer pending.
+    if (!promise.future().isPending()) {
+      return;
+    }
+
+    // Since the future reading can only be discarded when the promise is no
+    // longer pending, we shall never see a discarded reading here because of
+    // the check in the beginning of the function.
+    CHECK(!reading.get().isDiscarded());
+
+    if (reading.get().isFailed()) {
+      promise.fail("Failed to read eventfd: " + reading.get().failure());
+    } else {
+      if (reading.get().get() == sizeof(data)) {
+        promise.set(data);
+      } else {
+        promise.fail("Read less than expected");
+      }
+    }
+
+    terminate(self());
+  }
+
+  std::string hierarchy;
+  std::string cgroup;
+  std::string control;
+  Option<std::string> args;
+  Promise<uint64_t> promise;
+  Option<Future<size_t> > reading;
+  Option<int> eventfd;  // The eventfd if opened.
+  uint64_t data; // The data read from the eventfd.
+};
+
+} // namespace internal {
+
+
+Future<uint64_t> listenEvent(const std::string& hierarchy,
+                             const std::string& cgroup,
+                             const std::string& control,
+                             const Option<std::string>& args)
+{
+  Try<bool> check = checkControl(hierarchy, cgroup, control);
+  if (check.isError()) {
+    return Future<uint64_t>::failed(check.error());
+  }
+
+  internal::EventListener* listener =
+    new internal::EventListener(hierarchy, cgroup, control, args);
+  Future<uint64_t> future = listener->future();
+  spawn(listener, true);
+  return future;
+}
+
+
+namespace internal {
+
+
+// The process that freezes or thaws the cgroup.
+class Freezer : public Process<Freezer>
+{
+public:
+  Freezer(const std::string& _hierarchy,
+          const std::string& _cgroup,
+          const std::string& _action,
+          const Option<double>& _interval = Option<double>::none())
+    : hierarchy(_hierarchy),
+      cgroup(_cgroup),
+      action(_action)
+  {
+    // Use default interval if not given.
+    if (_interval.isNone()) {
+      interval = DEFAULT_INTERVAL;
+    } else {
+      interval = _interval.get();
+    }
+  }
+
+  virtual ~Freezer() {}
+
+  // Return a future indicating the state of the freezer.
+  Future<std::string> future() { return promise.future(); }
+
+protected:
+  virtual void initialize()
+  {
+    // Stop the process if no one cares.
+    promise.future().onDiscarded(lambda::bind(
+        static_cast<void (*)(const UPID&, bool)>(terminate), self(), true));
+
+    if (interval < 0) {
+      promise.fail("Invalid interval: " + stringify(interval));
+      terminate(self());
+      return;
+    }
+
+    // Start the action.
+    if (action == "FREEZE") {
+      freeze();
+    } else if (action == "THAW") {
+      thaw();
+    } else {
+      promise.fail("Invalid action: " + action);
+      terminate(self());
+    }
+  }
+
+private:
+  void freeze()
+  {
+    Try<bool> result = internal::writeControl(hierarchy,
+                                              cgroup,
+                                              "freezer.state",
+                                              "FROZEN");
+    if (result.isError()) {
+      promise.fail(result.error());
+      terminate(self());
+    } else {
+      watchFrozen();
+    }
+  }
+
+  void thaw()
+  {
+    Try<bool> result = internal::writeControl(hierarchy,
+                                              cgroup,
+                                              "freezer.state",
+                                              "THAWED");
+    if (result.isError()) {
+      promise.fail(result.error());
+      terminate(self());
+    } else {
+      watchThawed();
+    }
+  }
+
+  void watchFrozen()
+  {
+    Try<std::string> state = internal::readControl(hierarchy,
+                                                   cgroup,
+                                                   "freezer.state");
+    if (state.isError()) {
+      promise.fail(state.error());
+      terminate(self());
+      return;
+    }
+
+    if (strings::trim(state.get()) == "FROZEN") {
+      promise.set("FROZEN");
+      terminate(self());
+    } else if (strings::trim(state.get()) == "FREEZING") {
+      // Not done yet, keep watching.
+      delay(interval, self(), &Freezer::watchFrozen);
+    } else {
+      CHECK(false) << "Unexpected state: " << strings::trim(state.get());
+    }
+  }
+
+  void watchThawed()
+  {
+    Try<std::string> state = internal::readControl(hierarchy,
+                                                   cgroup,
+                                                   "freezer.state");
+    if (state.isError()) {
+      promise.fail(state.error());
+      terminate(self());
+      return;
+    }
+
+    if (strings::trim(state.get()) == "THAWED") {
+      promise.set("THAWED");
+      terminate(self());
+    } else if (strings::trim(state.get()) == "FROZEN") {
+      // Not done yet, keep watching.
+      delay(interval, self(), &Freezer::watchThawed);
+    } else {
+      CHECK(false) << "Unexpected state: " << strings::trim(state.get());
+    }
+  }
+
+  std::string hierarchy;
+  std::string cgroup;
+  std::string action;
+  double interval;
+  Promise<std::string> promise;
+
+  // The default time interval (in seconds) between two requests.
+  static const double DEFAULT_INTERVAL = 0.1;
+};
+
+
+} // namespace internal {
+
+
+Future<std::string> freezeCgroup(const std::string& hierarchy,
+                                 const std::string& cgroup,
+                                 const Option<double>& interval)
+{
+  Try<bool> check = checkControl(hierarchy, cgroup, "freezer.state");
+  if (check.isError()) {
+    return Future<std::string>::failed(check.error());
+  }
+
+  // Check the current freezer state.
+  Try<std::string> state = internal::readControl(hierarchy,
+                                                 cgroup,
+                                                 "freezer.state");
+  if (state.isError()) {
+    return Future<std::string>::failed(state.error());
+  } else if (strings::trim(state.get()) == "FROZEN") {
+    return Future<std::string>::failed("Cannot freeze a frozen cgroup");
+  }
+
+  internal::Freezer* freezer =
+    new internal::Freezer(hierarchy, cgroup, "FREEZE", interval);
+  Future<std::string> future = freezer->future();
+  spawn(freezer, true);
+  return future;
+}
+
+
+Future<std::string> thawCgroup(const std::string& hierarchy,
+                               const std::string& cgroup,
+                               const Option<double>& interval)
+{
+  Try<bool> check = checkControl(hierarchy, cgroup, "freezer.state");
+  if (check.isError()) {
+    return Future<std::string>::failed(check.error());
+  }
+
+  // Check the current freezer state.
+  Try<std::string> state = internal::readControl(hierarchy,
+                                                 cgroup,
+                                                 "freezer.state");
+  if (state.isError()) {
+    return Future<std::string>::failed(state.error());
+  } else if (strings::trim(state.get()) == "THAWED") {
+    return Future<std::string>::failed("Cannot thaw a thawed cgroup");
+  }
+
+  internal::Freezer* freezer =
+    new internal::Freezer(hierarchy, cgroup, "THAW", interval);
+  Future<std::string> future = freezer->future();
+  spawn(freezer, true);
+  return future;
+}
+
+namespace internal{
+
+
+// The process used to wait for a cgroup to become empty (no task in it).
+class EmptyWatcher: public Process<EmptyWatcher>
+{
+public:
+  EmptyWatcher(const std::string& _hierarchy,
+               const std::string& _cgroup,
+               const Option<double>& _interval = Option<double>::none())
+    : hierarchy(_hierarchy),
+      cgroup(_cgroup)
+  {
+    if (_interval.isNone()) {
+      interval = DEFAULT_INTERVAL;
+    } else {
+      interval = _interval.get();
+    }
+  }
+
+  virtual ~EmptyWatcher() {}
+
+  // Return a future indicating the state of the watcher.
+  Future<bool> future() { return promise.future(); }
+
+protected:
+  virtual void initialize()
+  {
+    // Stop when no one cares.
+    promise.future().onDiscarded(lambda::bind(
+        static_cast<void (*)(const UPID&, bool)>(terminate), self(), true));
+
+    if (interval < 0) {
+      promise.fail("Invalid interval: " + stringify(interval));
+      terminate(self());
+      return;
+    }
+
+    check();
+  }
+
+private:
+  void check()
+  {
+    Try<std::string> state = internal::readControl(hierarchy,
+                                                   cgroup,
+                                                   "tasks");
+    if (state.isError()) {
+      promise.fail(state.error());
+      terminate(self());
+      return;
+    }
+
+    if (strings::trim(state.get()).empty()) {
+      promise.set(true);
+      terminate(self());
+    } else {
+      // Re-check needed.
+      delay(interval, self(), &EmptyWatcher::check);
+    }
+  }
+
+  std::string hierarchy;
+  std::string cgroup;
+  double interval;
+  Promise<bool> promise;
+
+  // The default time interval (in seconds) between two requests.
+  static const double DEFAULT_INTERVAL = 0.1;
+};
+
+
+// The process used to atomically kill all tasks in a cgroup.
+class TasksKiller : public Process<TasksKiller>
+{
+public:
+  TasksKiller(const std::string& _hierarchy,
+              const std::string& _cgroup,
+              const Option<double>& _interval = Option<double>::none())
+    : hierarchy(_hierarchy),
+      cgroup(_cgroup)
+  {
+    if (_interval.isNone()) {
+      interval = DEFAULT_INTERVAL;
+    } else {
+      interval = _interval.get();
+    }
+  }
+
+  virtual ~TasksKiller() {}
+
+  // Return a future indicating the state of the killer.
+  Future<bool> future() { return promise.future(); }
+
+protected:
+  virtual void initialize()
+  {
+    // Stop when no one cares.
+    promise.future().onDiscarded(lambda::bind(
+          static_cast<void (*)(const UPID&, bool)>(terminate), self(), true));
+
+    if (interval < 0) {
+      promise.fail("Invalid interval: " + stringify(interval));
+      terminate(self());
+      return;
+    }
+
+    lambda::function<Future<std::string>(const bool&)>
+      funcFreeze = defer(self(), &TasksKiller::freeze);
+    lambda::function<Future<bool>(const std::string&)>
+      funcKill = defer(self(), &TasksKiller::kill);
+    lambda::function<Future<std::string>(const bool&)>
+      funcThaw = defer(self(), &TasksKiller::thaw);
+    lambda::function<Future<bool>(const std::string&)>
+      funcEmpty = defer(self(), &TasksKiller::empty);
+
+    Future<bool> finish = Future<bool>(true)
+      .then(funcFreeze)   // Freeze the cgroup.
+      .then(funcKill)     // Send kill signals to all tasks in the cgroup.
+      .then(funcThaw)     // Thaw the cgroup to let kill signals be received.
+      .then(funcEmpty);   // Wait until no task in the cgroup.
+
+    finish.onAny(defer(self(), &TasksKiller::finished, finish));
+  }
+
+  virtual void finalize()
+  {
+    // Cancel the operation if the user discards the future.
+    if (promise.future().isDiscarded()) {
+      if (futureFreeze.isPending()) {
+        futureFreeze.discard();
+      } else if (futureThaw.isPending()) {
+        futureThaw.discard();
+      } else if (futureEmpty.isPending()) {
+        futureEmpty.discard();
+      }
+    }
+  }
+
+private:
+  Future<std::string> freeze()
+  {
+    futureFreeze = freezeCgroup(hierarchy, cgroup, interval);
+    return futureFreeze;
+  }
+
+  Future<bool> kill()
+  {
+    Try<std::set<pid_t> > tasks = getTasks(hierarchy, cgroup);
+    if (tasks.isError()) {
+      return Future<bool>::failed(tasks.error());
+    } else {
+      foreach (pid_t pid, tasks.get()) {
+        if (::kill(pid, SIGKILL) == -1) {
+          return Future<bool>::failed("Failed to kill process " +
+            stringify(pid) + ": " + strerror(errno));
+        }
+      }
+    }
+
+    return true;
+  }
+
+  Future<std::string> thaw()
+  {
+    futureThaw = thawCgroup(hierarchy, cgroup, interval);
+    return futureThaw;
+  }
+
+  Future<bool> empty()
+  {
+    EmptyWatcher* watcher = new EmptyWatcher(hierarchy, cgroup, interval);
+    Future<bool> futureEmpty = watcher->future();
+    spawn(watcher, true);
+    return futureEmpty;
+  }
+
+  void finished(const Future<bool>& finish)
+  {
+    if (finish.isReady()) {
+      promise.set(true);
+    } else if (finish.isFailed()) {
+      promise.fail(finish.failure());
+    } else {
+      CHECK(false) << "Invalid finish state";
+    }
+
+    terminate(self());
+  }
+
+  std::string hierarchy;
+  std::string cgroup;
+  double interval;
+  Promise<bool> promise;
+
+  // Intermediate futures (used for asynchronous cancellation).
+  Future<std::string> futureFreeze;
+  Future<std::string> futureThaw;
+  Future<bool> futureEmpty;
+
+  // The default time interval (in seconds) between two requests.
+  static const double DEFAULT_INTERVAL = 0.1;
+};
+
+
+} // namespace internal {
+
+
+Future<bool> killTasks(const std::string& hierarchy,
+                       const std::string& cgroup,
+                       const Option<double>& interval)
+{
+  Try<bool> freezerCheck = checkHierarchy(hierarchy, "freezer");
+  if (freezerCheck.isError()) {
+    return Future<bool>::failed(freezerCheck.error());
+  }
+
+  Try<bool> cgroupCheck = checkCgroup(hierarchy, cgroup);
+  if (cgroupCheck.isError()) {
+    return Future<bool>::failed(cgroupCheck.error());
+  }
+
+  internal::TasksKiller* killer =
+    new internal::TasksKiller(hierarchy, cgroup, interval);
+  Future<bool> future = killer->future();
+  spawn(killer, true);
+  return future;
+}
+
+
+namespace internal {
+
+
+// The process used to destroy a cgroup.
+class Destroyer : public Process<Destroyer>
+{
+public:
+  Destroyer(const std::string& _hierarchy,
+            const std::vector<std::string>& _cgroups,
+            const Option<double>& _interval = Option<double>::none())
+    : hierarchy(_hierarchy),
+      cgroups(_cgroups)
+  {
+    if (_interval.isNone()) {
+      interval = DEFAULT_INTERVAL;
+    } else {
+      interval = _interval.get();
+    }
+  }
+
+  virtual ~Destroyer() {}
+
+  // Return a future indicating the state of the destroyer.
+  Future<bool> future() { return promise.future(); }
+
+protected:
+  virtual void initialize()
+  {
+    // Stop when no one cares.
+    promise.future().onDiscarded(lambda::bind(
+          static_cast<void (*)(const UPID&, bool)>(terminate), self(), true));
+
+    if (interval < 0) {
+      promise.fail("Invalid interval: " + stringify(interval));
+      terminate(self());
+      return;
+    }
+
+    // Kill tasks in the given cgroups in parallel. Use collect mechanism to
+    // wait until all kill processes finish.
+    foreach (const std::string& cgroup, cgroups) {
+      Future<bool> killer = killTasks(hierarchy, cgroup, interval);
+      killers.push_back(killer);
+    }
+
+    Future<std::list<bool> > kill = collect(killers);
+    kill.onAny(defer(self(), &Destroyer::killed, kill));
+  }
+
+  virtual void finailize()
+  {
+    // Cancel the operation if the user discards the future.
+    if (promise.future().isDiscarded()) {
+      foreach (Future<bool>& killer, killers) {
+        if (killer.isPending()) {
+          killer.discard();
+        }
+      }
+    }
+  }
+
+private:
+  void killed(const Future<std::list<bool> >& kill)
+  {
+    if (kill.isReady()) {
+      remove();
+    } else if (kill.isFailed()) {
+      promise.fail(kill.failure());
+      terminate(self());
+    } else {
+      CHECK(false) << "Invalid kill state";
+    }
+  }
+
+  void remove()
+  {
+    foreach (const std::string& cgroup, cgroups) {
+      Try<bool> remove = internal::removeCgroup(hierarchy, cgroup);
+      if (remove.isError()) {
+        promise.fail(remove.error());
+        terminate(self());
+        return;
+      }
+    }
+
+    promise.set(true);
+    terminate(self());
+  }
+
+  std::string hierarchy;
+  std::vector<std::string> cgroups;
+  double interval;
+  Promise<bool> promise;
+
+  // The killer processes used to atomically kill tasks in each cgroup.
+  std::list<Future<bool> > killers;
+
+  // The default time interval (in seconds) between two requests.
+  static const double DEFAULT_INTERVAL = 0.1;
+};
+
+} // namespace internal {
+
+
+Future<bool> destroyCgroup(const std::string& hierarchy,
+                           const std::string& cgroup,
+                           const Option<double>& interval)
+{
+  Try<bool> freezerCheck = checkHierarchy(hierarchy, "freezer");
+  if (freezerCheck.isError()) {
+    return Future<bool>::failed(freezerCheck.error());
+  }
+
+  Try<bool> cgroupCheck = checkCgroup(hierarchy, cgroup);
+  if (cgroupCheck.isError()) {
+    return Future<bool>::failed(cgroupCheck.error());
+  }
+
+  // Construct the vector of cgroups to destroy.
+  Try<std::vector<std::string> > cgroups = getCgroups(hierarchy, cgroup);
+  if (cgroups.isError()) {
+    return Future<bool>::failed(cgroups.error());
+  }
+
+  std::vector<std::string> toDestroy = cgroups.get();
+  if (cgroup != "/") {
+    toDestroy.push_back(cgroup);
+  }
+
+  internal::Destroyer* destroyer =
+    new internal::Destroyer(hierarchy, toDestroy, interval);
+  Future<bool> future = destroyer->future();
+  spawn(destroyer, true);
+  return future;
+}
 
 } // namespace cgroups {

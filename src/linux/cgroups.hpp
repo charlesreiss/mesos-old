@@ -25,8 +25,10 @@
 
 #include <sys/types.h>
 
-#include <stout/try.hpp>
+#include <process/future.hpp>
 
+#include <stout/option.hpp>
+#include <stout/try.hpp>
 
 namespace cgroups {
 
@@ -229,7 +231,99 @@ Try<bool> assignTask(const std::string& hierarchy,
                      pid_t pid);
 
 
-} // namespace cgroups {
+// Listen on an event notifier and return a future which will become ready when
+// the certain event happens. This function will return a future failure if some
+// expected happens (e.g. the given hierarchy does not have the proper
+// subsystems attached).
+// @param   hierarchy   Path to the hierarchy root.
+// @param   cgroup      Path to the cgroup relative to the hierarchy root.
+// @param   control     Name of the control file.
+// @param   args        Control specific arguments.
+// @return  A future which contains the value read from the file when ready.
+//          Error if some unexpected happens.
+process::Future<uint64_t> listenEvent(const std::string& hierarchy,
+                                      const std::string& cgroup,
+                                      const std::string& control,
+                                      const Option<std::string>& args =
+                                        Option<std::string>::none());
 
+
+// Freeze all the processes in a given cgroup. We try to use the freezer
+// subsystem implemented in cgroups. More detail can be found in
+// <kernel-source>/Documentation/cgroups/freezer-subsystem.txt. This function
+// will return a future which will become ready when all the processes have been
+// frozen (FROZEN). The future can be discarded to cancel the operation. The
+// freezer state after the cancellation is not defined. So the users need to
+// read the control file if they need to know the freezer state after the
+// cancellation. This function will return future failure if the freezer
+// subsystem is not available or it is not attached to the given hierarchy, or
+// the given cgroup is not valid, or the given cgroup has already been frozen.
+// @param   hierarchy   Path to the hierarchy root.
+// @param   cgroup      Path to the cgroup relative to the hierarchy root.
+// @param   interval    The time interval between two state check requests. None
+//                      means using default time interval.
+// @return  A future which will become ready when all processes are frozen.
+//          Error if some unexpected happens.
+process::Future<std::string> freezeCgroup(const std::string& hierarchy,
+                                          const std::string& cgroup,
+                                          const Option<double>& interval =
+                                            Option<double>::none());
+
+
+// Thaw the given cgroup. This is a revert operation of freezeCgroup. It will
+// return error if the given cgroup is already thawed. Same as
+// freezeCgroup, this function will return a future which can be discarded to
+// allow users to cancel the operation.
+// @param   hierarchy   Path to the hierarchy root.
+// @param   cgroup      Path to the cgroup relative to the hierarchy root.
+// @param   interval    The time interval between two state check requests. None
+//                      means using default time interval.
+// @return  A future which will become ready when all processes are thawed.
+//          Error if some unexpected happens.
+process::Future<std::string> thawCgroup(const std::string& hierarchy,
+                                        const std::string& cgroup,
+                                        const Option<double>& interval =
+                                          Option<double>::none());
+
+
+// Atomically kill all tasks in a given cgroup. This function will return a
+// future which will become ready when the operation is successfully done. To
+// atomically kill all tasks in a cgroup, it freezes the cgroup, send SIGKILL
+// signal to all tasks in the cgroup, thaw the cgroup, and finally wait for the
+// tasks file to become empty.  The function will return future failure if error
+// occurs. For example, it will return future failure immediately if the given
+// hierarchy or the given cgroup is not valid, or the freezer subsystem is not
+// available or not properly attached to the given hierarchy.
+// @param   hierarchy   Path to the hierarchy root.
+// @param   cgroup      Path to the cgroup relative to the hierarchy root.
+// @param   interval    The time interval between two check requests. None
+//                      means using default time interval.
+// @return  A future which will become ready when the operation is done.
+//          Error if some unexpected happens.
+process::Future<bool> killTasks(const std::string& hierarchy,
+                                const std::string& cgroup,
+                                const Option<double>& interval =
+                                  Option<double>::none());
+
+
+// Destroy a cgroup under a given hierarchy. This function is different from
+// removeCgroup in that it tries to kill all tasks in the given cgroup so that
+// this cgroup can be removed. It will also recursively remove sub-cgroups if
+// exist. The given cgroup itself will also be destroyed. However, if the given
+// cgroup is the root cgroup, it will not be destroyed (cannot destroy a root
+// cgroup). The function returns a future indicating the state of the destroy
+// process. The future will become ready when the destroy operation finishes.
+// @param   hierarchy   Path to the hierarchy root.
+// @param   cgroup      Path to the cgroup relative to the hierarchy root.
+// @param   interval    The time interval between two check requests. None
+//                      means using default time interval.
+// @return  A future which will become ready when the operation is done.
+//          Error if some unexpected happens.
+process::Future<bool> destroyCgroup(const std::string& hierarchy,
+                                    const std::string& cgroup = "/",
+                                    const Option<double>& interval =
+                                      Option<double>::none());
+
+} // namespace cgroups {
 
 #endif // __CGROUPS_HPP__

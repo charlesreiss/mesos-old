@@ -142,7 +142,7 @@ void CgroupsIsolationModule::launchExecutor(
     const FrameworkInfo& frameworkInfo,
     const ExecutorInfo& executorInfo,
     const std::string& directory,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   CHECK(initialized) << "Cannot launch executors before initialization";
 
@@ -266,7 +266,7 @@ void CgroupsIsolationModule::killExecutor(
 void CgroupsIsolationModule::resourcesChanged(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   CHECK(initialized) << "Cannot change resources before initialization";
 
@@ -358,14 +358,14 @@ std::string CgroupsIsolationModule::cgroup(
 Try<bool> CgroupsIsolationModule::setCgroupControls(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   LOG(INFO) << "Changing cgroup controls for executor " << executorId
             << " of framework " << frameworkId
             << " with resources " << resources;
 
   // Setup cpu control.
-  double cpu = resources.get("cpu", Value::Scalar()).value();
+  double cpu = resources.expectedResources.get("cpu", Value::Scalar()).value();
   int32_t cpuShares =
     std::max(CPU_SHARES_PER_CPU * (int32_t)cpu, MIN_CPU_SHARES);
   Try<bool> setCpuResult =
@@ -382,7 +382,7 @@ Try<bool> CgroupsIsolationModule::setCgroupControls(
             << " of framework " << frameworkId;
 
   // Setup memory control.
-  double mem = resources.get("mem", Value::Scalar()).value();
+  double mem = resources.expectedResources.get("mem", Value::Scalar()).value();
   int64_t limitInBytes =
     std::max((int64_t)mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
   Try<bool> setMemResult =

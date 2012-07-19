@@ -53,14 +53,14 @@ public:
                               const FrameworkInfo& frameworkInfo,
                               const ExecutorInfo& executorInfo,
                               const std::string& directory,
-                              const Resources& resources);
+                              const ResourceHints& resources);
 
   virtual void killExecutor(const FrameworkID& frameworkId,
                             const ExecutorID& executorId);
 
   virtual void resourcesChanged(const FrameworkID& frameworkId,
                                 const ExecutorID& executorId,
-                                const Resources& resources);
+                                const ResourceHints& resources);
 
   virtual void processExited(pid_t pid, int status);
 
@@ -183,7 +183,7 @@ private:
   // @return  Whether the operation successes.
   Try<bool> setCgroupControls(const FrameworkID& frameworkId,
                               const ExecutorID& executorId,
-                              const Resources& resources);
+                              const ResourceHints& resources);
 
   // Start listening on OOM events. This function will create an eventfd and
   // start polling on it.

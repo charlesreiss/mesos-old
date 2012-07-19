@@ -2980,6 +2980,52 @@ void post(const UPID& to, const string& name, const char* data, size_t length)
 
 namespace io {
 
+namespace internal {
+
+void read(int fd,
+          void *data,
+          size_t size,
+          const std::tr1::shared_ptr<Promise<size_t> >& promise,
+          const Future<short>& future)
+{
+  // Ignore this function if the read operation has been cancelled.
+  if (promise->future().isDiscarded()) {
+    return;
+  }
+
+  // Since promise->future() will be discarded before future is discarded, we
+  // should never see a discarded future here because of the check in the
+  // beginning of this function.
+  CHECK(!future.isDiscarded());
+
+  if (future.isFailed()) {
+    promise->fail(future.failure());
+  } else {
+    ssize_t length = ::read(fd, data, size);
+    if (length < 0) {
+      if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+        // Restart the read operation.
+        Future<short> future = poll(fd, process::io::READ);
+        future.onAny(
+            lambda::bind(&internal::read,
+                         fd,
+                         data,
+                         size,
+                         promise,
+                         future));
+      } else {
+        // Error occurred.
+        promise->fail(strerror(errno));
+      }
+    } else {
+      promise->set(length);
+    }
+  }
+}
+
+} // namespace internal {
+
+
 Future<short> poll(int fd, short events)
 {
   // TODO(benh): Check if the file descriptor is non-blocking?
@@ -3003,6 +3049,74 @@ Future<short> poll(int fd, short events)
   ev_async_send(loop, &async_watcher);
 
   return future;
+}
+
+
+int nonblock(int fd)
+{
+  int flags = ::fcntl(fd, F_GETFL);
+  if (flags == -1) {
+    return -1;
+  }
+
+  if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+    return -1;
+  }
+
+  return 0;
+}
+
+
+int isNonblock(int fd)
+{
+  int flags = ::fcntl(fd, F_GETFL);
+  if (flags == -1) {
+    return -1;
+  }
+
+  if ((flags & O_NONBLOCK) == 0) {
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+
+Future<size_t> read(int fd, void* data, size_t size)
+{
+  std::tr1::shared_ptr<Promise<size_t> > promise(new Promise<size_t>());
+
+  // Check the file descriptor.
+  int check = isNonblock(fd);
+  if (check == -1) {
+    // The file descriptor is not valid (e.g. fd has been closed).
+    promise->fail(strerror(errno));
+    return promise->future();
+  } else if (check == 0) {
+    // The fd is not opened with O_NONBLOCK set.
+    promise->fail("Please use a fd opened with O_NONBLOCK set");
+    return promise->future();
+  }
+
+  if (size == 0) {
+    promise->fail("Try to read nothing");
+    return promise->future();
+  }
+
+  Future<short> future = poll(fd, process::io::READ);
+  future.onAny(
+      lambda::bind(&internal::read,
+                   fd,
+                   data,
+                   size,
+                   promise,
+                   future));
+
+  // Also cancel the polling if promise->future() is discarded.
+  promise->future().onDiscarded(
+      lambda::bind(&Future<short>::discard, future));
+
+  return promise->future();
 }
 
 } // namespace io {
