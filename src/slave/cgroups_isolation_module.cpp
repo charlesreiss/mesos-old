@@ -19,6 +19,7 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include <sys/param.h>
 #include <sys/types.h>
 
 #include <sstream>
@@ -35,6 +36,16 @@
 #include "linux/cgroups.hpp"
 
 #include "slave/cgroups_isolation_module.hpp"
+
+
+// TODO(jieyu): The HZ defined in the header may not reflect the actual HZ used
+// in the Linux kernel (e.g. headers are not updated while the kernel is).  And
+// the Linux kernel does not have an interface exposed (e.g.  syscall) to get
+// the actual HZ currently used in the kernel. GNU procps uses a heuristic to
+// determine the actual HZ being used.
+#ifndef HZ
+#error "Hertz (CPU ticks per second) is not defined."
+#endif
 
 using namespace process;
 
@@ -55,7 +66,7 @@ namespace slave {
 // The path to the default hierarchy root used by this module.
 static const char* DEFAULT_HIERARCHY = "/cgroups";
 // The default subsystems used by this module.
-static const char* DEFAULT_SUBSYSTEMS = "blkio,cpu,memory,freezer";
+static const char* DEFAULT_SUBSYSTEMS = "blkio,cpu,cpuacct,freezer,memory";
 
 
 CgroupsIsolationModule::CgroupsIsolationModule()
@@ -343,6 +354,65 @@ void CgroupsIsolationModule::processExited(pid_t pid, int status)
 }
 
 
+Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
+    const FrameworkID& frameworkId,
+    const ExecutorID& executorId)
+{
+  CgroupInfo* info = findCgroupInfo(frameworkId, executorId);
+  if (info == NULL || info->killed) {
+    return Option<ResourceStatistics>::none();
+  }
+
+  // Get CPU related statistics.
+  Try<std::string> cpuStatOutput =
+    cgroups::readControl(hierarchy(),
+                         cgroup(frameworkId, executorId),
+                         "cpuacct.stat");
+  if (cpuStatOutput.isError()) {
+    return Option<ResourceStatistics>::none();
+  }
+
+  Try<hashmap<std::string, unsigned long> > cpuStatResult =
+    parseStat(cpuStatOutput.get());
+  if (cpuStatResult.isError()) {
+    return Option<ResourceStatistics>::none();
+  }
+
+  hashmap<std::string, unsigned long> cpuStat = cpuStatResult.get();
+  if (!cpuStat.contains("user") || !cpuStat.contains("system")) {
+    return Option<ResourceStatistics>::none();
+  }
+
+  // Get memory related statistics.
+  Try<std::string> memStatOutput =
+    cgroups::readControl(hierarchy(),
+                         cgroup(frameworkId, executorId),
+                         "memory.stat");
+  if (memStatOutput.isError()) {
+    return Option<ResourceStatistics>::none();
+  }
+
+  Try<hashmap<std::string, unsigned long> > memStatResult =
+    parseStat(memStatOutput.get());
+  if (memStatResult.isError()) {
+    return Option<ResourceStatistics>::none();
+  }
+
+  hashmap<std::string, unsigned long> memStat = memStatResult.get();
+  if (!memStat.contains("total_rss")) {
+    return Option<ResourceStatistics>::none();
+  }
+
+  // Construct resource statistics.
+  ResourceStatistics stat;
+  stat.timestamp = Clock::now();
+  stat.utime = (double)cpuStat["user"] / (double)HZ;
+  stat.stime = (double)cpuStat["system"] / (double)HZ;
+  stat.rss = memStat["total_rss"];
+  return stat;
+}
+
+
 launcher::ExecutorLauncher* CgroupsIsolationModule::createExecutorLauncher(
     const FrameworkID& frameworkId,
     const FrameworkInfo& frameworkInfo,
@@ -574,6 +644,47 @@ void CgroupsIsolationModule::outerOom()
   }
 
   setupOuterOom();
+}
+
+
+Try<hashmap<std::string, unsigned long> > CgroupsIsolationModule::parseStat(
+    const std::string& input)
+{
+  hashmap<std::string, unsigned long> stat;
+
+  std::istringstream in(input);
+  while (!in.eof()) {
+    std::string line;
+    std::getline(in, line);
+
+    if (in.fail()) {
+      if (!in.eof()) {
+        return Try<hashmap<std::string, unsigned long> >::error(
+            "Reading error");
+      }
+    } else {
+      if (line.empty()) {
+        // Skip empty lines.
+        continue;
+      } else {
+        // Parse line.
+        std::string name;
+        unsigned long value;
+
+        std::istringstream ss(line);
+        ss >> name >> std::dec >> value;
+
+        if (ss.fail() && !ss.eof()) {
+          return Try<hashmap<std::string, unsigned long> >::error(
+              "Parsing error");
+        }
+
+        stat[name] = value;
+      }
+    }
+  }
+
+  return stat;
 }
 
 

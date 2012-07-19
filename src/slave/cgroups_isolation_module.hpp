@@ -32,13 +32,16 @@
 #include "slave/isolation_module.hpp"
 #include "slave/reaper.hpp"
 #include "slave/slave.hpp"
+#include "slave/statistics.hpp"
 
 namespace mesos {
 namespace internal {
 namespace slave {
 
 class CgroupsIsolationModule
-  : public IsolationModule, public ProcessExitedListener
+  : public IsolationModule,
+    public ProcessExitedListener,
+    public ResourceStatisticsCollector
 {
 public:
   CgroupsIsolationModule();
@@ -63,6 +66,10 @@ public:
                                 const ResourceHints& resources);
 
   virtual void processExited(pid_t pid, int status);
+
+  virtual Option<ResourceStatistics> collectResourceStatistics(
+      const FrameworkID& frameworkId,
+      const ExecutorID& executorId);
 
 protected:
   // Main method executed after a fork() to create a Launcher for launching an
@@ -218,6 +225,13 @@ private:
   void outerOomWaited(const process::Future<uint64_t>& future);
 
   void outerOom();
+
+  // Parse the output from a cgroup subsystem stat file and return a map between
+  // resource name and the corresponding stat value.
+  // @param   input         The content of the subsystem stat file.
+  // @return  The map between resource name and the corresponding stat value.
+  Try<hashmap<std::string, unsigned long> > parseStat(
+      const std::string& input);
 
   Flags flags;
   bool local;
