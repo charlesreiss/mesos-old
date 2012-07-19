@@ -21,11 +21,14 @@
 
 #undef foreach
 
-#include <google/protobuf/repeated_field.h>
-
 #include <boost/foreach.hpp>
 
 #include <boost/tuple/tuple.hpp>
+
+namespace google { namespace protobuf {
+    template <class T> class RepeatedField;
+    template <class T> class RepeatedPtrField;
+} }
 
 namespace boost {
 namespace foreach {
