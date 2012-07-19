@@ -55,7 +55,7 @@ namespace slave {
 // The path to the default hierarchy root used by this module.
 static const char* DEFAULT_HIERARCHY = "/cgroups";
 // The default subsystems used by this module.
-static const char* DEFAULT_SUBSYSTEMS = "cpu,memory,freezer";
+static const char* DEFAULT_SUBSYSTEMS = "blkio,cpu,memory,freezer";
 
 
 CgroupsIsolationModule::CgroupsIsolationModule()
@@ -131,6 +131,37 @@ void CgroupsIsolationModule::initialize(
         LOG(FATAL) << create.error();
       }
     }
+  }
+
+  if (flags.cgroup_outer_container) {
+    Try<bool> create =
+      cgroups::createCgroup(hierarchy(), flags.cgroup_outer_container_name);
+    if (create.isError()) {
+      LOG(FATAL) << "Failed to create outer container: " << create.error();
+    }
+    // XXX share with slave
+    long slaveMemory = 1024L * 1024L * 1024L;
+    if (flags.resources.isNone()) {
+      Try<long> osMemory = os::memory();
+      if (osMemory.isSome()) {
+        slaveMemory = osMemory.get();
+      } else {
+        LOG(ERROR) << "Couldn't determine system memory: " << osMemory.error();
+      }
+    } else {
+      Resources slaveResources = Resources::parse(flags.resources.get());
+      slaveMemory = static_cast<long>(
+        slaveResources.get("mem", Value::Scalar()).value() * 1024.0 * 1024.0
+      );
+    }
+    Try<bool> setMemoryResult =
+      cgroups::writeControl(hierarchy(),
+          flags.cgroup_outer_container_name,
+          "memory.limit_in_bytes",
+          stringify(slaveMemory));
+    CHECK(!setMemoryResult.isError()) << setMemoryResult.error();
+
+    setupOuterOom();
   }
 
   initialized = true;
@@ -341,7 +372,7 @@ std::string CgroupsIsolationModule::subsystems()
 
 std::string CgroupsIsolationModule::hierarchy()
 {
-  return DEFAULT_HIERARCHY;
+  return flags.cgroup_hierarchy;
 }
 
 
@@ -350,7 +381,11 @@ std::string CgroupsIsolationModule::cgroup(
     const ExecutorID& executorId)
 {
   std::ostringstream ss;
-  ss << "mesos_cgroup_executor_" << executorId << "_framework_" << frameworkId;
+  if (flags.cgroup_outer_container) {
+    ss << flags.cgroup_outer_container_name << '/';
+  }
+  ss << "mesos_cgroup_executor_" << executorId << "_framework_"
+     << frameworkId;
   return ss.str();
 }
 
@@ -365,38 +400,42 @@ Try<bool> CgroupsIsolationModule::setCgroupControls(
             << " with resources " << resources;
 
   // Setup cpu control.
-  double cpu = resources.expectedResources.get("cpu", Value::Scalar()).value();
-  int32_t cpuShares =
-    std::max(CPU_SHARES_PER_CPU * (int32_t)cpu, MIN_CPU_SHARES);
-  Try<bool> setCpuResult =
-    cgroups::writeControl(hierarchy(),
-                          cgroup(frameworkId, executorId),
-                          "cpu.shares",
-                          stringify(cpuShares));
-  if (setCpuResult.isError()) {
-    return Try<bool>::error(setCpuResult.error());
-  }
+  if (flags.cgroup_enforce_cpu_limits) {
+    double cpu = resources.expectedResources.get("cpu", Value::Scalar()).value();
+    int32_t cpuShares =
+      std::max(CPU_SHARES_PER_CPU * (int32_t)cpu, MIN_CPU_SHARES);
+    Try<bool> setCpuResult =
+      cgroups::writeControl(hierarchy(),
+                            cgroup(frameworkId, executorId),
+                            "cpu.shares",
+                            stringify(cpuShares));
+    if (setCpuResult.isError()) {
+      return Try<bool>::error(setCpuResult.error());
+    }
 
-  LOG(INFO) << "Write cpu.shares = " << cpuShares
-            << " for executor " << executorId
-            << " of framework " << frameworkId;
+    LOG(INFO) << "Write cpu.shares = " << cpuShares
+              << " for executor " << executorId
+              << " of framework " << frameworkId;
+  }
 
   // Setup memory control.
-  double mem = resources.expectedResources.get("mem", Value::Scalar()).value();
-  int64_t limitInBytes =
-    std::max((int64_t)mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
-  Try<bool> setMemResult =
-    cgroups::writeControl(hierarchy(),
-                          cgroup(frameworkId, executorId),
-                          "memory.limit_in_bytes",
-                          stringify(limitInBytes));
-  if (setMemResult.isError()) {
-    return Try<bool>::error(setMemResult.error());
-  }
+  if (flags.cgroup_enforce_memory_limits) {
+    double mem = resources.expectedResources.get("mem", Value::Scalar()).value();
+    int64_t limitInBytes =
+      std::max((int64_t)mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
+    Try<bool> setMemResult =
+      cgroups::writeControl(hierarchy(),
+                            cgroup(frameworkId, executorId),
+                            "memory.limit_in_bytes",
+                            stringify(limitInBytes));
+    if (setMemResult.isError()) {
+      return Try<bool>::error(setMemResult.error());
+    }
 
-  LOG(INFO) << "Write memory.limit_in_bytes = " << limitInBytes
-            << " for executor " << executorId
-            << " of framework " << frameworkId;
+    LOG(INFO) << "Write memory.limit_in_bytes = " << limitInBytes
+              << " for executor " << executorId
+              << " of framework " << frameworkId;
+  }
 
   return true;
 }
@@ -485,6 +524,56 @@ void CgroupsIsolationModule::destroyWaited(
                << " of framework " << frameworkId
                << ": " << future.failure();
   }
+}
+
+
+void CgroupsIsolationModule::setupOuterOom()
+{
+  outerOomNotifier = cgroups::listenEvent(hierarchy(),
+                                          flags.cgroup_outer_container_name,
+                                          "memory.oom_control");
+
+  outerOomNotifier.onAny(
+      defer(PID<CgroupsIsolationModule>(this),
+            &CgroupsIsolationModule::outerOomWaited,
+            outerOomNotifier));
+}
+
+
+void CgroupsIsolationModule::outerOomWaited(
+    const process::Future<uint64_t>& future)
+{
+  if (future.isDiscarded()) {
+    LOG(INFO) << "Outer OOM discarded";
+  } else if (future.isFailed()) {
+    LOG(ERROR) << "While listening for OOM events on outer container: "
+               << future.failure();
+  } else {
+    outerOom();
+  }
+}
+
+
+void CgroupsIsolationModule::outerOom()
+{
+  LOG(INFO) << "Out of memory on outer container";
+  // Choose first victim for now.
+  bool killedOne = false;
+  typedef hashmap<ExecutorID, CgroupInfo*> ExecutorInfoMap;
+  foreachpair (const FrameworkID& frameworkId,
+               const ExecutorInfoMap& executorMap, infos) {
+    foreachpair (const ExecutorID& executorId, CgroupInfo* info, executorMap) {
+      if (info->killed) continue;
+      killExecutor(frameworkId, executorId);
+      killedOne = true;
+      break;
+    }
+  }
+  if (!killedOne) {
+    LOG(ERROR) << "Outer OOM, but couldn't find anything to kill";
+  }
+
+  setupOuterOom();
 }
 
 

@@ -122,6 +122,38 @@ public:
         "lxc_measure_swap_as_mem",
         "Count swap as memory for usage measurements",
         true);
+
+    // New cgroup flags.
+    add(&Flags::cgroup_outer_container,
+        "cgroup_outer_container",
+        "Use an outer container for cgroups to allow local excess without "
+        "risking OOM",
+        true);
+
+    add(&Flags::cgroup_outer_container_name,
+        "cgroup_outer_container_name",
+        "Name of the outer container",
+        "mesos_slave");
+
+    add(&Flags::cgroup_outer_container_memory_ratio,
+        "cgroup_outer_container_memory_ratio",
+        "Portion of slave assigned memory to assign to outer container",
+        1.1);
+
+    add(&Flags::cgroup_enforce_memory_limits,
+        "cgroup_enforce_memory_limits",
+        "Enforce cgroup memory limits (at all)",
+        true);
+
+    add(&Flags::cgroup_enforce_cpu_limits,
+        "cgroup_enforce_cpu_limits",
+        "Enforce cgroup CPU shares (at all)",
+        true);
+
+    add(&Flags::cgroup_hierarchy,
+        "cgroup_hierarchy",
+        "Root of cgroup mounts",
+        "/cgroup");
   }
 
   Option<std::string> resources;
@@ -142,6 +174,14 @@ public:
   bool cgroup_type_label;
   bool lxc_no_limits;
   bool lxc_measure_swap_as_mem;
+
+  // XXX added
+  bool cgroup_outer_container;
+  std::string cgroup_outer_container_name;
+  bool cgroup_outer_container_memory_ratio;
+  bool cgroup_enforce_memory_limits;
+  bool cgroup_enforce_cpu_limits;
+  std::string cgroup_hierarchy;
 };
 
 } // namespace mesos {

@@ -213,12 +213,20 @@ private:
                      const ExecutorID& executorId,
                      const process::Future<bool>& future);
 
+  void setupOuterOom();
+
+  void outerOomWaited(const process::Future<uint64_t>& future);
+
+  void outerOom();
+
   Flags flags;
   bool local;
   process::PID<Slave> slave;
   bool initialized;
   Reaper* reaper;
   hashmap<FrameworkID, hashmap<ExecutorID, CgroupInfo*> > infos;
+
+  process::Future<uint64_t> outerOomNotifier;
 };
 
 
