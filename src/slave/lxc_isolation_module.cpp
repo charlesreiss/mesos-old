@@ -111,7 +111,7 @@ void LxcIsolationModule::initialize(
       flags.resources.isSome() ?
         flags.resources.get() : "cpus:1;mem:1024");
   maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value()
-    * 1.2;
+    * 1.3;
   noLimits = flags.lxc_no_limits;
   measureSwapAsMemory = flags.lxc_measure_swap_as_mem;
 

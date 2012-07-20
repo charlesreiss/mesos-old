@@ -129,6 +129,7 @@ int main(int argc, char** argv)
   }
 
   Allocator* allocator = AllocatorFactory::instantiate(flags.allocator, configuration);
+  CHECK(allocator);
 
   Master* master = new Master(allocator, flags);
   process::spawn(master);
