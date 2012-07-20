@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <iomanip>
 
+#include <process/defer.hpp>
 #include <process/delay.hpp>
 #include <process/dispatch.hpp>
 #include <process/id.hpp>
@@ -190,7 +191,7 @@ void Slave::initialize()
   // TODO(benh): Seems like the isolation module should really be
   // spawned before being passed to the slave.
   spawn(isolationModule);
-  dispatch(isolationModule,
+  dispatch(PID<IsolationModule>(isolationModule),
            &IsolationModule::initialize,
            flags, local, self());
 
@@ -460,7 +461,7 @@ void Slave::runTask(const FrameworkInfo& frameworkInfo,
       // Update the resources.
       // TODO(Charles Reiss): The isolation module is not guaranteed to update
       // the resources before the executor acts on its RunTaskMessage.
-      dispatch(isolationModule,
+      dispatch(PID<IsolationModule>(isolationModule),
                &IsolationModule::resourcesChanged,
                framework->id, executor->id, executor->isolationResources());
 
@@ -485,10 +486,8 @@ void Slave::runTask(const FrameworkInfo& frameworkInfo,
     // Queue task until the executor starts up.
     executor->queuedTasks[task.task_id()] = task;
 
-    // Tell the isolation module to launch the executor. (TODO(benh):
-    // Make the isolation module a process so that it can block while
-    // trying to launch the executor.)
-    dispatch(isolationModule,
+    // Tell the isolation module to launch the executor.
+    dispatch(process::PID<IsolationModule>(isolationModule),
              &IsolationModule::launchExecutor,
              framework->id, framework->info, executor->info,
              directory, executor->isolationResources());
@@ -546,7 +545,7 @@ void Slave::killTask(const FrameworkID& frameworkId,
     executor->removeTask(taskId);
 
     // Tell the isolation module to update the resources.
-    dispatch(isolationModule,
+    dispatch(process::PID<IsolationModule>(isolationModule),
              &IsolationModule::resourcesChanged,
              framework->id, executor->id, executor->isolationResources());
 
@@ -717,7 +716,7 @@ void Slave::registerExecutor(const FrameworkID& frameworkId,
     // TODO(Charles Reiss): We don't actually have a guarantee that this will
     // be delivered or (where necessary) acted on before the executor gets its
     // RunTaskMessages.
-    dispatch(isolationModule,
+    dispatch(process::PID<IsolationModule>(isolationModule),
              &IsolationModule::resourcesChanged,
              framework->id, executor->id, executor->isolationResources());
 
@@ -768,7 +767,7 @@ void Slave::statusUpdate(const StatusUpdate& update)
       if (isTerminalTaskState(status.state())) {
         executor->removeTask(status.task_id());
 
-        dispatch(isolationModule,
+        dispatch(process::PID<IsolationModule>(isolationModule),
                  &IsolationModule::resourcesChanged,
                  framework->id, executor->id, executor->isolationResources());
       }
@@ -894,7 +893,19 @@ void Slave::executorStarted(const FrameworkID& frameworkId,
                             const ExecutorID& executorId,
                             pid_t pid)
 {
+  fetchStatistics(frameworkId, executorId);
+}
 
+void Slave::fetchStatistics(const FrameworkID& frameworkId,
+                            const ExecutorID& executorId)
+{
+  Future<Option<ResourceStatistics> > future =
+    dispatch(PID<ResourceStatisticsCollector>(isolationModule),
+        &ResourceStatisticsCollector::collectResourceStatistics,
+        frameworkId, executorId);
+  future.onAny(defer(self(), &Slave::gotStatistics,
+        frameworkId, executorId, Option<ResourceStatistics>::none(),
+        future));
 }
 
 
@@ -1065,7 +1076,7 @@ void Slave::shutdownExecutorTimeout(const FrameworkID& frameworkId,
     LOG(INFO) << "Killing executor '" << executor->id
               << "' of framework " << framework->id;
 
-    dispatch(isolationModule,
+    dispatch(process::PID<IsolationModule>(isolationModule),
              &IsolationModule::killExecutor,
              framework->id, executor->id);
 
@@ -1163,15 +1174,44 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
 }
 
 void Slave::queueUsageUpdates() {
-  LOG(INFO) << "Asking for usage";
   foreachkey (const FrameworkID& frameworkId, frameworks) {
     Framework* framework = frameworks[frameworkId];
     foreachkey (const ExecutorID& executorId, framework->executors) {
-      LOG(INFO) << "Sampling usage from " << frameworkId << ":" << executorId;
       isolationModule->sampleUsage(frameworkId, executorId);
     }
   }
   delay(1.0, self(), &Slave::queueUsageUpdates);
+}
+
+void Slave::gotStatistics(
+    const FrameworkID& frameworkId,
+    const ExecutorID& executorId,
+    Option<ResourceStatistics> prev,
+    Future<Option<ResourceStatistics> > future)
+{
+  if (future.isReady()) {
+    ResourceStatistics current = future.get().get();
+    UsageMessage message;
+    message.mutable_framework_id()->MergeFrom(frameworkId);
+    message.mutable_executor_id()->MergeFrom(executorId);
+    message.mutable_slave_id()->MergeFrom(id);
+    bool isRunning = false;
+    Framework* framework = getFramework(frameworkId);
+    if (framework) {
+      Executor* executor = framework->getExecutor(executorId);
+      if (executor) {
+        isRunning = true;
+        message.mutable_expected_resources()->MergeFrom(resources);
+      }
+    }
+    message.set_still_running(isRunning);
+    current.fillUsageMessage(prev, &message);
+    send(master, message);
+    if (isRunning) {
+      delay(1.0, PID<Slave>(this), &Slave::fetchStatistics,
+          frameworkId, executorId);
+    }
+  }
 }
 
 void Slave::sendUsageUpdate(const UsageMessage& _update) {

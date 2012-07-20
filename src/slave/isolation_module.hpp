@@ -29,6 +29,7 @@
 #include "stout/hashmap.hpp"
 
 #include "slave/flags.hpp"
+#include "slave/statistics.hpp"
 
 namespace mesos {
 namespace internal {
@@ -38,7 +39,8 @@ namespace slave {
 class Slave;
 
 
-class IsolationModule : public process::Process<IsolationModule>
+class IsolationModule : public process::Process<IsolationModule>,
+                        public ResourceStatisticsCollector
 {
 public:
   static IsolationModule* create(const std::string& type);
@@ -71,8 +73,17 @@ public:
 
   // Sample the resource usage for a given executor. Should asynchronously
   // callback the slave.
+  //
+  // TODO(Charles Reiss): Deprecate for Jie Yu's interface?
   virtual void sampleUsage(const FrameworkID& frameworkId,
                            const ExecutorID& executorId) {}
+
+  // Default implementation of resource statistics collector
+  virtual Option<ResourceStatistics> collectResourceStatistics(
+      const FrameworkID& frameworkId,
+      const ExecutorID& executorId) {
+    return Option<ResourceStatistics>::none();
+  }
 
   // Set priorities among frameworks for excess resources. Larger is more.
   virtual void setFrameworkPriorities(
