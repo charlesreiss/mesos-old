@@ -21,6 +21,8 @@ namespace mesos {
 namespace internal {
 namespace fake {
 
+using process::PID;
+
 using std::make_pair;
 using std::vector;
 
@@ -175,7 +177,8 @@ void FakeIsolationModule::killExecutor(
 void FakeIsolationModule::killedExecutor(
     const FrameworkID& frameworkId, const ExecutorID& executorId) {
   LOG(INFO) << "killedExecutor()";
-  dispatch(self(), &IsolationModule::killExecutor, frameworkId, executorId);
+  dispatch(PID<IsolationModule>(this),
+      &IsolationModule::killExecutor, frameworkId, executorId);
 }
 
 void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
@@ -477,8 +480,7 @@ FakeIsolationModule::~FakeIsolationModule()
   LOG(INFO) << "wait";
   process::wait(ticker.get());
   LOG(INFO) << "shut down ticker";
-  foreachpair (const TaskMap::key_type& key, const RunningTaskInfo& value,
-      tasks) {
+  foreachkey (const TaskMap::key_type& key, tasks) {
     LOG(INFO) << "remaining task: " << key.first << "," << key.second;
   }
   pthread_mutex_destroy(&tasksLock);

@@ -1809,42 +1809,56 @@ Encoder* SocketManager::next(int s)
   HttpProxy* proxy = NULL; // Non-null if needs to be terminated.
 
   synchronized (this) {
-    CHECK(sockets.count(s) > 0);
-    CHECK(outgoing.count(s) > 0);
+    // We cannot assume 'sockets.count(s) > 0' here because it's
+    // possible that 's' has been removed with a a call to
+    // SocketManager::close. For example, it could be the case that a
+    // socket has gone to CLOSE_WAIT and the call to 'recv' in
+    // recv_data returned 0 causing SocketManager::close to get
+    // invoked. Later a call to 'send' or 'sendfile' (e.g., in
+    // send_data or send_file) can "succeed" (because the socket is
+    // not "closed" yet because there are still some Socket
+    // references, namely the reference being used in send_data or
+    // send_file!). However, when SocketManger::next is actually
+    // invoked we find out there there is no more data and thus stop
+    // sending.
+    // TODO(benh): Should we actually finish sending the data!?
+    if (sockets.count(s) > 0) {
+      CHECK(outgoing.count(s) > 0);
 
-    if (!outgoing[s].empty()) {
-      // More messages!
-      Encoder* encoder = outgoing[s].front();
-      outgoing[s].pop();
-      return encoder;
-    } else {
-      // No more messages ... erase the outgoing queue.
-      outgoing.erase(s);
+      if (!outgoing[s].empty()) {
+        // More messages!
+        Encoder* encoder = outgoing[s].front();
+        outgoing[s].pop();
+        return encoder;
+      } else {
+        // No more messages ... erase the outgoing queue.
+        outgoing.erase(s);
 
-      if (dispose.count(s) > 0) {
-        // This is either a temporary socket we created or it's a
-        // socket that we were receiving data from and possibly
-        // sending HTTP responses back on. Clean up either way.
-        if (nodes.count(s) > 0) {
-          const Node& node = nodes[s];
-          CHECK(temps.count(node) > 0 && temps[node] == s);
-          temps.erase(node);
-          nodes.erase(s);
+        if (dispose.count(s) > 0) {
+          // This is either a temporary socket we created or it's a
+          // socket that we were receiving data from and possibly
+          // sending HTTP responses back on. Clean up either way.
+          if (nodes.count(s) > 0) {
+            const Node& node = nodes[s];
+            CHECK(temps.count(node) > 0 && temps[node] == s);
+            temps.erase(node);
+            nodes.erase(s);
+          }
+
+          if (proxies.count(s) > 0) {
+            proxy = proxies[s];
+            proxies.erase(s);
+          }
+
+          dispose.erase(s);
+          sockets.erase(s);
+
+          // We don't actually close the socket (we wait for the Socket
+          // abstraction to close it once there are no more references),
+          // but we do shutdown the receiving end so any DataDecoder
+          // will get cleaned up (which might have the last reference).
+          shutdown(s, SHUT_RD);
         }
-
-        if (proxies.count(s) > 0) {
-          proxy = proxies[s];
-          proxies.erase(s);
-        }
-
-        dispose.erase(s);
-        sockets.erase(s);
-
-        // We don't actually close the socket (we wait for the Socket
-        // abstraction to close it once there are no more references),
-        // but we do shutdown the receiving end so any DataDecoder
-        // will get cleaned up (which might have the last reference).
-        shutdown(s, SHUT_RD);
       }
     }
   }
@@ -2335,11 +2349,6 @@ void ProcessManager::cleanup(ProcessBase* process)
     socket_manager->exited(process);
   }
 
-  // Confirm process not in runq.
-  synchronized (runq) {
-    CHECK(find(runq.begin(), runq.end(), process) == runq.end());
-  }
-
   // ***************************************************************
   // At this point we can no longer dereference the process since it
   // might already be deallocated (e.g., by the garbage collector).
@@ -2590,6 +2599,8 @@ bool cancel(const Timer& timer)
     // Check if the timeout is still pending, and if so, erase it. In
     // addition, erase an empty list if we just removed the last
     // timeout.
+    // TODO(benh): If two timers are created with the same timeout,
+    // this will erase *both*. Fix this!
     if (timeouts->count(timer.timeout().value()) > 0) {
       canceled = true;
       (*timeouts)[timer.timeout().value()].remove(timer);
@@ -2980,6 +2991,52 @@ void post(const UPID& to, const string& name, const char* data, size_t length)
 
 namespace io {
 
+namespace internal {
+
+void read(int fd,
+          void *data,
+          size_t size,
+          const std::tr1::shared_ptr<Promise<size_t> >& promise,
+          const Future<short>& future)
+{
+  // Ignore this function if the read operation has been cancelled.
+  if (promise->future().isDiscarded()) {
+    return;
+  }
+
+  // Since promise->future() will be discarded before future is discarded, we
+  // should never see a discarded future here because of the check in the
+  // beginning of this function.
+  CHECK(!future.isDiscarded());
+
+  if (future.isFailed()) {
+    promise->fail(future.failure());
+  } else {
+    ssize_t length = ::read(fd, data, size);
+    if (length < 0) {
+      if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+        // Restart the read operation.
+        Future<short> future = poll(fd, process::io::READ);
+        future.onAny(
+            lambda::bind(&internal::read,
+                         fd,
+                         data,
+                         size,
+                         promise,
+                         future));
+      } else {
+        // Error occurred.
+        promise->fail(strerror(errno));
+      }
+    } else {
+      promise->set(length);
+    }
+  }
+}
+
+} // namespace internal {
+
+
 Future<short> poll(int fd, short events)
 {
   // TODO(benh): Check if the file descriptor is non-blocking?
@@ -3003,6 +3060,74 @@ Future<short> poll(int fd, short events)
   ev_async_send(loop, &async_watcher);
 
   return future;
+}
+
+
+int nonblock(int fd)
+{
+  int flags = ::fcntl(fd, F_GETFL);
+  if (flags == -1) {
+    return -1;
+  }
+
+  if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+    return -1;
+  }
+
+  return 0;
+}
+
+
+int isNonblock(int fd)
+{
+  int flags = ::fcntl(fd, F_GETFL);
+  if (flags == -1) {
+    return -1;
+  }
+
+  if ((flags & O_NONBLOCK) == 0) {
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+
+Future<size_t> read(int fd, void* data, size_t size)
+{
+  std::tr1::shared_ptr<Promise<size_t> > promise(new Promise<size_t>());
+
+  // Check the file descriptor.
+  int check = isNonblock(fd);
+  if (check == -1) {
+    // The file descriptor is not valid (e.g. fd has been closed).
+    promise->fail(strerror(errno));
+    return promise->future();
+  } else if (check == 0) {
+    // The fd is not opened with O_NONBLOCK set.
+    promise->fail("Please use a fd opened with O_NONBLOCK set");
+    return promise->future();
+  }
+
+  if (size == 0) {
+    promise->fail("Try to read nothing");
+    return promise->future();
+  }
+
+  Future<short> future = poll(fd, process::io::READ);
+  future.onAny(
+      lambda::bind(&internal::read,
+                   fd,
+                   data,
+                   size,
+                   promise,
+                   future));
+
+  // Also cancel the polling if promise->future() is discarded.
+  promise->future().onDiscarded(
+      lambda::bind(&Future<short>::discard, future));
+
+  return promise->future();
 }
 
 } // namespace io {

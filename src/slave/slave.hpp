@@ -130,6 +130,15 @@ public:
 
   void setFrameworkPriorities(const FrameworkPrioritiesMessage& priorities);
 
+
+  void fetchStatistics(const FrameworkID& frameworkId,
+                       const ExecutorID& executorId);
+
+  void gotStatistics(const FrameworkID& frameworkId,
+                     const ExecutorID& executorId,
+                     Option<ResourceStatistics> prev,
+                     Future<Option<ResourceStatistics> > future);
+
   // For testing.
   SlaveID getId() { return id; }
 protected:
