@@ -1189,7 +1189,7 @@ void Slave::gotStatistics(
     Option<ResourceStatistics> prev,
     Future<Option<ResourceStatistics> > future)
 {
-  if (future.isReady()) {
+  if (future.isReady() && future.get().isSome()) {
     ResourceStatistics current = future.get().get();
     UsageMessage message;
     message.mutable_framework_id()->MergeFrom(frameworkId);
@@ -1211,6 +1211,9 @@ void Slave::gotStatistics(
       delay(1.0, PID<Slave>(this), &Slave::fetchStatistics,
           frameworkId, executorId);
     }
+  } else if (future.isFailed()) {
+    LOG(ERROR) << "gotStatistics: " << frameworkId << " " << executorId
+               << ": " << future.failure();
   }
 }
 
