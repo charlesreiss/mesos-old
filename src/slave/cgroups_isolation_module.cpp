@@ -148,7 +148,7 @@ void CgroupsIsolationModule::initialize(
     Try<bool> create =
       cgroups::createCgroup(hierarchy(), flags.cgroup_outer_container_name);
     if (create.isError()) {
-      LOG(FATAL) << "Failed to create outer container: " << create.error();
+      LOG(ERROR) << "Failed to create outer container: " << create.error();
     }
     // XXX share with slave
     long slaveMemory = 1024L * 1024L * 1024L;
