@@ -750,7 +750,12 @@ Try<bool> assignTask(const std::string& hierarchy,
 namespace internal {
 
 #ifndef __NR_eventfd2
-#error "The eventfd2 syscall is unavailable."
+#ifdef __i386__
+#define __NR_eventfd2 328
+#else
+#define __NR_eventfd2 290
+#endif
+/* #error "The eventfd2 syscall is unavailable." */
 #endif
 
 #define EFD_SEMAPHORE (1 << 0)
