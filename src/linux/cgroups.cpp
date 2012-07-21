@@ -204,6 +204,17 @@ static Try<bool> createCgroup(const std::string& hierarchy,
         "Failed to create cgroup at " + path + ": " + strerror(errno));
   }
 
+  // XXX FIXME XXX hack to workaround cpuset restriction; should really
+  // disable cpuset cgroup controller.
+  Try<std::string> allCpus = readControl(hierarchy, "", "cpuset.cpus");
+  if (!allCpus.isError()) {
+    writeControl(hierarchy, cgroup, "cpuset.cpus", allCpus.get());
+  }
+  Try<std::string> allMems = readControl(hierarchy, "", "cpuset.mems");
+  if (!allMems.isError()) {
+    writeControl(hierarchy, cgroup, "cpuset.mems", allMems.get());
+  }
+
   return true;
 }
 
@@ -293,7 +304,7 @@ static Try<bool> writeControl(const std::string& hierarchy,
     // TODO(jieyu): Make sure that the way we get errno here is portable.
     std::string msg = strerror(errno);
     file.close();
-    return Try<bool>::error(msg);
+    return Try<bool>::error("writing tasks: " + msg);
   }
 
   file.close();
@@ -510,7 +521,7 @@ Try<bool> checkHierarchy(const std::string& hierarchy)
 {
   Try<std::set<std::string> > names = subsystems(hierarchy);
   if (names.isError()) {
-    return Try<bool>::error(names.error());
+    return Try<bool>::error("checkHierarchy: " + names.error());
   }
 
   return true;
@@ -737,7 +748,7 @@ Try<bool> assignTask(const std::string& hierarchy,
 {
   Try<bool> check = checkCgroup(hierarchy, cgroup);
   if (check.isError()) {
-    return Try<bool>::error(check.error());
+    return Try<bool>::error("checkCgroup: " + check.error());
   }
 
   return internal::writeControl(hierarchy,
