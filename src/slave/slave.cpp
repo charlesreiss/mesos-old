@@ -899,9 +899,10 @@ void Slave::executorStarted(const FrameworkID& frameworkId,
 void Slave::fetchStatistics(const FrameworkID& frameworkId,
                             const ExecutorID& executorId)
 {
+  CHECK(isolationModule);
   Future<Option<ResourceStatistics> > future =
-    dispatch(PID<ResourceStatisticsCollector>(isolationModule),
-        &ResourceStatisticsCollector::collectResourceStatistics,
+    dispatch(PID<IsolationModule>(isolationModule),
+        &IsolationModule::collectResourceStatistics,
         frameworkId, executorId);
   future.onAny(defer(self(), &Slave::gotStatistics,
         frameworkId, executorId, Option<ResourceStatistics>::none(),
