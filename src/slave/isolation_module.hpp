@@ -39,8 +39,7 @@ namespace slave {
 class Slave;
 
 
-class IsolationModule : virtual public process::Process<IsolationModule>,
-                        virtual public ResourceStatisticsCollector
+class IsolationModule : virtual public process::Process<IsolationModule>
 {
 public:
   static IsolationModule* create(const std::string& type);

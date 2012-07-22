@@ -353,6 +353,32 @@ void CgroupsIsolationModule::processExited(pid_t pid, int status)
   }
 }
 
+void CgroupsIsolationModule::insertStats(
+    const std::string& hierarchy,
+    const std::string& container,
+    const std::string& controller,
+    const std::string& prefix,
+    hashmap<std::string, int64_t>* counters)
+{
+  Try<std::string> statOutput =
+    cgroups::readControl(hierarchy, container, controller);
+  if (statOutput.isError()) {
+    LOG(ERROR) << "Coult not read " << controller << " for " << container
+               << ": " << statOutput.error();
+    return;
+  }
+  Try<hashmap<std::string, unsigned long> > statResult =
+    parseStat(statOutput.get());
+  if (statResult.isError()) {
+    LOG(ERROR) << "Could not parse " << controller << ": " <<
+      statResult.error();
+  }
+  foreachpair (const std::string& key, unsigned long value,
+               statResult.get()) {
+    (*counters)[prefix + key] = value;
+  }
+}
+
 
 Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
     const FrameworkID& frameworkId,
@@ -409,6 +435,18 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
   stat.utime = (double)cpuStat["user"] / (double)HZ;
   stat.stime = (double)cpuStat["system"] / (double)HZ;
   stat.rss = memStat["total_rss"];
+
+  foreachpair (const std::string& key, unsigned long value,
+               memStatResult.get()) {
+    stat.miscAbsolute["mem_" + key] = value;
+  }
+  insertStats(hierarchy(), cgroup(frameworkId, executorId),
+      "blkio.time", "disk_time_", &stat.miscCounters);
+  insertStats(hierarchy(), cgroup(frameworkId, executorId),
+      "blkio.io_serviced", "disk_serviced_", &stat.miscCounters);
+  insertStats(hierarchy(), cgroup(frameworkId, executorId),
+      "blkio.io_service_bytes", "disk_serviced_", &stat.miscCounters);
+
   return stat;
 }
 
@@ -671,8 +709,18 @@ Try<hashmap<std::string, unsigned long> > CgroupsIsolationModule::parseStat(
         std::string name;
         unsigned long value;
 
-        std::istringstream ss(line);
-        ss >> name >> std::dec >> value;
+        size_t split = line.rfind(' ');
+        if (split == std::string::npos)
+          continue;
+        name = line.substr(0, split);
+
+        foreach (char& c, name) {
+          if (c == ' ')
+            c = '_';
+        }
+
+        std::istringstream ss(line.substr(split + 1));
+        ss >> std::dec >> value;
 
         if (ss.fail() && !ss.eof()) {
           return Try<hashmap<std::string, unsigned long> >::error(

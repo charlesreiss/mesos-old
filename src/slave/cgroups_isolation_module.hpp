@@ -233,6 +233,12 @@ private:
   Try<hashmap<std::string, unsigned long> > parseStat(
       const std::string& input);
 
+  void insertStats(const std::string& hierarchy,
+                   const std::string& container,
+                   const std::string& controller,
+                   const std::string& prefix,
+                   hashmap<std::string, int64_t>* counters);
+
   Flags flags;
   bool local;
   process::PID<Slave> slave;
