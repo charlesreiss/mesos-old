@@ -384,6 +384,7 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId)
 {
+  LOG(INFO) << "Gathering statistics for " << frameworkId << " / " << executorId;
   CgroupInfo* info = findCgroupInfo(frameworkId, executorId);
   if (info == NULL || info->killed) {
     return Option<ResourceStatistics>::none();
@@ -395,17 +396,20 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
                          cgroup(frameworkId, executorId),
                          "cpuacct.stat");
   if (cpuStatOutput.isError()) {
+    LOG(ERROR) << "Failed to read cpuacct.stat: " << cpuStatOutput.error();
     return Option<ResourceStatistics>::none();
   }
 
   Try<hashmap<std::string, unsigned long> > cpuStatResult =
     parseStat(cpuStatOutput.get());
   if (cpuStatResult.isError()) {
+    LOG(ERROR) << "Failed to parse cpuacct.stat: " << cpuStatResult.error();
     return Option<ResourceStatistics>::none();
   }
 
   hashmap<std::string, unsigned long> cpuStat = cpuStatResult.get();
   if (!cpuStat.contains("user") || !cpuStat.contains("system")) {
+    LOG(ERROR) << "Did not find user/system time in cpuacct.stat";
     return Option<ResourceStatistics>::none();
   }
 
@@ -415,17 +419,20 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
                          cgroup(frameworkId, executorId),
                          "memory.stat");
   if (memStatOutput.isError()) {
+    LOG(ERROR) << "Failed to read memory.stat: " << memStatOutput.error();
     return Option<ResourceStatistics>::none();
   }
 
   Try<hashmap<std::string, unsigned long> > memStatResult =
     parseStat(memStatOutput.get());
   if (memStatResult.isError()) {
+    LOG(ERROR) << "Failed to parse memory.stat: " << memStatResult.error();
     return Option<ResourceStatistics>::none();
   }
 
   hashmap<std::string, unsigned long> memStat = memStatResult.get();
   if (!memStat.contains("total_rss")) {
+    LOG(ERROR) << "Did not find total_rss in memory.stat";
     return Option<ResourceStatistics>::none();
   }
 

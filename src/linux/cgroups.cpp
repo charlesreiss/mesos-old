@@ -304,7 +304,7 @@ static Try<bool> writeControl(const std::string& hierarchy,
     // TODO(jieyu): Make sure that the way we get errno here is portable.
     std::string msg = strerror(errno);
     file.close();
-    return Try<bool>::error("writing tasks: " + msg);
+    return Try<bool>::error("writing " + control + ": " + msg);
   }
 
   file.close();
