@@ -132,7 +132,8 @@ public:
 
 
   void fetchStatistics(const FrameworkID& frameworkId,
-                       const ExecutorID& executorId);
+                       const ExecutorID& executorId,
+                       Option<ResourceStatistics> prev);
 
   void gotStatistics(const FrameworkID& frameworkId,
                      const ExecutorID& executorId,

@@ -893,11 +893,13 @@ void Slave::executorStarted(const FrameworkID& frameworkId,
                             const ExecutorID& executorId,
                             pid_t pid)
 {
-  fetchStatistics(frameworkId, executorId);
+  fetchStatistics(frameworkId, executorId,
+      Option<ResourceStatistics>::none());
 }
 
 void Slave::fetchStatistics(const FrameworkID& frameworkId,
-                            const ExecutorID& executorId)
+                            const ExecutorID& executorId,
+                            Option<ResourceStatistics> prev)
 {
   CHECK(isolationModule);
   Future<Option<ResourceStatistics> > future =
@@ -905,7 +907,7 @@ void Slave::fetchStatistics(const FrameworkID& frameworkId,
         &IsolationModule::collectResourceStatistics,
         frameworkId, executorId);
   future.onAny(defer(self(), &Slave::gotStatistics,
-        frameworkId, executorId, Option<ResourceStatistics>::none(),
+        frameworkId, executorId, prev,
         future));
 }
 
@@ -1210,7 +1212,7 @@ void Slave::gotStatistics(
     send(master, message);
     if (isRunning) {
       delay(1.0, PID<Slave>(this), &Slave::fetchStatistics,
-          frameworkId, executorId);
+          frameworkId, executorId, Option<ResourceStatistics>(current));
     }
   } else if (future.isFailed()) {
     LOG(ERROR) << "gotStatistics: " << frameworkId << " " << executorId

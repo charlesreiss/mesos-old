@@ -61,10 +61,15 @@ struct ResourceStatistics
   void fillUsageMessage(const Option<ResourceStatistics>& prev,
                         UsageMessage* message) {
     message->set_timestamp(timestamp);
+    mesos::Resource* mem = message->add_resources();
+    mem->set_name("mem");
+    mem->set_type(Value::SCALAR);
+    mem->mutable_scalar()->set_value(double(rss) / 1024. / 1024.);
     if (prev.isSome()) {
       double duration = timestamp - prev.get().timestamp;
       message->set_duration(duration);
       mesos::Resource cpu;
+      cpu.set_name("cpus");
       cpu.mutable_scalar()->set_value((utime + stime) / duration);
       cpu.set_type(Value::SCALAR);
       message->add_resources()->MergeFrom(cpu);
@@ -83,6 +88,14 @@ struct ResourceStatistics
       pseudo->set_type(Value::SCALAR);
       pseudo->mutable_scalar()->set_value(value);
     }
+    mesos::Resource* cpu_raw = message->add_pseudo_resources();
+    cpu_raw->set_name("cpu_user_ctr");
+    cpu_raw->set_type(Value::SCALAR);
+    cpu_raw->mutable_scalar()->set_value(utime);
+    cpu_raw = message->add_pseudo_resources();
+    cpu_raw->set_name("cpu_system_ctr");
+    cpu_raw->set_type(Value::SCALAR);
+    cpu_raw->mutable_scalar()->set_value(stime);
   }
 };
 
