@@ -70,7 +70,9 @@ struct ResourceStatistics
       message->set_duration(duration);
       mesos::Resource cpu;
       cpu.set_name("cpus");
-      cpu.mutable_scalar()->set_value((utime + stime) / duration);
+      double prevCpu = prev.utime + prev.stime;
+      double curCpu = utime + stime;
+      cpu.mutable_scalar()->set_value((curCpu - prevCpu) / duration);
       cpu.set_type(Value::SCALAR);
       message->add_resources()->MergeFrom(cpu);
       foreachpair (const std::string& name, int64_t value, miscCounters) {
@@ -79,7 +81,7 @@ struct ResourceStatistics
         pseudo->set_name(name);
         pseudo->set_type(Value::SCALAR);
         pseudo->mutable_scalar()->set_value(
-            double(prev.get().miscCounters[name] - value) / duration);
+            double(value - prev.get().miscCounters[name]) / duration);
       }
     }
     foreachpair (const std::string& name, int64_t value, miscAbsolute) {
