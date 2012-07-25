@@ -59,46 +59,7 @@ struct ResourceStatistics
   hashmap<std::string, int64_t> miscAbsolute;
 
   void fillUsageMessage(const Option<ResourceStatistics>& prev,
-                        UsageMessage* message) {
-    message->set_timestamp(timestamp);
-    mesos::Resource* mem = message->add_resources();
-    mem->set_name("mem");
-    mem->set_type(Value::SCALAR);
-    mem->mutable_scalar()->set_value(double(rss) / 1024. / 1024.);
-    if (prev.isSome()) {
-      double duration = timestamp - prev.get().timestamp;
-      message->set_duration(duration);
-      mesos::Resource cpu;
-      cpu.set_name("cpus");
-      double prevCpu = prev.utime + prev.stime;
-      double curCpu = utime + stime;
-      cpu.mutable_scalar()->set_value((curCpu - prevCpu) / duration);
-      cpu.set_type(Value::SCALAR);
-      message->add_resources()->MergeFrom(cpu);
-      foreachpair (const std::string& name, int64_t value, miscCounters) {
-        if (prev.get().miscCounters.count(name) == 0) continue;
-        mesos::Resource* pseudo = message->add_pseudo_resources();
-        pseudo->set_name(name);
-        pseudo->set_type(Value::SCALAR);
-        pseudo->mutable_scalar()->set_value(
-            double(value - prev.get().miscCounters[name]) / duration);
-      }
-    }
-    foreachpair (const std::string& name, int64_t value, miscAbsolute) {
-      mesos::Resource* pseudo = message->add_pseudo_resources();
-      pseudo->set_name(name);
-      pseudo->set_type(Value::SCALAR);
-      pseudo->mutable_scalar()->set_value(value);
-    }
-    mesos::Resource* cpu_raw = message->add_pseudo_resources();
-    cpu_raw->set_name("cpu_user_ctr");
-    cpu_raw->set_type(Value::SCALAR);
-    cpu_raw->mutable_scalar()->set_value(utime);
-    cpu_raw = message->add_pseudo_resources();
-    cpu_raw->set_name("cpu_system_ctr");
-    cpu_raw->set_type(Value::SCALAR);
-    cpu_raw->mutable_scalar()->set_value(stime);
-  }
+                        UsageMessage* message) const;
 };
 
 
