@@ -18,6 +18,8 @@
 
 #include <gmock/gmock.h>
 
+#include <stout/stringify.hpp>
+
 #include <process/clock.hpp>
 
 #include "slave/statistics.hpp"
@@ -126,4 +128,53 @@ TEST(StatisticsTest, ResourceUsage)
 
   terminate(collector);
   wait(collector);
+}
+
+TEST(StatisticsTest, FillUsageMessage)
+{
+  ResourceStatistics stat1;
+  ResourceStatistics stat2;
+
+  stat1.timestamp = 5.0;
+  stat2.timestamp = 7.0;
+
+  stat1.utime = 4.0;
+  stat1.stime = 3.0;
+  // total 7
+  stat2.utime = 5.0;
+  stat2.stime = 6.0;
+  // total 11
+
+  stat1.rss = 1024L * 1024L;
+  stat2.rss = 1024L * 1024L;
+
+  stat1.miscCounters["counter"] = 42;
+  stat2.miscCounters["counter"] = 44;
+  stat1.miscAbsolute["absolute"] = 44;
+  stat2.miscAbsolute["absolute"] = 46;
+
+  UsageMessage message;
+  stat2.fillUsageMessage(Option<ResourceStatistics>::none(), &message);
+
+  Resources resources = message.resources();
+  EXPECT_DOUBLE_EQ(1.0, resources.get("mem", Value::Scalar()).value());
+  EXPECT_EQ(1, resources.size());
+  Resources pseudoResources = message.pseudo_resources();
+  EXPECT_DOUBLE_EQ(46.0, pseudoResources.get("absolute", Value::Scalar()).value());
+  foreach (const Resource& resource, pseudoResources) {
+    EXPECT_NE("counter", resource.name());
+  }
+
+  message.Clear();
+
+  stat2.fillUsageMessage(stat1, &message);
+
+  resources = message.resources();
+  EXPECT_DOUBLE_EQ(1.0, resources.get("mem", Value::Scalar()).value());
+  EXPECT_DOUBLE_EQ(2.0, resources.get("cpus", Value::Scalar()).value());
+  EXPECT_EQ(2, resources.size());
+
+  pseudoResources = message.pseudo_resources();
+  EXPECT_DOUBLE_EQ(46.0, pseudoResources.get("absolute", Value::Scalar()).value());
+  EXPECT_DOUBLE_EQ(1.0, pseudoResources.get("counter", Value::Scalar()).value());
 }
