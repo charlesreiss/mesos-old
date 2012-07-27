@@ -387,6 +387,17 @@ public class FrameworkScheduler implements Scheduler {
       neededMaps += 1;
 
     if (unassignedMaps < neededMaps) {
+
+      // 0. check for a failed task to place.
+      for (JobInProgress job : jobs) {
+        if (job.failedMaps == null) continue;
+        for (TaskInProgress tip : job.failedMaps) {
+          if (!tip.hasFailedOnMachine(host)) {
+            return true;
+          }
+        }
+      }
+      
       /*
       // Figure out what locality level to allow using delay scheduling
       long now = System.currentTimeMillis();
