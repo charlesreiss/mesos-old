@@ -452,7 +452,7 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
   insertStats(hierarchy(), cgroup(frameworkId, executorId),
       "blkio.io_serviced", "disk_serviced_", &stat.miscCounters);
   insertStats(hierarchy(), cgroup(frameworkId, executorId),
-      "blkio.io_service_bytes", "disk_serviced_", &stat.miscCounters);
+      "blkio.io_service_bytes", "disk_bytes_", &stat.miscCounters);
 
   return stat;
 }
