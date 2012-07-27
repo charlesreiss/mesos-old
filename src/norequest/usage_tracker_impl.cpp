@@ -337,9 +337,6 @@ UsageTrackerImpl::placeUsage(const FrameworkID& frameworkId,
                              const Resources& minResources,
                              const Option<Resources>& estResources,
                              int numTasks) {
-  LOG(INFO) << "placeUsage(" << frameworkId << "," << executorId
-            << "," << slaveId << ", min: " << minResources
-            << ", est: " << estResources << ", " << numTasks << ")";
   ResourceEstimates* executor = estimateFor(frameworkId, executorId, slaveId);
   executor->setMin(lastTickTime, minResources);
   if (estResources.isSome()) {
@@ -445,6 +442,7 @@ UsageTrackerImpl::gaurenteedForExecutor(const SlaveID& slaveId,
   return lookupOrDefault(estimateByExecutor, key).minResources;
 }
 
+#if 0
 void
 UsageTrackerImpl::sanityCheckAgainst(mesos::internal::master::Master* master)
 {
@@ -485,6 +483,7 @@ UsageTrackerImpl::sanityCheckAgainst(mesos::internal::master::Master* master)
   CHECK_EQ(expectNumSlaves, slaveCapacities.size());
   CHECK_EQ(expectNumSlaves, slaveEstimates.size());
 }
+#endif
 
 void UsageTrackerImpl::smoothUsageUpdate(Resources* observation,
     double duration, const Resources& oldUsage)

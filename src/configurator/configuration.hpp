@@ -26,9 +26,9 @@
 
 #include <boost/lexical_cast.hpp>
 
-#include "common/foreach.hpp"
-#include "common/option.hpp"
-#include "common/strings.hpp"
+#include <stout/foreach.hpp>
+#include <stout/option.hpp>
+#include <stout/strings.hpp>
 
 
 namespace mesos {
@@ -85,7 +85,7 @@ public:
       std::vector<std::string> parts = strings::split(line, "=");
       if (parts.size() != 2) {
         const Try<std::string>& error =
-          strings::format("Failed to parse '%s'", line.c_str());
+          strings::format("Failed to parse '%s'", line);
         throw ParseException(error.isSome() ? error.get() : "Failed to parse");
       }
       params[parts[0]] = parts[1];

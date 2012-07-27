@@ -156,15 +156,16 @@ nodist_libmesos_no_third_party_la_SOURCES = $(CXX_PROTOS) $(MESSAGES_PROTOS)
 
 libmesos_no_third_party_la_SOURCES = sched/sched.cpp local/local.cpp	\
 	master/master.cpp master/http.cpp master/slaves_manager.cpp	\
-	master/frameworks_manager.cpp master/allocator_factory.cpp	\
-	master/simple_allocator.cpp slave/slave.cpp slave/http.cpp	\
-	slave/isolation_module.cpp					\
+	master/frameworks_manager.cpp					\
+	master/allocator_factory.cpp 					\
+	master/dominant_share_allocator.cpp slave/slave.cpp		\
+	slave/http.cpp slave/isolation_module.cpp			\
+	slave/statistics.cpp						\
 	slave/process_based_isolation_module.cpp slave/reaper.cpp	\
-	launcher/launcher.cpp exec/exec.cpp common/fatal.cpp		\
-	common/lock.cpp detector/detector.cpp				\
-	configurator/configurator.cpp common/logging.cpp		\
-	common/utils.cpp common/date_utils.cpp common/resources.cpp	\
-	common/attributes.cpp common/values.cpp				\
+	launcher/launcher.cpp exec/exec.cpp common/lock.cpp		\
+	detector/detector.cpp configurator/configurator.cpp		\
+	common/date_utils.cpp common/resources.cpp			\
+	common/attributes.cpp common/values.cpp logging/logging.cpp	\
 	zookeeper/zookeeper.cpp zookeeper/authentication.cpp		\
 	zookeeper/group.cpp messages/messages.proto
 
@@ -175,11 +176,15 @@ pkginclude_HEADERS = $(top_srcdir)/include/mesos/executor.hpp	\
 nodist_pkginclude_HEADERS = ../include/mesos/mesos.hpp mesos.pb.h
 
 if OS_LINUX
+  libmesos_no_third_party_la_SOURCES += slave/cgroups_isolation_module.cpp
   libmesos_no_third_party_la_SOURCES += slave/lxc_isolation_module.cpp
+  libmesos_no_third_party_la_SOURCES += linux/cgroups.cpp
   libmesos_no_third_party_la_SOURCES += linux/fs.cpp
   libmesos_no_third_party_la_SOURCES += linux/proc.cpp
 else
+  EXTRA_DIST += slave/cgroups_isolation_module.cpp
   EXTRA_DIST += slave/lxc_isolation_module.cpp
+  EXTRA_DIST += linux/cgroups.cpp
   EXTRA_DIST += linux/fs.cpp
   EXTRA_DIST += linux/proc.cpp
 endif
@@ -188,28 +193,26 @@ EXTRA_DIST += slave/solaris_project_isolation_module.cpp
 
 libmesos_no_third_party_la_SOURCES += common/attributes.hpp		\
 	common/build.hpp common/date_utils.hpp common/factory.hpp	\
-	common/fatal.hpp common/foreach.hpp common/hashmap.hpp		\
-	common/hashset.hpp common/json.hpp common/lock.hpp		\
-	common/logging.hpp common/lambda.hpp common/option.hpp		\
-	common/resources.hpp common/result.hpp common/multihashmap.hpp	\
-	common/process_utils.hpp common/time.hpp common/try.hpp		\
-	common/type_utils.hpp common/thread.hpp common/timer.hpp	\
-	common/utils.hpp common/units.hpp common/uuid.hpp		\
-	common/strings.hpp common/values.hpp				\
-	configurator/configuration.hpp configurator/configurator.hpp	\
-	configurator/option.hpp detector/detector.hpp			\
-	launcher/launcher.hpp linux/fs.hpp linux/proc.hpp		\
-	local/local.hpp master/allocator.hpp				\
-	master/allocator_factory.hpp master/constants.hpp		\
+	common/lock.hpp common/resources.hpp common/process_utils.hpp	\
+	common/type_utils.hpp common/thread.hpp common/units.hpp	\
+	common/values.hpp configurator/configuration.hpp		\
+	configurator/configurator.hpp configurator/option.hpp		\
+	detector/detector.hpp flags/flag.hpp flags/flags.hpp		\
+	flags/loader.hpp launcher/launcher.hpp linux/cgroups.hpp	\
+	linux/fs.hpp linux/proc.hpp local/flags.hpp local/local.hpp	\
+	logging/flags.hpp logging/logging.hpp master/allocator.hpp	\
+	master/constants.hpp master/flags.hpp				\
 	master/frameworks_manager.hpp master/http.hpp			\
-	master/master.hpp master/simple_allocator.hpp			\
+	master/master.hpp master/dominant_share_allocator.hpp		\
 	master/slaves_manager.hpp master/webui.hpp			\
-	messages/messages.hpp slave/constants.hpp slave/http.hpp	\
-	slave/isolation_module.hpp slave/isolation_module_factory.hpp	\
+	messages/messages.hpp slave/constants.hpp slave/flags.hpp	\
+	slave/http.hpp slave/isolation_module.hpp			\
+	slave/isolation_module_factory.hpp				\
+	slave/cgroups_isolation_module.hpp				\
 	slave/lxc_isolation_module.hpp					\
 	slave/process_based_isolation_module.hpp slave/reaper.hpp	\
 	slave/slave.hpp slave/solaris_project_isolation_module.hpp	\
-	slave/webui.hpp tests/external_test.hpp				\
+	slave/statistics.hpp slave/webui.hpp tests/external_test.hpp	\
 	tests/base_zookeeper_test.hpp tests/utils.hpp			\
 	tests/zookeeper_server.hpp zookeeper/authentication.hpp		\
 	zookeeper/group.hpp zookeeper/watcher.hpp			\
@@ -266,8 +269,8 @@ libmesos_no_third_party_la_LIBADD += libstate.la
 # Convenience library for the webui to include Python specific flags.
 if WEBUI
 noinst_LTLIBRARIES += libwebui.la
-libwebui_la_SOURCES = master/webui.cpp slave/webui.cpp common/webui_utils.cpp
-libwebui_la_SOURCES += master/webui.hpp slave/webui.hpp common/webui_utils.hpp
+libwebui_la_SOURCES = master/webui.cpp slave/webui.cpp webui/webui.cpp
+libwebui_la_SOURCES += master/webui.hpp slave/webui.hpp webui/webui.hpp
 libwebui_la_CPPFLAGS = $(MESOS_CPPFLAGS) $(WEBUI_CPPFLAGS)
 libwebui_la_LIBADD = $(WEBUI_LDFLAGS)
 
@@ -784,22 +787,33 @@ no_executor_framework_SOURCES = examples/no_executor_framework.cpp
 no_executor_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
 no_executor_framework_LDADD = libmesos.la
 
+check_PROGRAMS += balloon-framework
+balloon_framework_SOURCES = examples/balloon_framework.cpp
+balloon_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
+balloon_framework_LDADD = libmesos.la
+
+check_PROGRAMS += balloon-executor
+balloon_executor_SOURCES = examples/balloon_executor.cpp
+balloon_executor_CPPFLAGS = $(MESOS_CPPFLAGS)
+balloon_executor_LDADD = libmesos.la
+
 check_PROGRAMS += mesos-tests
 
 mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 	              tests/master_tests.cpp tests/state_tests.cpp	\
 	              tests/slave_tests.cpp				\
+	              tests/statistics_tests.cpp			\
 	              tests/resource_offers_tests.cpp			\
 	              tests/fault_tolerance_tests.cpp			\
-	              tests/log_tests.cpp tests/resources_tests.cpp	\
-	              tests/uuid_tests.cpp tests/external_tests.cpp	\
+	              tests/flags_tests.cpp tests/log_tests.cpp		\
+	              tests/resources_tests.cpp				\
+	              tests/external_tests.cpp				\
 	              tests/sample_frameworks_tests.cpp			\
 	              tests/configurator_tests.cpp			\
-	              tests/strings_tests.cpp				\
 	              tests/multihashmap_tests.cpp			\
 	              tests/protobuf_io_tests.cpp			\
 	              tests/lxc_isolation_tests.cpp			\
-	              tests/utils_tests.cpp				\
+	              tests/stout_tests.cpp				\
 	              tests/zookeeper_url_tests.cpp			\
 	              tests/killtree_tests.cpp				\
 	              tests/exception_tests.cpp				\
@@ -815,7 +829,8 @@ mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 		      tests/usage_log_test.cpp				\
 		      tests/fake/scenario_test.cpp			\
 	              tests/attributes_tests.cpp			\
-	              tests/master_detector_tests.cpp
+	              tests/master_detector_tests.cpp			\
+	              tests/allocator_tests.cpp
 
 mesos_tests_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_tests_CPPFLAGS += -DSOURCE_DIR=\"$(abs_top_srcdir)\"
@@ -829,6 +844,8 @@ mesos_tests_LDADD = ../third_party/libgmock.la libmesos.la
 mesos_tests_DEPENDENCIES = # Initialized to allow += below.
 
 if OS_LINUX
+  mesos_tests_SOURCES += tests/cgroups_isolation_tests.cpp
+  mesos_tests_SOURCES += tests/cgroups_tests.cpp
   mesos_tests_SOURCES += tests/fs_tests.cpp
   mesos_tests_SOURCES += tests/proc_tests.cpp
 endif

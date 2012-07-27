@@ -23,7 +23,7 @@
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include "process/timer.hpp"
 
-#include "common/foreach.hpp"
+#include "stout/foreach.hpp"
 
 namespace mesos {
 namespace internal {

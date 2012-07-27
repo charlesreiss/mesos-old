@@ -24,7 +24,7 @@
 
 #include <pthread.h>
 
-#include "fatal.hpp"
+#include <stout/fatal.hpp>
 
 
 // These two macros create a Factory class that constructs instances of
@@ -90,7 +90,7 @@ public:
 template<typename C, typename T, typename P>
 class ConcreteCreator : public Creator<T, P> {
 public:
-  virtual T* instantiate(P p) { return new C(); }
+  virtual T* instantiate(P p) { return new C(p); }
 };
 
 

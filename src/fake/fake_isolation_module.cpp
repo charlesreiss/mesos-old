@@ -21,6 +21,8 @@ namespace mesos {
 namespace internal {
 namespace fake {
 
+using process::PID;
+
 using std::make_pair;
 using std::vector;
 
@@ -102,20 +104,14 @@ void FakeIsolationModule::registerOptions(Configurator* configurator)
       "minimum CPU share (cores)", 0.01);
 }
 
-FakeIsolationModule::FakeIsolationModule(const FakeTaskTracker& fakeTasks_)
+FakeIsolationModule::FakeIsolationModule(const Configuration& conf,
+    const FakeTaskTracker& fakeTasks_)
       : fakeTasks(fakeTasks_), shuttingDown(false), extraCpu(false),
         extraMem(false), assignMin(false) {
   pthread_mutexattr_t mattr;
   pthread_mutexattr_init(&mattr);
   pthread_mutexattr_settype(&mattr, PTHREAD_MUTEX_ERRORCHECK);
   pthread_mutex_init(&tasksLock, &mattr);
-}
-
-void FakeIsolationModule::initialize(const Configuration& conf, bool local,
-    const process::PID<Slave>& slave_)
-{
-  LOG(INFO) << "initialize; this = " << (void*)this;
-  slave = slave_;
   interval = conf.get<double>("fake_interval", 1.0/32.0);
   usageInterval = conf.get<double>("fake_usage_interval", 1.0);
   extraCpu = conf.get<bool>("fake_extra_cpu", false);
@@ -124,6 +120,13 @@ void FakeIsolationModule::initialize(const Configuration& conf, bool local,
   slackMem = conf.get<double>("fake_slack_mem", 0.0);
   baseCpuWeight = conf.get<double>("fake_base_cpu_weight", 0.01);
   totalResources = Resources::parse(conf.get<std::string>("resources", ""));
+}
+
+void FakeIsolationModule::initialize(const slave::Flags& flags, bool local,
+    const process::PID<Slave>& slave_)
+{
+  LOG(INFO) << "initialize; this = " << (void*)this;
+  slave = slave_;
   lastUsageTime = lastTime = process::Clock::now();
   ticker.reset(new FakeIsolationModuleTicker(this, interval));
   process::spawn(ticker.get());
@@ -174,7 +177,8 @@ void FakeIsolationModule::killExecutor(
 void FakeIsolationModule::killedExecutor(
     const FrameworkID& frameworkId, const ExecutorID& executorId) {
   LOG(INFO) << "killedExecutor()";
-  dispatch(self(), &IsolationModule::killExecutor, frameworkId, executorId);
+  dispatch(PID<IsolationModule>(this),
+      &IsolationModule::killExecutor, frameworkId, executorId);
 }
 
 void FakeIsolationModule::resourcesChanged(const FrameworkID& frameworkId,
@@ -476,8 +480,7 @@ FakeIsolationModule::~FakeIsolationModule()
   LOG(INFO) << "wait";
   process::wait(ticker.get());
   LOG(INFO) << "shut down ticker";
-  foreachpair (const TaskMap::key_type& key, const RunningTaskInfo& value,
-      tasks) {
+  foreachkey (const TaskMap::key_type& key, tasks) {
     LOG(INFO) << "remaining task: " << key.first << "," << key.second;
   }
   pthread_mutex_destroy(&tasksLock);

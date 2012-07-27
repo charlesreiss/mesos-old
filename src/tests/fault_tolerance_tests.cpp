@@ -29,8 +29,8 @@
 
 #include "local/local.hpp"
 
+#include "master/dominant_share_allocator.hpp"
 #include "master/master.hpp"
-#include "master/simple_allocator.hpp"
 
 #include "slave/process_based_isolation_module.hpp"
 #include "slave/slave.hpp"
@@ -42,7 +42,7 @@ using namespace mesos::internal;
 using namespace mesos::internal::test;
 
 using mesos::internal::master::Master;
-using mesos::internal::master::SimpleAllocator;
+using mesos::internal::master::DominantShareAllocator;
 
 using mesos::internal::slave::ProcessBasedIsolationModule;
 using mesos::internal::slave::Slave;
@@ -70,7 +70,7 @@ TEST(FaultToleranceTest, SlaveLost)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
-  SimpleAllocator a;
+  DominantShareAllocator a;
   Master m(&a);
   PID<Master> master = process::spawn(&m);
 
@@ -139,12 +139,12 @@ TEST(FaultToleranceTest, SlavePartitioned)
   EXPECT_MESSAGE(filter, _, _, _)
     .WillRepeatedly(Return(false));
 
-  trigger pingMsg;
+  int pings = 0;
 
   // Set these expectations up before we spawn the slave (in
   // local::launch) so that we don't miss the first PING.
   EXPECT_MESSAGE(filter, Eq("PING"), _, _)
-    .WillRepeatedly(DoAll(Trigger(&pingMsg),
+    .WillRepeatedly(DoAll(Increment(&pings),
                           Return(false)));
 
   EXPECT_MESSAGE(filter, Eq("PONG"), _, _)
@@ -176,10 +176,14 @@ TEST(FaultToleranceTest, SlavePartitioned)
   // master, waiting for resource offers should accomplish both.
   WAIT_UNTIL(resourceOffersCall);
 
-  // We expect at least one PING by now.
-  WAIT_UNTIL(pingMsg);
+  // Now advance through the PINGs.
+  do {
+    int count = pings;
+    Clock::advance(master::SLAVE_PING_TIMEOUT);
+    WAIT_UNTIL(pings == count + 1);
+  } while (pings < master::MAX_SLAVE_PING_TIMEOUTS);
 
-  Clock::advance(master::SLAVE_PONG_TIMEOUT * master::MAX_SLAVE_TIMEOUTS);
+  Clock::advance(master::SLAVE_PING_TIMEOUT);
 
   WAIT_UNTIL(slaveLostCall);
 
@@ -392,7 +396,7 @@ TEST(FaultToleranceTest, DISABLED_TaskLost)
   EXPECT_MESSAGE(filter, _, _, _)
     .WillRepeatedly(Return(false));
 
-  SimpleAllocator a;
+  DominantShareAllocator a;
   Master m(&a);
   PID<Master> master = process::spawn(&m);
 
@@ -496,7 +500,7 @@ TEST(FaultToleranceTest, SchedulerFailoverStatusUpdate)
   EXPECT_MESSAGE(filter, _, _, _)
     .WillRepeatedly(Return(false));
 
-  SimpleAllocator a;
+  DominantShareAllocator a;
   Master m(&a);
   PID<Master> master = process::spawn(&m);
 
@@ -628,7 +632,7 @@ TEST(FaultToleranceTest, SchedulerFailoverFrameworkMessage)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
-  SimpleAllocator a;
+  DominantShareAllocator a;
   Master m(&a);
   PID<Master> master = process::spawn(&m);
 
@@ -750,7 +754,7 @@ TEST(FaultToleranceTest, SchedulerExit)
   EXPECT_MESSAGE(filter, _, _, _)
     .WillRepeatedly(Return(false));
 
-  SimpleAllocator a;
+  DominantShareAllocator a;
   Master m(&a);
   PID<Master> master = process::spawn(&m);
 
@@ -875,7 +879,7 @@ TEST(FaultToleranceTest, SlaveReliableRegistration)
     .WillOnce(DoAll(Trigger(&slaveRegisteredMsg), Return(true)))
     .WillRepeatedly(Return(false));
 
-  SimpleAllocator a;
+  DominantShareAllocator a;
   Master m(&a);
   PID<Master> master = process::spawn(&m);
 
@@ -933,7 +937,7 @@ TEST(FaultToleranceTest, SlaveReregister)
   EXPECT_MESSAGE(filter, _, _, _)
     .WillRepeatedly(Return(false));
 
-  SimpleAllocator a;
+  DominantShareAllocator a;
   Master m(&a);
   PID<Master> master = process::spawn(&m);
 

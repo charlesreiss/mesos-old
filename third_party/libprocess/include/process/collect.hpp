@@ -8,9 +8,10 @@
 #include <process/defer.hpp>
 #include <process/delay.hpp>
 #include <process/future.hpp>
-#include <process/option.hpp>
 #include <process/process.hpp>
 #include <process/timeout.hpp>
+
+#include <stout/option.hpp>
 
 namespace process {
 
@@ -76,8 +77,10 @@ private:
   {
     if (future.isFailed()) {
       promise->fail("Collect failed: " + future.failure());
+      terminate(this);
     } else if (future.isDiscarded()) {
       promise->fail("Collect failed: future discarded");
+      terminate(this);
     } else {
       assert(future.isReady());
       values.push_back(future.get());
@@ -103,8 +106,9 @@ inline Future<std::list<T> > collect(
     const Option<Timeout>& timeout)
 {
   Promise<std::list<T> >* promise = new Promise<std::list<T> >();
+  Future<std::list<T> > future = promise->future();
   spawn(new internal::CollectProcess<T>(futures, timeout, promise), true);
-  return promise->future();
+  return future;
 }
 
 } // namespace process {

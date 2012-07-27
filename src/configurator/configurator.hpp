@@ -28,6 +28,8 @@
 #include "configurator/configuration.hpp"
 #include "configurator/option.hpp"
 
+#include "flags/flag.hpp"
+#include "flags/flags.hpp"
 
 namespace mesos {
 namespace internal {
@@ -72,7 +74,31 @@ public:
    * Initializes a Configurator with no options set and only the "conf"
    * option registered.
    **/
-  Configurator();
+  Configurator()
+  {
+    addOption<std::string>("conf",
+                           "Specifies a config directory from which to\n"
+                           "read Mesos config files.");
+  }
+
+  /**
+   * Initializes a Configurator out of a Flags.
+   **/
+  template <typename Flags>
+  Configurator(const Flags& flags)
+  {
+    addOption<std::string>("conf",
+                           "Specifies a config directory from which to\n"
+                           "read Mesos config files.");
+
+    foreachvalue (const flags::Flag& flag, flags) {
+      if (!flag.boolean) {
+        addOption<std::string>(flag.name, flag.help);
+      } else {
+        addOption<bool>(flag.name, flag.help);
+      }
+    }
+  }
 
 
   /**

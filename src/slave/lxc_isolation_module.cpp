@@ -25,13 +25,16 @@
 #include <process/dispatch.hpp>
 #include <process/id.hpp>
 
-#include "common/foreach.hpp"
+#include <stout/foreach.hpp>
+#include <stout/os.hpp>
+#include <stout/path.hpp>
+
 #include "common/type_utils.hpp"
 #include "common/units.hpp"
-#include "common/utils.hpp"
 
 #include "launcher/launcher.hpp"
 
+#include "slave/flags.hpp"
 #include "slave/lxc_isolation_module.hpp"
 
 using namespace mesos;
@@ -82,11 +85,11 @@ LxcIsolationModule::~LxcIsolationModule()
 
 
 void LxcIsolationModule::initialize(
-    const Configuration& _conf,
+    const Flags& _flags,
     bool _local,
     const PID<Slave>& _slave)
 {
-  conf = _conf;
+  flags = _flags;
   local = _local;
   slave = _slave;
 
@@ -102,14 +105,15 @@ void LxcIsolationModule::initialize(
     LOG(FATAL) << "LXC isolation module requires slave to run as root";
   }
 
-  cgroupRoot = conf.get<std::string>("cgroup_root", "/sys/fs/cgroup/");
-  cgroupTypeLabel = conf.get<bool>("cgroup_type_label", true);
+  cgroupRoot = flags.cgroup_root;
+  cgroupTypeLabel = flags.cgroup_type_label;
   slaveResources = Resources::parse(
-      conf.get<std::string>("resources", "cpus:1;mem:1024"));
+      flags.resources.isSome() ?
+        flags.resources.get() : "cpus:1;mem:1024");
   maxContainerMemory = slaveResources.get("mem", Value::Scalar()).value()
-    * 1.1;
-  noLimits = conf.get<bool>("lxc_no_limits", false);
-  measureSwapAsMemory = conf.get<bool>("lxc_measure_swap_as_mem", true);
+    * 1.3;
+  noLimits = flags.lxc_no_limits;
+  measureSwapAsMemory = flags.lxc_measure_swap_as_mem;
 
   LOG(INFO) << "cgroup_type_label = " << cgroupTypeLabel;
   LOG(INFO) << "maxContainerMemory = " << maxContainerMemory;
@@ -177,7 +181,7 @@ void LxcIsolationModule::launchExecutor(
     // Close unnecessary file descriptors. Note that we are assuming
     // stdin, stdout, and stderr can ONLY be found at the POSIX
     // specified file numbers (0, 1, 2).
-    foreach (const string& entry, utils::os::listdir("/proc/self/fd")) {
+    foreach (const string& entry, os::listdir("/proc/self/fd")) {
       if (entry != "." && entry != "..") {
         try {
           int fd = boost::lexical_cast<int>(entry);
@@ -199,10 +203,10 @@ void LxcIsolationModule::launchExecutor(
 			   frameworkInfo.user(),
                            directory,
 			   slave,
-			   conf.get<string>("frameworks_home", ""),
-			   conf.get<string>("hadoop_home", ""),
+			   flags.frameworks_home,
+			   flags.hadoop_home,
 			   !local,
-			   conf.get<bool>("switch_user", true),
+			   flags.switch_user,
 			   container);
 
     launcher->setupEnvironmentForLauncherMain();
@@ -224,8 +228,7 @@ void LxcIsolationModule::launchExecutor(
     }
 
     // Determine path for mesos-launcher from Mesos home directory.
-    string path =
-      conf.get<string>("launcher_dir", MESOS_LIBEXECDIR) + "/mesos-launcher";
+    string path = path::join(flags.launcher_dir, "mesos-launcher");
     args[i++] = path.c_str();
     args[i++] = NULL;
 
@@ -256,7 +259,7 @@ void LxcIsolationModule::killExecutor(
   LOG(INFO) << "Stopping container " << info->container;
 
   Try<int> status =
-    utils::os::shell(NULL, "lxc-stop -n %s", info->container.c_str());
+    os::shell(NULL, "lxc-stop -n %s", info->container.c_str());
 
   if (status.isError()) {
     LOG(ERROR) << "Failed to stop container " << info->container
@@ -511,7 +514,7 @@ bool LxcIsolationModule::setControlGroupValue(
             << " to " << value;
 
   Try<int> status =
-    utils::os::shell(NULL, "lxc-cgroup -n %s %s %lld",
+    os::shell(NULL, "lxc-cgroup -n %s %s %lld",
                      container.c_str(), property.c_str(), value);
 
   if (status.isError()) {

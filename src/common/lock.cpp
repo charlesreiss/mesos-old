@@ -16,8 +16,8 @@
  * limitations under the License.
  */
 
-#include "common/logging.hpp"
 #include "lock.hpp"
+#include "logging/logging.hpp"
 
 namespace mesos {
 namespace internal {

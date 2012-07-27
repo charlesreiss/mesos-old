@@ -36,14 +36,20 @@
 
 #include <process/process.hpp>
 
-#include "common/utils.hpp"
+#include <stout/option.hpp>
+#include <stout/os.hpp>
+
 #include "common/type_utils.hpp"
+
+#include "master/master.hpp"
 
 #include "messages/messages.hpp"
 
 #include "slave/isolation_module.hpp"
 #include "slave/slave.hpp"
 
+using ::testing::_;
+using ::testing::Invoke;
 
 namespace mesos {
 namespace internal {
@@ -151,6 +157,78 @@ public:
   MOCK_METHOD2(error, void(SchedulerDriver*, const std::string&));
 };
 
+// For use with a MockScheduler, for example:
+// EXPECT_CALL(sched, resourceOffers(_, _))
+//   .WillOnce(LaunchTasks(TASKS, CPUS, MEM));
+// Launches up to TASKS no-op tasks, if possible,
+// each with CPUS cpus and MEM memory.
+ACTION_P3(LaunchTasks, tasks, cpus, mem)
+{
+  SchedulerDriver* driver = arg0;
+  std::vector<Offer> offers = arg1;
+  int numTasks = tasks;
+
+  int launched = 0;
+  for (int i = 0; i < offers.size(); i++) {
+    const Offer& offer = offers[i];
+    double offeredCpus = 0;
+    double offeredMem = 0;
+
+    for (int i = 0; i < offer.resources_size(); i++) {
+      const Resource& resource = offer.resources(i);
+      if (resource.name() == "cpus" &&
+	  resource.type() == Value::SCALAR) {
+	offeredCpus = resource.scalar().value();
+      } else if (resource.name() == "mem" &&
+		 resource.type() == Value::SCALAR) {
+	offeredMem = resource.scalar().value();
+      }
+    }
+
+    std::vector<TaskInfo> tasks;
+    if (offeredCpus >= cpus &&
+	offeredMem >= mem &&
+	launched < numTasks) {
+      TaskInfo task;
+      task.set_name("TestTask");
+      task.mutable_task_id()->set_value("TestTask1");
+      task.mutable_slave_id()->MergeFrom(offer.slave_id());
+
+      ExecutorInfo executor;
+      executor.mutable_executor_id()->set_value("default");
+      executor.mutable_command()->set_value(":");
+      task.mutable_executor()->MergeFrom(executor);
+
+      Resource* resource;
+      resource = task.add_resources();
+      resource->set_name("cpus");
+      resource->set_type(Value::SCALAR);
+      resource->mutable_scalar()->set_value(cpus);
+
+      resource = task.add_resources();
+      resource->set_name("mem");
+      resource->set_type(Value::SCALAR);
+      resource->mutable_scalar()->set_value(mem);
+
+      tasks.push_back(task);
+      launched++;
+    }
+
+    driver->launchTasks(offer.id(), tasks);
+  }
+}
+
+// Like LaunchTasks, but decline the entire offer and
+// don't launch any tasks.
+ACTION(DeclineOffers)
+{
+  SchedulerDriver* driver = arg0;
+  std::vector<Offer> offers = arg1;
+
+  for (int i = 0; i < offers.size(); i++) {
+    driver->declineOffer(offers[i].id());
+  }
+}
 
 /**
  * Definition of a mock Executor to be used in tests with gmock.
@@ -172,39 +250,106 @@ public:
 };
 
 
+template <typename T = master::Allocator>
 class MockAllocator : public master::Allocator
 {
 public:
-  MOCK_METHOD2(initialize, void(master::Master*, const Configuration&));
-  MOCK_METHOD1(frameworkAdded, void(master::Framework*));
-  MOCK_METHOD1(frameworkRemoved, void(master::Framework*));
-  MOCK_METHOD1(slaveAdded, void(master::Slave*));
-  MOCK_METHOD1(slaveRemoved, void(master::Slave*));
+  MockAllocator() {
+    ON_CALL(*this, initialize(_))
+      .WillByDefault(Invoke(&real, &T::initialize));
+
+    ON_CALL(*this, frameworkAdded(_, _, _))
+      .WillByDefault(Invoke(&real, &T::frameworkAdded));
+
+    ON_CALL(*this, frameworkDeactivated(_))
+      .WillByDefault(Invoke(&real, &T::frameworkDeactivated));
+
+    ON_CALL(*this, frameworkRemoved(_))
+      .WillByDefault(Invoke(&real, &T::frameworkRemoved));
+
+    ON_CALL(*this, slaveAdded(_, _, _))
+      .WillByDefault(Invoke(&real, &T::slaveAdded));
+
+    ON_CALL(*this, slaveRemoved(_))
+      .WillByDefault(Invoke(&real, &T::slaveRemoved));
+
+    ON_CALL(*this, resourcesRequested(_, _))
+      .WillByDefault(Invoke(&real, &T::resourcesRequested));
+
+    ON_CALL(*this, resourcesUnused(_, _, _, _))
+      .WillByDefault(Invoke(&real, &T::resourcesUnused));
+
+    ON_CALL(*this, resourcesRecovered(_, _, _))
+      .WillByDefault(Invoke(&real, &T::resourcesRecovered));
+
+    ON_CALL(*this, offersRevived(_))
+      .WillByDefault(Invoke(&real, &T::offersRevived));
+
+    EXPECT_CALL(*this, taskAdded(_, _)).Times(testing::AnyNumber());
+    EXPECT_CALL(*this, taskRemoved(_, _)).Times(testing::AnyNumber());
+
+    EXPECT_CALL(*this, executorAdded(_, _, _)).Times(testing::AnyNumber());
+    EXPECT_CALL(*this, executorRemoved(_, _, _)).Times(testing::AnyNumber());
+  }
+  MOCK_METHOD1(initialize, void(const process::PID<master::Master>&));
+  MOCK_METHOD3(frameworkAdded, void(const FrameworkID&,
+                                    const FrameworkInfo&,
+                                    const Resources&));
+  MOCK_METHOD1(frameworkDeactivated, void(const FrameworkID&));
+  MOCK_METHOD1(frameworkRemoved, void(const FrameworkID&));
+  MOCK_METHOD3(slaveAdded, void(const SlaveID&,
+                                const SlaveInfo&,
+                                const hashmap<FrameworkID, Resources>&));
+  MOCK_METHOD1(slaveRemoved, void(const SlaveID&));
+  MOCK_METHOD1(updateWhitelist, void(const Option<hashset<std::string> >&));
   MOCK_METHOD2(resourcesRequested, void(const FrameworkID&,
                                         const std::vector<Request>&));
-  MOCK_METHOD3(resourcesUnused, void(const FrameworkID&,
+  MOCK_METHOD4(resourcesUnused, void(const FrameworkID&,
                                      const SlaveID&,
-                                     const ResourceHints&));
+                                     const ResourceHints&,
+				     const Option<Filters>& filters));
   MOCK_METHOD3(resourcesRecovered, void(const FrameworkID&,
                                         const SlaveID&,
                                         const ResourceHints&));
-  MOCK_METHOD1(offersRevived, void(master::Framework*));
-  MOCK_METHOD0(timerTick, void());
-
-  MOCK_METHOD1(taskAdded, void(Task*));
-  MOCK_METHOD1(taskRemoved, void(Task*));
+  MOCK_METHOD2(taskAdded, void(const FrameworkID&, const TaskInfo&));
+  MOCK_METHOD2(taskRemoved, void(const FrameworkID&, const TaskInfo&));
   MOCK_METHOD3(executorAdded, void(const FrameworkID&, const SlaveID&,
                                    const ExecutorInfo&));
   MOCK_METHOD3(executorRemoved, void(const FrameworkID&, const SlaveID&,
                                      const ExecutorInfo&));
   MOCK_METHOD1(gotUsage, void(const UsageMessage&));
-
-  MockAllocator()
-  {
-    EXPECT_CALL(*this, timerTick()).
-      WillRepeatedly(testing::Return());
-  }
+  MOCK_METHOD1(offersRevived, void(const FrameworkID&));
+  T real;
 };
+
+
+// The following actions make up for the fact that DoDefault
+// cannot be used inside a DoAll, for example:
+// EXPECT_CALL(allocator, frameworkAdded(_, _, _))
+//   .WillOnce(DoAll(InvokeFrameworkAdded(&allocator),
+//                   Trigger(&frameworkAddedTrigger)));
+ACTION_P(InvokeFrameworkAdded, allocator)
+{
+  allocator->real.frameworkAdded(arg0, arg1, arg2);
+}
+
+
+ACTION_P(InvokeFrameworkRemoved, allocator)
+{
+  allocator->real.frameworkRemoved(arg0);
+}
+
+
+ACTION_P(InvokeSlaveAdded, allocator)
+{
+  allocator->real.slaveAdded(arg0, arg1, arg2);
+}
+
+
+ACTION_P(InvokeResourcesUnused, allocator)
+{
+  allocator->real.resourcesUnused(arg0, arg1, arg2, arg3);
+}
 
 
 /**
@@ -287,6 +432,7 @@ ACTION_TEMPLATE(SaveArgField,
 struct trigger
 {
   trigger() : value(false) {}
+  operator bool () const { return value; }
   bool value;
 };
 
@@ -295,6 +441,24 @@ struct trigger
  * Definition of the Trigger action to be used with gmock.
  */
 ACTION_P(Trigger, trigger) { trigger->value = true; }
+
+
+/**
+ * Definition of an 'increment' action to be used with gmock.
+ */
+ACTION_P(Increment, variable)
+{
+  *variable = *variable + 1;
+}
+
+
+/**
+ * Definition of a 'decrement' action to be used with gmock.
+ */
+ACTION_P(Decrement, variable)
+{
+  *variable = *variable - 1;
+}
 
 
 /**
@@ -320,21 +484,21 @@ ACTION_P(SendStatusUpdateForId, state) {
 }
 
 /**
- * This macro can be used to wait until some trigger has
- * occured. Currently, a test will wait no longer than approxiamtely 2
+ * This macro can be used to wait until some expression evaluates to
+ * true. Currently, a test will wait no longer than approxiamtely 2
  * seconds (10 us * 200000). At some point we may add a mechanism to
  * specify how long to try and wait.
  */
-#define WAIT_UNTIL(trigger)                                             \
+#define WAIT_UNTIL(e)                                                   \
   do {                                                                  \
     int sleeps = 0;                                                     \
     do {                                                                \
       __sync_synchronize();                                             \
-      if ((trigger).value)                                              \
+      if (e)                                                            \
         break;                                                          \
       usleep(10);                                                       \
       if (sleeps++ >= 200000) {                                         \
-        FAIL() << "Waited too long for trigger!";                       \
+        FAIL() << "Waited too long for '" #e "'";                       \
         ::exit(-1); /* TODO(benh): Figure out how not to exit! */       \
         break;                                                          \
       }                                                                 \
@@ -361,7 +525,7 @@ public:
 
   virtual ~TestingIsolationModule() {}
 
-  virtual void initialize(const Configuration& conf,
+  virtual void initialize(const slave::Flags& flags,
                           bool local,
                           const process::PID<slave::Slave>& _slave)
   {
@@ -382,19 +546,19 @@ public:
 
       directories[executorInfo.executor_id()] = directory;
 
-      utils::os::setenv("MESOS_LOCAL", "1");
-      utils::os::setenv("MESOS_DIRECTORY", directory);
-      utils::os::setenv("MESOS_SLAVE_PID", slave);
-      utils::os::setenv("MESOS_FRAMEWORK_ID", frameworkId.value());
-      utils::os::setenv("MESOS_EXECUTOR_ID", executorInfo.executor_id().value());
+      os::setenv("MESOS_LOCAL", "1");
+      os::setenv("MESOS_DIRECTORY", directory);
+      os::setenv("MESOS_SLAVE_PID", slave);
+      os::setenv("MESOS_FRAMEWORK_ID", frameworkId.value());
+      os::setenv("MESOS_EXECUTOR_ID", executorInfo.executor_id().value());
 
       driver->start();
 
-      utils::os::unsetenv("MESOS_LOCAL");
-      utils::os::unsetenv("MESOS_DIRECTORY");
-      utils::os::unsetenv("MESOS_SLAVE_PID");
-      utils::os::unsetenv("MESOS_FRAMEWORK_ID");
-      utils::os::unsetenv("MESOS_EXECUTOR_ID");
+      os::unsetenv("MESOS_LOCAL");
+      os::unsetenv("MESOS_DIRECTORY");
+      os::unsetenv("MESOS_SLAVE_PID");
+      os::unsetenv("MESOS_FRAMEWORK_ID");
+      os::unsetenv("MESOS_EXECUTOR_ID");
     } else {
       FAIL() << "Cannot launch executor";
     }

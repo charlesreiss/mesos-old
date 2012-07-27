@@ -25,18 +25,21 @@
 
 #include <process/process.hpp>
 
-#include "configurator/configuration.hpp"
-
 #include "common/resources.hpp"
-#include "common/hashmap.hpp"
+#include "stout/hashmap.hpp"
 
+#include "slave/flags.hpp"
+#include "slave/statistics.hpp"
 
-namespace mesos { namespace internal { namespace slave {
+namespace mesos {
+namespace internal {
+namespace slave {
 
+// Forward declaration.
 class Slave;
 
 
-class IsolationModule : public process::Process<IsolationModule>
+class IsolationModule : virtual public process::Process<IsolationModule>
 {
 public:
   static IsolationModule* create(const std::string& type);
@@ -45,7 +48,7 @@ public:
   virtual ~IsolationModule() {}
 
   // Called during slave initialization.
-  virtual void initialize(const Configuration& conf,
+  virtual void initialize(const Flags& flags,
                           bool local,
                           const process::PID<Slave>& slave) = 0;
 
@@ -69,8 +72,17 @@ public:
 
   // Sample the resource usage for a given executor. Should asynchronously
   // callback the slave.
+  //
+  // TODO(Charles Reiss): Deprecate for Jie Yu's interface?
   virtual void sampleUsage(const FrameworkID& frameworkId,
                            const ExecutorID& executorId) {}
+
+  // Default implementation of resource statistics collector
+  virtual Option<ResourceStatistics> collectResourceStatistics(
+      const FrameworkID& frameworkId,
+      const ExecutorID& executorId) {
+    return Option<ResourceStatistics>::none();
+  }
 
   // Set priorities among frameworks for excess resources. Larger is more.
   virtual void setFrameworkPriorities(
@@ -78,6 +90,8 @@ public:
 
 };
 
-}}} // namespace mesos { namespace internal { namespace slave {
+} // namespace slave {
+} // namespace internal {
+} // namespace mesos {
 
 #endif // __ISOLATION_MODULE_HPP__

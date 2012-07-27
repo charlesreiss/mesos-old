@@ -23,14 +23,20 @@
 
 #include <process/process.hpp>
 
-#include "master.hpp"
+#include "flags/flags.hpp"
+
+#include "logging/flags.hpp"
+
+#include "master/flags.hpp"
+#include "master/master.hpp"
 
 namespace mesos {
 namespace internal {
 namespace master {
 namespace webui {
 
-void start(const process::PID<Master>& master, const Configuration& conf);
+void start(const process::PID<Master>& master,
+           const flags::Flags<logging::Flags, master::Flags>& flags);
 
 } // namespace webui {
 } // namespace master {
@@ -38,4 +44,4 @@ void start(const process::PID<Master>& master, const Configuration& conf);
 } // namespace mesos {
 
 #endif // MESOS_WEBUI
-#endif // __MASTER_WEBUI_HPP__ 
+#endif // __MASTER_WEBUI_HPP__

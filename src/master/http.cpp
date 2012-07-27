@@ -22,30 +22,38 @@
 #include <string>
 #include <vector>
 
+#include <stout/foreach.hpp>
+#include <stout/json.hpp>
+#include <stout/numify.hpp>
+#include <stout/os.hpp>
+#include <stout/result.hpp>
+#include <stout/strings.hpp>
+
 #include "common/build.hpp"
-#include "common/foreach.hpp"
-#include "common/json.hpp"
-#include "common/logging.hpp"
 #include "common/resources.hpp"
-#include "common/result.hpp"
-#include "common/strings.hpp"
 #include "common/type_utils.hpp"
-#include "common/utils.hpp"
+
+#include "logging/logging.hpp"
 
 #include "master/http.hpp"
 #include "master/master.hpp"
 
+namespace mesos {
+namespace internal {
+namespace master {
+
 using process::Future;
-using process::HttpResponse;
-using process::HttpRequest;
+
+using process::http::BadRequest;
+using process::http::InternalServerError;
+using process::http::NotFound;
+using process::http::OK;
+using process::http::Response;
+using process::http::Request;
 
 using std::map;
 using std::string;
 using std::vector;
-
-namespace mesos {
-namespace internal {
-namespace master {
 
 // TODO(benh): Consider moving the modeling code some place else so
 // that it can be shared between slave/http.cpp and master/http.cpp.
@@ -160,17 +168,17 @@ JSON::Object model(const Slave& slave)
 
 namespace http {
 
-Future<HttpResponse> vars(
+Future<Response> vars(
     const Master& master,
-    const HttpRequest& request)
+    const Request& request)
 {
   VLOG(1) << "HTTP request for '" << request.path << "'";
 
   // TODO(benh): Consider separating collecting the actual vars we
   // want to display from rendering them. Trying to just create a
-  // map<string, string> required a lot of calls to utils::stringify
-  // (or using an std::ostringstream) and didn't actually seem to be
-  // that much more clear than just rendering directly.
+  // map<string, string> required a lot of calls to stringify (or
+  // using an std::ostringstream) and didn't actually seem to be that
+  // much more clear than just rendering directly.
   std::ostringstream out;
 
   out <<
@@ -178,14 +186,11 @@ Future<HttpResponse> vars(
     "build_user " << build::USER << "\n" <<
     "build_flags " << build::FLAGS << "\n";
 
-  // Also add the configuration values.
-  foreachpair (const string& key, const string& value, master.conf.getMap()) {
-    out << key << " " << value << "\n";
-  }
+  // TODO(benh): Output flags.
 
-  HttpOKResponse response;
+  OK response;
   response.headers["Content-Type"] = "text/plain";
-  response.headers["Content-Length"] = utils::stringify(out.str().size());
+  response.headers["Content-Length"] = stringify(out.str().size());
   response.body = out.str().data();
   return response;
 }
@@ -193,9 +198,9 @@ Future<HttpResponse> vars(
 
 namespace json {
 
-Future<HttpResponse> stats(
+Future<Response> stats(
     const Master& master,
-    const HttpRequest& request)
+    const Request& request)
 {
   VLOG(1) << "HTTP request for '" << request.path << "'";
 
@@ -220,7 +225,7 @@ Future<HttpResponse> stats(
   Resources totalResources;
   Resources usedResources;
   Resources resourcesObservedUsed;
-  foreach (Slave* slave, master.getActiveSlaves()) {
+  foreachvalue (Slave* slave, master.slaves) {
     totalResources += slave->info.resources();
     usedResources += slave->resourcesInUse;
     resourcesObservedUsed += slave->resourcesObservedUsed;
@@ -249,17 +254,17 @@ Future<HttpResponse> stats(
 
   JSON::render(out, object);
 
-  HttpOKResponse response;
+  OK response;
   response.headers["Content-Type"] = "application/json";
-  response.headers["Content-Length"] = utils::stringify(out.str().size());
+  response.headers["Content-Length"] = stringify(out.str().size());
   response.body = out.str().data();
   return response;
 }
 
 
-Future<HttpResponse> state(
+Future<Response> state(
     const Master& master,
-    const HttpRequest& request)
+    const Request& request)
 {
   VLOG(1) << "HTTP request for '" << request.path << "'";
 
@@ -271,10 +276,8 @@ Future<HttpResponse> state(
   object.values["id"] = master.info.id();
   object.values["pid"] = string(master.self());
 
-  Option<string> directory = master.conf.get<string>("log_dir");
-
-  if (directory.isSome()) {
-    object.values["log_dir"] = directory.get();
+  if (master.flags.log_dir.isSome()) {
+    object.values["log_dir"] = master.flags.log_dir.get();
   }
 
   // Model all of the slaves.
@@ -312,17 +315,17 @@ Future<HttpResponse> state(
 
   JSON::render(out, object);
 
-  HttpOKResponse response;
+  OK response;
   response.headers["Content-Type"] = "application/json";
-  response.headers["Content-Length"] = utils::stringify(out.str().size());
+  response.headers["Content-Length"] = stringify(out.str().size());
   response.body = out.str().data();
   return response;
 }
 
 
-Future<HttpResponse> log(
+Future<Response> log(
     const Master& master,
-    const HttpRequest& request)
+    const Request& request)
 {
   VLOG(1) << "HTTP request for '" << request.path << "'";
 
@@ -334,42 +337,39 @@ Future<HttpResponse> log(
   string level = pairs.count("level") > 0 ? pairs["level"][0] : "INFO";
 
   if (pairs.count("offset") > 0 && pairs["offset"].size() > 0) {
-    Try<off_t> result = utils::numify<off_t>(pairs["offset"].back());
+    Try<off_t> result = numify<off_t>(pairs["offset"].back());
     if (result.isError()) {
-      LOG(WARNING) << "Failed to \"numify\" the 'offset' ("
-                   << pairs["offset"].back() << "): "
+      LOG(WARNING) << "Failed to \"numify\" the 'offset' value (\""
+                   << pairs["offset"].back() << "\"): "
                    << result.error();
-      return HttpInternalServerErrorResponse();
+      return BadRequest();
     }
     offset = result.get();
   }
 
-  if (pairs.count("length") > 0) {
-    CHECK(pairs["length"].size() > 0);
-    Try<ssize_t> result = utils::numify<ssize_t>(pairs["length"].back());
+  if (pairs.count("length") > 0 && pairs["length"].size() > 0) {
+    Try<ssize_t> result = numify<ssize_t>(pairs["length"].back());
     if (result.isError()) {
-      LOG(WARNING) << "Failed to \"numify\" the 'length' ("
-                   << pairs["length"].back() << "): "
+      LOG(WARNING) << "Failed to \"numify\" the 'length' value (\""
+                   << pairs["length"].back() << "\"): "
                    << result.error();
-      return HttpInternalServerErrorResponse();
+      return BadRequest();
     }
     length = result.get();
   }
 
-  Option<string> directory = master.conf.get<string>("log_dir");
-
-  if (directory.isNone()) {
-    return HttpNotFoundResponse();
+  if (master.flags.log_dir.isNone()) {
+    return NotFound();
   }
 
-  string path = directory.get() + "/mesos-master." + level;
+  string path = master.flags.log_dir.get() + "/mesos-master." + level;
 
-  Try<int> fd = utils::os::open(path, O_RDONLY);
+  Try<int> fd = os::open(path, O_RDONLY);
 
   if (fd.isError()) {
     LOG(WARNING) << "Failed to open log file at "
                  << path << ": " << fd.error();
-    return HttpInternalServerErrorResponse();
+    return InternalServerError();
   }
 
   off_t size = lseek(fd.get(), 0, SEEK_END);
@@ -377,7 +377,7 @@ Future<HttpResponse> log(
   if (size == -1) {
     PLOG(WARNING) << "Failed to seek in the log";
     close(fd.get());
-    return HttpInternalServerErrorResponse();
+    return InternalServerError();
   }
 
   if (offset == -1) {
@@ -395,7 +395,7 @@ Future<HttpResponse> log(
     if (lseek(fd.get(), offset, SEEK_SET) == -1) {
       PLOG(WARNING) << "Failed to seek in the log";
       close(fd.get());
-      return HttpInternalServerErrorResponse();
+      return InternalServerError();
     }
 
     // Read length bytes (or to EOF).
@@ -411,7 +411,7 @@ Future<HttpResponse> log(
       PLOG(WARNING) << "Failed to read from the log";
       delete[] temp;
       close(fd.get());
-      return HttpInternalServerErrorResponse();
+      return InternalServerError();
     } else {
       object.values["offset"] = offset;
       object.values["length"] = length;
@@ -429,9 +429,9 @@ Future<HttpResponse> log(
 
   JSON::render(out, object);
 
-  HttpOKResponse response;
+  OK response;
   response.headers["Content-Type"] = "application/json";
-  response.headers["Content-Length"] = utils::stringify(out.str().size());
+  response.headers["Content-Length"] = stringify(out.str().size());
   response.body = out.str().data();
   return response;
 }

@@ -17,13 +17,13 @@
  */
 
 #include "allocator_factory.hpp"
-#include "simple_allocator.hpp"
+#include "dominant_share_allocator.hpp"
 #include "norequest/allocator.hpp"
 
 using namespace mesos::internal::master;
 
-DEFINE_FACTORY(Allocator, Master *)
+DEFINE_FACTORY(Allocator, const Configuration&)
 {
-  registerClass<SimpleAllocator>("simple");
+  registerClass<DominantShareAllocator>("drf");
   registerClass<mesos::internal::norequest::NoRequestAllocator>("norequest");
 }

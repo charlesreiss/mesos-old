@@ -27,10 +27,11 @@
 
 #include <process/future.hpp>
 
-#include "common/logging.hpp"
-#include "common/option.hpp"
-#include "common/time.hpp"
-#include "common/uuid.hpp"
+#include <stout/option.hpp>
+#include <stout/time.hpp>
+#include <stout/uuid.hpp>
+
+#include "logging/logging.hpp"
 
 #include "messages/state.hpp"
 
@@ -85,7 +86,7 @@ public:
       const google::protobuf::Message* message = &t; // Check T is a protobuf.
     }
 
-    Entry entry;
+    Entry entry; // Not const so Variable is copyable.
     T t;
   };
 

@@ -20,30 +20,34 @@
 
 #include <process/process.hpp>
 
+#include <stout/stringify.hpp>
+
+#include "flags/flags.hpp"
+
+#include "logging/flags.hpp"
+
+#include "slave/flags.hpp"
 #include "slave/webui.hpp"
+#include "slave/slave.hpp"
 
-#include "common/option.hpp"
-#include "common/try.hpp"
-#include "common/utils.hpp"
-#include "common/webui_utils.hpp"
-
-#include "configurator/configuration.hpp"
+#include "webui/webui.hpp"
 
 namespace mesos {
 namespace internal {
 namespace slave {
 namespace webui {
 
-void start(const process::PID<Slave>& slave, const Configuration& conf)
+void start(const process::PID<Slave>& slave,
+           const flags::Flags<logging::Flags, slave::Flags>& flags)
 {
   std::vector<std::string> args(5);
   args[0] = "--slave_id=" + slave.id;
-  args[1] = "--slave_port=" + utils::stringify(slave.port);
-  args[2] = "--webui_port=" + conf.get<std::string>("webui_port", "8081");
-  args[3] = "--log_dir=" + conf.get<std::string>("log_dir", FLAGS_log_dir);
-  args[4] = "--work_dir=" + conf.get<std::string>("work_dir", "/tmp/mesos");
+  args[1] = "--slave_port=" + stringify(slave.port);
+  args[2] = "--webui_port=" + stringify(flags.webui_port);
+  args[3] = "--log_dir=" + (flags.log_dir.isSome() ? flags.log_dir.get() : "");
+  args[4] = "--work_dir=" + flags.work_dir;
 
-  utils::webui::start(conf, "slave/webui.py", args);
+  mesos::internal::webui::start(flags.webui_dir, "slave/webui.py", args);
 }
 
 } // namespace webui {

@@ -24,16 +24,18 @@
 #include <process/dispatch.hpp>
 #include <process/future.hpp>
 
-#include "common/time.hpp"
+#include <stout/os.hpp>
+#include <stout/time.hpp>
 
 #include "detector/detector.hpp"
 
 #include "local/local.hpp"
 
 #include "master/master.hpp"
-#include "master/simple_allocator.hpp"
+#include "master/dominant_share_allocator.hpp"
 
 #include "slave/constants.hpp"
+#include "slave/flags.hpp"
 #include "slave/slave.hpp"
 
 #include "tests/utils.hpp"
@@ -43,7 +45,7 @@ using namespace mesos::internal;
 using namespace mesos::internal::test;
 
 using mesos::internal::master::Master;
-using mesos::internal::master::SimpleAllocator;
+using mesos::internal::master::DominantShareAllocator;
 
 using mesos::internal::slave::Slave;
 
@@ -67,8 +69,7 @@ class SlaveTest : public ::testing::Test
 protected:
   static void SetUpTestCase()
   {
-    conf.set("work_dir", "/tmp/mesos-tests");
-    workDir = conf["work_dir"];
+    flags.work_dir = "/tmp/mesos-tests";
   }
 
   virtual void SetUp()
@@ -80,7 +81,7 @@ protected:
     EXPECT_MESSAGE(filter, _, _, _)
       .WillRepeatedly(Return(false));
 
-    a = new SimpleAllocator();
+    a = new DominantShareAllocator();
     m = new Master(a);
     master = process::spawn(m);
 
@@ -109,14 +110,14 @@ protected:
 
     process::filter(NULL);
 
-    utils::os::rmdir(workDir);
+    os::rmdir(flags.work_dir);
   }
 
   void startSlave()
   {
     isolationModule = new TestingIsolationModule(execs);
 
-    s = new Slave(conf, true, isolationModule);
+    s = new Slave(flags, true, isolationModule);
     slave = process::spawn(s);
 
     detector = new BasicMasterDetector(master, slave, true);
@@ -163,7 +164,7 @@ protected:
     launchTask(DEFAULT_EXECUTOR_INFO);
   }
 
-  SimpleAllocator* a;
+  DominantShareAllocator* a;
   Master* m;
   TestingIsolationModule* isolationModule;
   Slave* s;
@@ -179,14 +180,12 @@ protected:
   MockFilter filter;
   PID<Master> master;
   PID<Slave> slave;
-  static Configuration conf;
-  static string workDir;
+  static slave::Flags flags;
 };
 
 
 // Initialize static members here.
-Configuration SlaveTest::conf;
-string SlaveTest::workDir;
+slave::Flags SlaveTest::flags;
 
 
 TEST_F(SlaveTest, GarbageCollectSlaveDirs)
@@ -237,8 +236,8 @@ TEST_F(SlaveTest, GarbageCollectSlaveDirs)
   SlaveID slaveId = registeredMsg.slave_id();
 
   // Make sure directory exists.
-  const std::string& slaveDir = workDir + "/slaves/" + slaveId.value();
-  ASSERT_TRUE(utils::os::exists(slaveDir));
+  const std::string& slaveDir = flags.work_dir + "/slaves/" + slaveId.value();
+  ASSERT_TRUE(os::exists(slaveDir));
 
   Clock::pause();
 
@@ -267,8 +266,9 @@ TEST_F(SlaveTest, GarbageCollectSlaveDirs)
 
   // By this time the old slave directory should be cleaned up and
   // the new directory should exist.
-  ASSERT_FALSE(utils::os::exists(slaveDir));
-  ASSERT_TRUE(utils::os::exists(workDir + "/slaves/" + slaveId2.value()));
+  ASSERT_FALSE(os::exists(slaveDir));
+  ASSERT_TRUE(os::exists(flags.work_dir + "/slaves/" +
+                                slaveId2.value()));
 
   Clock::resume();
 
@@ -310,7 +310,7 @@ TEST_F(SlaveTest, GarbageCollectExecutorDir)
   const std::string executorDir =
       isolationModule->directories[DEFAULT_EXECUTOR_ID];
 
-  ASSERT_TRUE(utils::os::exists(executorDir));
+  ASSERT_TRUE(os::exists(executorDir));
 
   statusUpdateCall.value = false;
   resourceOffersCall.value = false;
@@ -343,7 +343,7 @@ TEST_F(SlaveTest, GarbageCollectExecutorDir)
   WAIT_UNTIL(statusUpdateCall); // TASK_LOST
 
   // First executor's directory should be gced by now.
-  ASSERT_FALSE(utils::os::exists(executorDir));
+  ASSERT_FALSE(os::exists(executorDir));
 
   Clock::resume();
 

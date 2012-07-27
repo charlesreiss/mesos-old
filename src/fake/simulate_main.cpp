@@ -13,7 +13,7 @@
 
 #include "process/process.hpp"
 
-#include "common/logging.hpp"
+#include "logging/logging.hpp"
 #include "configurator/configurator.hpp"
 #include "fake/scenario.hpp"
 #include "fake/fake_task_simple.hpp"
@@ -196,8 +196,6 @@ int main(int argc, char **argv)
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
   Configurator configurator;
-  logging::registerOptions(&configurator);
-  Master::registerOptions(&configurator);
   Scenario::registerOptions(&configurator);
 
   configurator.addOption<std::string>("json_file", "JSON file");
@@ -223,8 +221,11 @@ int main(int argc, char **argv)
     return EXIT_FAILURE;
   }
 
+  logging::Flags loggingFlags;
+  loggingFlags.load(conf.getMap());
+
   process::initialize();
-  logging::initialize(argv[0], conf);
+  logging::initialize(argv[0], loggingFlags);
 
   if (conf.get<std::string>("json_file", "") != "") {
     runFromFile(conf, conf.get<std::string>("json_file", ""));

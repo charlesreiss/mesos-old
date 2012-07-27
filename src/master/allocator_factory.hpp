@@ -21,11 +21,12 @@
 
 #include "allocator.hpp"
 
+#include "configurator/configuration.hpp"
 #include "common/factory.hpp"
 
 namespace mesos { namespace internal { namespace master {
 
-DECLARE_FACTORY(Allocator, Master *);
+DECLARE_FACTORY(Allocator, const Configuration&)
 
 }}}
 

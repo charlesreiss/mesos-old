@@ -24,8 +24,7 @@
 #include <sstream>
 #include <vector>
 
-#include "common/utils.hpp"
-#include "common/uuid.hpp"
+#include <stout/uuid.hpp>
 
 #include "jvm/jvm.hpp"
 
@@ -169,7 +168,7 @@ void ZooKeeperServer::expireSession(int64_t sessionId)
 std::string ZooKeeperServer::connectString() const
 {
   checkStarted();
-  return "127.0.0.1:" + utils::stringify(port);
+  return "127.0.0.1:" + stringify(port);
 }
 
 

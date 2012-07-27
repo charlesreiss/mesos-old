@@ -17,19 +17,25 @@
  */
 
 #include "boost/scoped_ptr.hpp"
+#include <stout/os.hpp>
+#include <stout/stringify.hpp>
+#include <stout/try.hpp>
 
 #include "common/build.hpp"
-#include "common/logging.hpp"
-#include "common/try.hpp"
-#include "common/utils.hpp"
 
+#include "configurator/configuration.hpp"
 #include "configurator/configurator.hpp"
 
 #include "detector/detector.hpp"
 
+#include "flags/flags.hpp"
+
+#include "logging/flags.hpp"
+#include "logging/logging.hpp"
+
 #include "master/allocator.hpp"
 #include "master/allocator_factory.hpp"
-#include "master/simple_allocator.hpp"
+#include "master/dominant_share_allocator.hpp"
 #include "master/master.hpp"
 #include "master/webui.hpp"
 
@@ -49,70 +55,71 @@ using std::string;
 
 void usage(const char* argv0, const Configurator& configurator)
 {
-  cerr << "Usage: " << utils::os::basename(argv0) << " [...]" << endl
+  cerr << "Usage: " << os::basename(argv0) << " [...]" << endl
        << endl
        << "Supported options:" << endl
        << configurator.getUsage();
 }
 
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
-  Configurator configurator;
+  flags::Flags<logging::Flags, master::Flags> flags;
 
-  logging::registerOptions(&configurator);
+  // The following flags are executable specific (e.g., since we only
+  // have one instance of libprocess per execution, we only want to
+  // advertise the port and ip option once, here).
+  short port;
+  flags.add(&port, "port", "Port to listen on", 5050);
 
-  Master::registerOptions(&configurator);
+  Option<string> ip;
+  flags.add(&ip, "ip", "IP address to listen on");
 
-  // The following options are executable specific (e.g., since we
-  // only have one instance of libprocess per execution, we only want
-  // to advertise the port and ip option once, here).
-  configurator.addOption<int>("port", 'p', "Port to listen on", 5050);
-  configurator.addOption<string>("ip", "IP address to listen on");
-#ifdef MESOS_WEBUI
-  configurator.addOption<int>("webui_port", "Web UI port", 8080);
-#endif
-  configurator.addOption<std::string>(
-      "usage_log_file",
-      "file to write (binary) usage log to",
-      "");
-  configurator.addOption<string>(
-      "zk",
-      "ZooKeeper URL (used for leader election amongst masters)\n"
-      "May be one of:\n"
-      "  zk://host1:port1,host2:port2,.../path\n"
-      "  zk://username:password@host1:port1,host2:port2,.../path\n"
-      "  file://path/to/file (where file contains one of the above)");
+  string zk;
+  flags.add(&zk,
+            "zk",
+            "ZooKeeper URL (used for leader election amongst masters)\n"
+            "May be one of:\n"
+            "  zk://host1:port1,host2:port2,.../path\n"
+            "  zk://username:password@host1:port1,host2:port2,.../path\n"
+            "  file://path/to/file (where file contains one of the above)",
+            "");
 
-  if (argc == 2 && string("--help") == argv[1]) {
+  bool help;
+  flags.add(&help,
+            "help",
+            "Prints this help message",
+            false);
+
+  Configurator configurator(flags);
+  Configuration configuration;
+  try {
+    configuration = configurator.load(argc, argv);
+  } catch (ConfigurationException& e) {
+    cerr << "Configuration error: " << e.what() << endl;
     usage(argv[0], configurator);
     exit(1);
   }
 
-  Configuration conf;
-  try {
-    conf = configurator.load(argc, argv);
-  } catch (ConfigurationException& e) {
-    cerr << "Configuration error: " << e.what() << endl;
+  flags.load(configuration.getMap());
+
+  if (help) {
+    usage(argv[0], configurator);
     exit(1);
   }
 
-  if (conf.contains("port")) {
-    utils::os::setenv("LIBPROCESS_PORT", conf["port"]);
-  }
-
-  if (conf.contains("ip")) {
-    utils::os::setenv("LIBPROCESS_IP", conf["ip"]);
-  }
-
   // Initialize libprocess.
+  os::setenv("LIBPROCESS_PORT", stringify(port));
+
+  if (ip.isSome()) {
+    os::setenv("LIBPROCESS_IP", ip.get());
+  }
+
   process::initialize("master");
 
-  logging::initialize(argv[0], conf);
-
-  string zk = conf.get<std::string>("zk", "");
+  logging::initialize(argv[0], flags);
 
   LOG(INFO) << "Build: " << build::DATE << " by " << build::USER;
   LOG(INFO) << "Starting Mesos master";
@@ -121,21 +128,19 @@ int main(int argc, char **argv)
     fatalerror("Could not chdir into %s", dirname(argv[0]));
   }
 
-  string allocatorName = conf.get<std::string>("allocator", "simple");
-  Allocator* allocator = AllocatorFactory::instantiate(allocatorName, NULL);
+  Allocator* allocator = AllocatorFactory::instantiate(flags.allocator, configuration);
+  CHECK(allocator);
 
-  Master* master = new Master(allocator, conf);
+  Master* master = new Master(allocator, flags);
   process::spawn(master);
 
-  bool quiet = conf.get<bool>("quiet", false);
-
   Try<MasterDetector*> detector =
-    MasterDetector::create(zk, master->self(), true, quiet);
+    MasterDetector::create(zk, master->self(), true, flags.quiet);
 
   CHECK(detector.isSome())
     << "Failed to create a master detector: " << detector.error();
 
-  string usageLog = conf.get<std::string>("usage_log_file", "");
+  string usageLog = flags.usage_log_file;
   boost::scoped_ptr<UsageRecorder> usageRecorder;
   if (usageLog != "") {
     UsageLogWriter *logWriter = new BinaryFileUsageLogWriter(usageLog);
@@ -144,7 +149,7 @@ int main(int argc, char **argv)
   }
 
 #ifdef MESOS_WEBUI
-  webui::start(master->self(), conf);
+  webui::start(master->self(), flags);
 #endif
 
   process::wait(master->self());

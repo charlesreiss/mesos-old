@@ -33,7 +33,7 @@ Scenario::Scenario(const Configuration& conf_)
 void Scenario::spawnMaster()
 {
   spawnMaster(mesos::internal::master::AllocatorFactory::instantiate(
-        conf.get<std::string>("allocator", "simple"), 0));
+        conf.get<std::string>("allocator", "drf"), conf));
 }
 
 void Scenario::spawnMaster(mesos::internal::master::Allocator* allocator_)
@@ -49,7 +49,6 @@ void Scenario::spawnSlave(const Resources& resources)
 {
   VLOG(1) << "start slave with resources=" << resources;
   CHECK(masterPid);
-  FakeIsolationModule* module = new FakeIsolationModule(tracker);
   Configuration confForSlave = conf;
   {
     std::ostringstream ost;
@@ -58,7 +57,10 @@ void Scenario::spawnSlave(const Resources& resources)
     }
     confForSlave.set("resources", ost.str());
   }
-  Slave* slave = new Slave("", resources, confForSlave, true, module);
+  FakeIsolationModule* module = new FakeIsolationModule(conf, tracker);
+  slave::Flags slaveFlags;
+  slaveFlags.load(conf.getMap());
+  Slave* slave = new Slave("", resources, slaveFlags, true, module);
   slaves.push_back(slave);
   slavePids.push_back(process::spawn(slave));
   slaveMasterDetectors.push_back(
@@ -118,8 +120,6 @@ void Scenario::finishSetup()
   // Make sure any timer expiration actually happens.
   process::Clock::advance(0.0);
   process::Clock::settle();
-  CHECK_EQ(master->getActiveFrameworks().size(), schedulers.size());
-  CHECK_EQ(master->getActiveSlaves().size(), slaves.size());
 }
 
 void Scenario::runFor(double seconds)
@@ -128,11 +128,14 @@ void Scenario::runFor(double seconds)
   while (seconds > 0.0) {
     process::Clock::advance(std::min(interval, seconds));
     process::Clock::settle();
+#if 0
     sanityCheck();
+#endif
     seconds -= interval;
   }
 }
 
+#if 0
 void Scenario::sanityCheck()
 {
   allocator->sanityCheck();
@@ -161,6 +164,7 @@ void Scenario::sanityCheck()
     }
   }
 }
+#endif
 
 void Scenario::stop()
 {

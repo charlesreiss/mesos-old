@@ -20,17 +20,21 @@
 #include <sstream>
 #include <vector>
 
+#include <stout/fatal.hpp>
+#include <stout/foreach.hpp>
+
 #include "local.hpp"
 
-#include "common/fatal.hpp"
-#include "common/foreach.hpp"
-
+#include "configurator/configuration.hpp"
 #include "configurator/configurator.hpp"
 
 #include "detector/detector.hpp"
 
+#include "logging/flags.hpp"
+#include "logging/logging.hpp"
+
+#include "master/dominant_share_allocator.hpp"
 #include "master/master.hpp"
-#include "master/simple_allocator.hpp"
 
 #include "slave/process_based_isolation_module.hpp"
 #include "slave/slave.hpp"
@@ -38,8 +42,8 @@
 using namespace mesos::internal;
 
 using mesos::internal::master::Allocator;
+using mesos::internal::master::DominantShareAllocator;
 using mesos::internal::master::Master;
-using mesos::internal::master::SimpleAllocator;
 
 using mesos::internal::slave::Slave;
 using mesos::internal::slave::IsolationModule;
@@ -54,24 +58,14 @@ using std::stringstream;
 using std::vector;
 
 
-namespace mesos { namespace internal { namespace local {
+namespace mesos {
+namespace internal {
+namespace local {
 
 static Allocator* allocator = NULL;
 static Master* master = NULL;
 static map<IsolationModule*, Slave*> slaves;
 static MasterDetector* detector = NULL;
-
-
-void registerOptions(Configurator* configurator)
-{
-  Master::registerOptions(configurator);
-  Slave::registerOptions(configurator);
-
-  configurator->addOption<int>(
-      "num_slaves",
-      "Number of slaves to create for local cluster",
-      1);
-}
 
 
 PID<Master> launch(int numSlaves,
@@ -80,50 +74,55 @@ PID<Master> launch(int numSlaves,
                    bool quiet,
                    Allocator* _allocator)
 {
-  Configuration conf;
-  conf.set("slaves", "*");
-  conf.set("num_slaves", numSlaves);
-  conf.set("quiet", quiet);
+  Configuration configuration;
+  configuration.set("slaves", "*");
+  configuration.set("num_slaves", numSlaves);
+  configuration.set("quiet", quiet);
 
   stringstream out;
   out << "cpus:" << cpus << ";" << "mem:" << mem;
-  conf.set("resources", out.str());
+  configuration.set("resources", out.str());
 
-  return launch(conf, _allocator);
+  return launch(configuration, _allocator);
 }
 
 
-PID<Master> launch(const Configuration& conf, Allocator* _allocator)
+PID<Master> launch(const Configuration& configuration, Allocator* _allocator)
 {
-  int numSlaves = conf.get<int>("num_slaves", 1);
-  bool quiet = conf.get<bool>("quiet", false);
+  int numSlaves = configuration.get<int>("num_slaves", 1);
+  bool quiet = configuration.get<bool>("quiet", false);
 
   if (master != NULL) {
-    fatal("can only launch one local cluster at a time (for now)");
+    LOG(FATAL) << "Can only launch one local cluster at a time (for now)";
   }
 
   if (_allocator == NULL) {
     // Create default allocator, save it for deleting later.
-    _allocator = allocator = new SimpleAllocator();
+    _allocator = allocator = new DominantShareAllocator();
   } else {
     // TODO(benh): Figure out the behavior of allocator pointer and remove the
     // else block.
     allocator = NULL;
   }
 
-  master = new Master(_allocator, conf);
+  {
+    flags::Flags<logging::Flags, master::Flags> flags;
+    flags.load(configuration.getMap());
+    master = new Master(_allocator, flags);
+  }
 
   PID<Master> pid = process::spawn(master);
 
   vector<UPID> pids;
 
-  // TODO(benh): Launching more than one slave is actually not kosher
-  // since each slave tries to take the "slave" id.
+  slave::Flags flags;
+  flags.load(configuration.getMap());
+
   for (int i = 0; i < numSlaves; i++) {
     // TODO(benh): Create a local isolation module?
-    ProcessBasedIsolationModule *isolationModule =
+    ProcessBasedIsolationModule* isolationModule =
       new ProcessBasedIsolationModule();
-    Slave* slave = new Slave(conf, true, isolationModule);
+    Slave* slave = new Slave(flags, true, isolationModule);
     slaves[isolationModule] = slave;
     pids.push_back(process::spawn(slave));
   }
@@ -163,4 +162,6 @@ void shutdown()
   }
 }
 
-}}} // namespace mesos { namespace internal { namespace local {
+} // namespace local {
+} // namespace internal {
+} // namespace mesos {
