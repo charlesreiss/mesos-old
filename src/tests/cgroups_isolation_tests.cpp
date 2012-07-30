@@ -22,3 +22,4 @@
 
 // Run the balloon framework under cgroups isolation.
 TEST_EXTERNAL(CgroupsIsolation, ROOT_CGROUPS_BalloonFramework)
+TEST_EXTERNAL(CgroupsIsolation, ROOT_CGROUPS_BalloonFrameworkPriority)

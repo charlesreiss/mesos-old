@@ -38,6 +38,11 @@ namespace mesos {
 namespace internal {
 namespace slave {
 
+enum CgroupOOMPolicy {
+  OOM_KILL,
+  OOM_KILL_PRIORITY
+};
+
 class CgroupsIsolationModule
   : public IsolationModule,
     public ProcessExitedListener,
@@ -247,6 +252,7 @@ private:
   hashmap<FrameworkID, hashmap<ExecutorID, CgroupInfo*> > infos;
 
   process::Future<uint64_t> outerOomNotifier;
+  CgroupOOMPolicy oomPolicy;
 };
 
 

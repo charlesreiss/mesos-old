@@ -36,9 +36,11 @@ class BalloonScheduler : public Scheduler
 {
 public:
   BalloonScheduler(const ExecutorInfo& _executor,
-                   const int32_t _balloonSize)
+                   const int32_t _balloonSize,
+                   const int32_t _lowPriorityBalloonSize)
     : executor(_executor),
       balloonSize(_balloonSize),
+      lowPriorityBalloonSize(_lowPriorityBalloonSize),
       tasksLaunched(0) {}
 
   virtual ~BalloonScheduler() {}
@@ -81,7 +83,8 @@ public:
         task.mutable_task_id()->set_value("1");
         task.mutable_slave_id()->MergeFrom(offer.slave_id());
         task.mutable_executor()->MergeFrom(executor);
-        task.set_data(boost::lexical_cast<std::string>(balloonSize));
+        task.set_data(boost::lexical_cast<std::string>(balloonSize)
+            + " " + boost::lexical_cast<std::string>(lowPriorityBalloonSize));
 
         // Use up all the memory from the offer. 64MB for the executor itself.
         Resource* resource;
@@ -158,15 +161,16 @@ private:
 
   const ExecutorInfo executor;
   int32_t balloonSize;
+  int32_t lowPriorityBalloonSize;
   int tasksLaunched;
 };
 
 
 int main(int argc, char** argv)
 {
-  if (argc != 3) {
+  if (argc != 3 && argc != 4) {
     std::cerr << "Usage: " << argv[0]
-              << " <master> <balloon size in MB>" << std::endl;
+              << " <master> <balloon size in MB> <high-priority balloon size>" << std::endl;
     return -1;
   }
 
@@ -187,7 +191,8 @@ int main(int argc, char** argv)
   mem->set_type(Value::SCALAR);
   mem->mutable_scalar()->set_value(64); // Executor takes 64MB.
 
-  BalloonScheduler scheduler(executor, atoi(argv[2]));
+  BalloonScheduler scheduler(executor, atoi(argv[2]),
+      argc > 3 ? atoi(argv[3]) : 0);
 
   FrameworkInfo framework;
   framework.set_user(""); // Have Mesos fill in the current user.

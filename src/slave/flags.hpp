@@ -154,6 +154,11 @@ public:
         "cgroup_hierarchy",
         "Root of cgroup mounts",
         "/cgroup");
+
+    add(&Flags::cgroup_oom_policy,
+        "cgroup_oom_policy",
+        "OOM kill policy for cgroups isolation module (kill, kill-priority)",
+        "kill");
   }
 
   Option<std::string> resources;
@@ -182,6 +187,8 @@ public:
   bool cgroup_enforce_memory_limits;
   bool cgroup_enforce_cpu_limits;
   std::string cgroup_hierarchy;
+
+  std::string cgroup_oom_policy;
 };
 
 } // namespace mesos {

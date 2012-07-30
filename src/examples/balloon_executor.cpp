@@ -19,6 +19,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
 
 #include <iostream>
 #include <string>
@@ -75,11 +77,30 @@ public:
 
     driver->sendStatusUpdate(status);
 
-    // Get the balloon size.
-    int balloonSize = boost::lexical_cast<int>(task.data());
+    std::istringstream istr(task.data());
+    int balloonSize = 0, childBalloonSize = 0;
+    istr >> balloonSize >> childBalloonSize;
+    if (istr) {
+      std::cerr << "Could not parse " << task.data();
+    }
+
+    pid_t child = 0;
+
+    if (childBalloonSize > 0) {
+      child = ::fork();
+      if (child == -1) {
+        ::setpriority(PRIO_PROCESS, getpid(), 10);
+        balloon(childBalloonSize);
+        ::_exit(0);
+      }
+    }
 
     // Simulate a memory leak situation.
     balloon(balloonSize);
+
+    if (child) {
+      waitpid(child, NULL, 0);
+    }
 
     std::cout << "Finishing task " << task.task_id().value() << std::endl;
 

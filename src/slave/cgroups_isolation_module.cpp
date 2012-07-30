@@ -34,6 +34,7 @@
 #include "common/units.hpp"
 
 #include "linux/cgroups.hpp"
+#include "linux/proc.hpp"
 
 #include "slave/cgroups_isolation_module.hpp"
 
@@ -99,6 +100,14 @@ void CgroupsIsolationModule::initialize(
   flags = _flags;
   local = _local;
   slave = _slave;
+
+  if (flags.cgroup_oom_policy == "kill") {
+    oomPolicy = OOM_KILL;
+  } else if (flags.cgroup_oom_policy == "kill-priority") {
+    oomPolicy = OOM_KILL_PRIORITY;
+  } else {
+    LOG(FATAL) << "Bad OOM policy " << flags.cgroup_oom_policy;
+  }
 
   // Check that we are root.
   if (os::user() != "root") {
@@ -620,9 +629,77 @@ void CgroupsIsolationModule::oom(
   CHECK(info != NULL && !info->killed)
     << "OOM detected for an unknown/killed executor";
 
-  // TODO(jieyu): Have a mechanism to use a different policy (e.g. freeze the
-  // executor) when OOM happens.
-  killExecutor(frameworkId, executorId);
+  switch(oomPolicy) {
+  case OOM_KILL:
+    killExecutor(frameworkId, executorId);
+    break;
+  case OOM_KILL_PRIORITY:
+    {
+      // TODO(Charles): Make this asynchronous, move to linux/cgroups.cpp
+      {
+        Future<std::string> freezerState =
+          cgroups::freezeCgroup(hierarchy(), cgroup(frameworkId, executorId));
+        freezerState.await();
+        if (freezerState.isFailed()) {
+          LOG(ERROR) << "Freezing for OOM on " << frameworkId
+            << ", " << executorId << ": " << freezerState.failure();
+        }
+      }
+      Try<std::set<pid_t> > tasks = cgroups::getTasks(hierarchy(),
+          cgroup(frameworkId, executorId));
+      if (tasks.isError()) {
+        killExecutor(frameworkId, executorId);
+      } else {
+        int minNice = 20;
+        std::set<pid_t> atMinNice;
+        foreach (pid_t pid, tasks.get()) {
+          Try<proc::ProcessStatistics> process = proc::stat(pid);
+          if (process.isError()) {
+            LOG(ERROR) << "Couldn't get statistics for " << pid;
+            if (atMinNice.size() == 0) {
+              // Make sure we kill something.
+              atMinNice.insert(pid);
+            }
+            continue;
+          }
+          int nice = process.get().nice;
+          if (nice < minNice) {
+            minNice = nice;
+            atMinNice.clear();
+          }
+          if (nice == minNice) {
+            atMinNice.insert(pid);
+          }
+        }
+        LOG(INFO) << "OOM killing " << atMinNice.size() << " processes of "
+                  << tasks.get().size() << " processes in executor "
+                  << executorId << " of framework " << frameworkId;
+        foreach (pid_t pid, tasks.get()) {
+          if (::kill(pid, SIGKILL) == -1) {
+            LOG(ERROR) << "OOM-killing " << pid << ": " << strerror(errno);
+          }
+        }
+      }
+      // TODO(Charles): Move elsewhere?
+      info->oomNotifier = cgroups::listenEvent(hierarchy(),
+          cgroup(frameworkId, executorId), "memory.oom_control");
+      info->oomNotifier.onAny(
+          defer(PID<CgroupsIsolationModule>(this),
+                &CgroupsIsolationModule::oomWaited,
+                frameworkId,
+                executorId,
+                info->oomNotifier));
+      {
+        Future<std::string> freezerState =
+          cgroups::thawCgroup(hierarchy(), cgroup(frameworkId, executorId));
+        freezerState.await();
+        if (freezerState.isFailed()) {
+          LOG(ERROR) << "Thawing for OOM on " << frameworkId
+            << ", " << executorId << ": " << freezerState.failure();
+        }
+      }
+    }
+  }
 }
 
 
