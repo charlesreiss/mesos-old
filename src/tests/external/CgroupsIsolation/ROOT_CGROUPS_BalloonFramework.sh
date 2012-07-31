@@ -24,7 +24,7 @@ fi
 
 # Launch slave
 $MESOS_BUILD_DIR/src/mesos-slave \
-    --master=localhost:5432 \
+    --master=master@localhost:5432 \
     --isolation=cgroups \
     --resources="cpus:1;mem:96" \
     > slave.log 2>&1 &
@@ -43,7 +43,7 @@ fi
 
 # Launch balloon framework
 echo "Running balloon framework"
-$MESOS_BUILD_DIR/src/balloon-framework localhost:5432 \
+$MESOS_BUILD_DIR/src/balloon-framework master@localhost:5432 \
   1024 > balloon.log 2>&1
 EXIT_CODE=$?
 echo "Balloon framework exit code: $?"
