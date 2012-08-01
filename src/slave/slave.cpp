@@ -1205,6 +1205,10 @@ void Slave::gotStatistics(
       if (executor) {
         isRunning = true;
         message.mutable_expected_resources()->MergeFrom(executor->resources);
+        mesos::Resource* tasks = message.add_pseudo_resources();
+        tasks->mutable_scalar()->set_value(launchedTasks.size() * 1.0);
+        tasks->set_type(Value::SCALAR);
+        tasks->set_name("tasks")
       }
     }
     message.set_still_running(isRunning);
