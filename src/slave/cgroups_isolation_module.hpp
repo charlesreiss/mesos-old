@@ -250,6 +250,9 @@ private:
   bool initialized;
   Reaper* reaper;
   hashmap<FrameworkID, hashmap<ExecutorID, CgroupInfo*> > infos;
+  // XXX FIXME Hack
+  hashmap<FrameworkID, hashset<ExecutorID> > recentKills;
+  hashmap<FrameworkID, hashset<ExecutorID> > recentOoms;
 
   process::Future<uint64_t> outerOomNotifier;
   CgroupOOMPolicy oomPolicy;

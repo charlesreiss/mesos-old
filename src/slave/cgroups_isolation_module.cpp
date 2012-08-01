@@ -311,6 +311,8 @@ void CgroupsIsolationModule::killExecutor(
   // We do not unregister the cgroup info here, instead, we ask the process
   // exit handler to unregister the cgroup info.
   info->killed = true;
+
+  recentKills[frameworkId].insert(executorId);
 }
 
 
@@ -393,6 +395,18 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId)
 {
+  ResourceStatistics stat;
+  if (recentKills.count(frameworkId) &&
+      recentKills[frameworkId].count(executorId)) {
+    stat.miscAbsolute["killed"] += 1.0;
+    recentKills[frameworkId].erase(executorId);
+  }
+  if (recentOoms.count(frameworkId) &&
+      recentOoms[frameworkId].count(executorId)) {
+    stat.miscAbsolute["oom"] += 1.0;
+    recentOoms[frameworkId].erase(executorId);
+  }
+
   LOG(INFO) << "Gathering statistics for " << frameworkId << " / " << executorId;
   CgroupInfo* info = findCgroupInfo(frameworkId, executorId);
   if (info == NULL || info->killed) {
@@ -446,7 +460,6 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
   }
 
   // Construct resource statistics.
-  ResourceStatistics stat;
   stat.timestamp = Clock::now();
   stat.utime = (double)cpuStat["user"] / (double)HZ;
   stat.stime = (double)cpuStat["system"] / (double)HZ;
@@ -624,6 +637,8 @@ void CgroupsIsolationModule::oom(
 {
   LOG(INFO) << "OOM detected in executor " << executorId
             << " of framework " << frameworkId;
+
+  recentOoms[frameworkId].insert(executorId);
 
   CgroupInfo* info = findCgroupInfo(frameworkId, executorId);
   CHECK(info != NULL && !info->killed)

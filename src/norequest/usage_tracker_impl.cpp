@@ -313,7 +313,7 @@ UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
 
 void
 UsageTrackerImpl::recordUsage(const UsageMessage& update) {
-  LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
+  // LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
   Resources usage = update.resources();
   ResourceEstimates* estimate = estimateFor(update.framework_id(),
       update.executor_id(), update.slave_id());
@@ -350,8 +350,8 @@ UsageTrackerImpl::forgetExecutor(const FrameworkID& frameworkId,
                                  const ExecutorID& executorId,
                                  const SlaveID& slaveId,
                                  bool clearCharge) {
-  LOG(INFO) << "forgetExecutor(" << frameworkId << "," << executorId
-            << "," << slaveId << ")";
+  //LOG(INFO) << "forgetExecutor(" << frameworkId << "," << executorId
+  //          << "," << slaveId << ")";
   const ExecutorKey key(frameworkId, executorId, slaveId);
   if (estimateByExecutor.count(key) > 0) {
     estimateByExecutor[key].clearUsage(lastTickTime, clearCharge);

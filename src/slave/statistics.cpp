@@ -54,7 +54,15 @@ void ResourceStatistics::fillUsageMessage(
   mem->set_name("mem");
   mem->set_type(Value::SCALAR);
   mem->mutable_scalar()->set_value(double(rss) / 1024. / 1024. + swap);
+  bool reallyHavePrev = false;
   if (prev.isSome()) {
+    double prevCpu = prev.get().utime + prev.get().stime;
+    double curCpu = utime + stime;
+    if (curCpu >= prevCpu) {
+      reallyHavePrev = true;
+    }
+  }
+  if (reallyHavePrev) {
     double duration = timestamp - prev.get().timestamp;
     message->set_duration(duration);
     mesos::Resource cpu;

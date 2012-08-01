@@ -1139,6 +1139,14 @@ void Master::exitedExecutor(const SlaveID& slaveId,
       // Scheduler::executorLost?
     }
   }
+  foreach (const UPID& listener, usageListeners) {
+    ExitedExecutorMessage message;
+    message.mutable_framework_id()->MergeFrom(frameworkId);
+    message.mutable_executor_id()->MergeFrom(executorId);
+    message.mutable_slave_id()->MergeFrom(slaveId);
+    message.set_status(status);
+    send(listener, message);
+  }
 }
 
 
