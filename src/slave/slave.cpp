@@ -1204,7 +1204,7 @@ void Slave::gotStatistics(
       Executor* executor = framework->getExecutor(executorId);
       if (executor) {
         isRunning = true;
-        message.mutable_expected_resources()->MergeFrom(resources);
+        message.mutable_expected_resources()->MergeFrom(executor->resources);
       }
     }
     message.set_still_running(isRunning);
