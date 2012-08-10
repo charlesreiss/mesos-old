@@ -322,9 +322,11 @@ UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
       weightFromHalfLife(conf_.get<double>("norequest_halflife_mem",
             conf_.get<double>("norequest_halflife", -1.0)));
   } else {
-    smoothDecay = conf_.get<double>("norequest_decay", 0.8);
+    smoothDecay = conf_.get<double>("norequest_decay", 0.0);
     smoothDecayMem = conf_.get<double>("norequest_decay_mem", smoothDecay);
   }
+  LOG(INFO) << "Configured UsageTrackerImpl; decay = " << smoothDecay
+    << "; mem decay = " << smoothDecayMem;
 }
 
 void
