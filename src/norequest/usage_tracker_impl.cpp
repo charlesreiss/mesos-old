@@ -326,7 +326,7 @@ UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
     smoothDecayMem = conf_.get<double>("norequest_decay_mem", smoothDecay);
   }
   LOG(INFO) << "Configured UsageTrackerImpl; decay = " << smoothDecay
-    << "; mem decay = " << smoothDecayMem;
+    << "; mem decay = " << smoothDecayMem << "; smooth = " << smoothUsage;
 }
 
 void

@@ -250,6 +250,8 @@ message UsageMessage {
  
   // Non-allocatable "resources" considered for monitoring purposes only. 
   repeated Resource pseudo_resources = 9;
+
+  optional Progress progress = 10;
 }
 
 // Tells a slave to shut down all executors of the given framework.
@@ -335,4 +337,15 @@ message GotMasterTokenMessage {
 message FrameworkPrioritiesMessage {
   repeated FrameworkID framework_id = 1;
   repeated double priority = 2;
+}
+
+
+// EXPERIMENTAL Progress messages
+message ProgressRequestMessage {}
+
+message ProgressMessage {
+  optional Progress progress = 1;
+  required FrameworkID framework_id = 2;
+  required ExecutorID executor_id = 3;
+  required SlaveID slave_id = 4;
 }

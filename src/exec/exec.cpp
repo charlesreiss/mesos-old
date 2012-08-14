@@ -97,6 +97,9 @@ public:
 
     install<ShutdownExecutorMessage>(
         &ExecutorProcess::shutdown);
+
+    install<ProgressRequestMessage>(
+        &ExecutorProcess::requestProgress);
   }
 
   virtual ~ExecutorProcess() {}
@@ -258,6 +261,20 @@ protected:
     message.mutable_executor_id()->MergeFrom(executorId);
     message.set_data(data);
     send(slave, message);
+  }
+
+  void requestProgress() {
+    executor->requestProgress(driver);
+  }
+
+  void sendProgress(const Progress& progress)
+  {
+    ProgressMessage message;
+    message.mutable_slave_id()->MergeFrom(slaveId);
+    message.mutable_framework_id()->MergeFrom(frameworkId);
+    message.mutable_executor_id()->MergeFrom(executorId);
+    message.mutable_progress()->MergeFrom(progress);
+    send(slave, progress);
   }
 
 private:
@@ -472,4 +489,9 @@ Status MesosExecutorDriver::sendFrameworkMessage(const string& data)
   dispatch(process, &ExecutorProcess::sendFrameworkMessage, data);
 
   return status;
+}
+
+Status MesosExecutorDriver::sendProgress(const Progress& progress)
+{
+  dispatch(process, &ExecutorProcess::sendProgress, progress);
 }

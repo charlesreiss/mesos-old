@@ -1179,7 +1179,16 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
 void Slave::queueUsageUpdates() {
   foreachkey (const FrameworkID& frameworkId, frameworks) {
     Framework* framework = frameworks[frameworkId];
-    foreachkey (const ExecutorID& executorId, framework->executors) {
+    foreachpair (const ExecutorID& executorId,
+                 Executor* executor, framework->executors) {
+      ProgressRequestMessage message;
+      send(executor->pid, message);
+    }
+  }
+  foreachkey (const FrameworkID& frameworkId, frameworks) {
+    Framework* framework = frameworks[frameworkId];
+    foreachpair (const ExecutorID& executorId,
+                 Executor* executor, framework->executors) {
       isolationModule->sampleUsage(frameworkId, executorId);
     }
   }
@@ -1227,7 +1236,31 @@ void Slave::gotStatistics(
 void Slave::sendUsageUpdate(const UsageMessage& _update) {
   UsageMessage update = _update;
   update.mutable_slave_id()->MergeFrom(id);
+  Framework* framework;
+  if ((framework = getFramework(update.framework_id())) != 0) {
+    Executor* executor = framework->getExecutor(update.executor_id());
+    if (executor) {
+      update.mutable_progress()->MergeFrom(executor->pendingProgress);
+      executor->pendingProgress.Clear();
+    }
+  }
   send(master, update);
+}
+
+void Slave::gotProgress(const FrameworkID& frameworkId,
+                        const ExecutorID& executorId,
+                        const Progress& progress)
+
+{
+  Framework* framework;
+  if ((framework = getFramework(frameworkId)) != 0) {
+    Executor* executor = framework->getExecutor(executorId);
+    if (executor) {
+      Resources progressTotal(executor->pendingProgress.progress());
+      progressTotal += progress.progress();
+      executor->pendingProgress.mutable_progress()->MergeFrom(progress.progress());
+    }
+  }
 }
 
 } // namespace slave {

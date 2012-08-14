@@ -364,3 +364,12 @@ message Parameter {
 message Parameters {
   repeated Parameter parameter = 1;
 }
+
+/**
+ * EXPERIMENTAL progress indicator message from executors.
+ */
+message Progress {
+  repeated Resource progress = 1;
+  optional double start_time = 2;
+  optional double end_time = 3;
+}

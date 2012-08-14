@@ -179,6 +179,10 @@ protected:
   std::string createUniqueWorkDirectory(const FrameworkID& frameworkId,
                                         const ExecutorID& executorId);
 
+  void gotProgress(const FrameworkID& frameworkId,
+                   const ExecutorID& executorId,
+                   const Progress& progress);
+
 private:
   // HTTP handlers, friends of the slave in order to access state,
   // they get invoked from within the slave so there is no need to
@@ -319,6 +323,8 @@ struct Executor
 
   hashmap<TaskID, TaskInfo> queuedTasks;
   hashmap<TaskID, Task*> launchedTasks;
+
+  Progress pendingProgress;
 };
 
 
