@@ -54,7 +54,16 @@ struct UsageInfo {
     : state(_state), progress() {}
 
   operator mesos::TaskState() const { return state; }
+
+  bool operator==(const UsageInfo& other) const {
+    return state == other.state &&
+           progress.progress() == other.progress.progress();
+  }
 };
+
+inline std::ostream& operator<<(std::ostream& out, const UsageInfo& info) {
+  return out << info.state << "/" << info.progress.DebugString();
+}
 
 struct FakeTask {
   virtual Resources getUsage(seconds from, seconds to) const = 0;
