@@ -578,7 +578,7 @@ TEST_F(MasterSlaveTest, AccumulateUsage) {
   EXPECT_EQ(Resources::parse("cpus:1.5;mem:800"),
             m->getActiveSlaves()[0]->resourcesObservedUsed);
 #endif
-  EXPECT_CALL(mockAllocator, executorRemoved(_, _, _));
+  EXPECT_CALL(mockAllocator, executorRemoved(_, _, _)).Times(testing::AtMost(1));
   EXPECT_CALL(mockAllocator, resourcesRecovered(_, _, _));
   stopScheduler();
 #if 0

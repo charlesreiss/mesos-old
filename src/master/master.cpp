@@ -660,7 +660,7 @@ void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
       // those messages since it wasn't connected to the master.
       foreach (Offer* offer, utils::copy(framework->offers)) {
         dispatch(allocator, &Allocator::resourcesRecovered,
-		 offer->framework_id(), offer->slave_id(), 
+		 offer->framework_id(), offer->slave_id(),
                  ResourceHints::forOffer(*offer));
         removeOffer(offer);
       }

@@ -379,8 +379,6 @@ TEST_F(MasterAllocatorTest, UnregisterFramework) {
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
   EXPECT_CALL(allocator, taskRemoved(_, _));
-  EXPECT_CALL(allocator, executorRemoved(_, _,
-                                         EqProto(DEFAULT_EXECUTOR_INFO)));
   EXPECT_CALL(allocator, resourcesRecovered(_, _, _));
   unregisterFramework();
 }
