@@ -67,7 +67,7 @@ public:
 
   Slave(const std::string& name,
         const Resources& resources,
-        const Flags& flags,
+        const flags::Flags<logging::Flags, slave::Flags>& flags,
         bool local,
         IsolationModule* isolationModule);
 

@@ -202,7 +202,7 @@ TEST_F(StoutUtilsTest, rmdir)
   // TODO(John Sirois): It would be good to use something like mkdtemp, but
   // abstract away a proper platform independent /tmp dir.
 
-  const hashset<std::string> EMPTY;
+  const hashset<std::string> EMPTY = hashset<std::string>();
 
   hashset<std::string> expectedListing = EMPTY;
   EXPECT_EQ(expectedListing, listfiles(tmpdir));

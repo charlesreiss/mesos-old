@@ -49,7 +49,7 @@ public:
     : executor(_executor),
       balloonSize(_balloonSize),
       lowPriorityBalloonSize(_lowPriorityBalloonSize),
-      tasksLaunched(0) {}
+      taskLaunched(false) {}
 
   virtual ~BalloonScheduler() {}
 
@@ -158,7 +158,7 @@ private:
   const ExecutorInfo executor;
   const size_t balloonSize;
   const size_t lowPriorityBalloonSize;
-  int tasksLaunched;
+  bool taskLaunched;
 };
 
 

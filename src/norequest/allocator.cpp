@@ -117,6 +117,7 @@ bool NoRequestAllocator::checkFilters(const FrameworkID& frameworkId,
 
 void
 NoRequestAllocator::initialize(
+    const Flags& flags,
     const process::PID<AllocatorMasterInterface>& _master)
 {
   master = _master;

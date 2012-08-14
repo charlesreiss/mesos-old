@@ -36,6 +36,7 @@
 #include "common/units.hpp"
 
 #include "linux/cgroups.hpp"
+#include "linux/proc.hpp"
 
 #include "slave/cgroups_isolation_module.hpp"
 
@@ -454,7 +455,7 @@ void CgroupsIsolationModule::resourcesChanged(
   // For each resource, invoke the corresponding handler.
   // XXX FIXME: Handle minResources!
   for (Resources::const_iterator it = resources.expectedResources.begin();
-       it != resources.end(); ++it) {
+       it != resources.expectedResources.end(); ++it) {
     const Resource& resource = *it;
     const std::string& name = resource.name();
 
@@ -551,7 +552,7 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
 
   // Get CPU related statistics.
   Try<std::string> cpuStatOutput =
-    getCgroupNames::readControl(hierarchy,
+    cgroups::readControl(hierarchy,
                          getCgroupName(frameworkId, executorId),
                          "cpuacct.stat");
   if (cpuStatOutput.isError()) {
@@ -574,7 +575,7 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
 
   // Get memory related statistics.
   Try<std::string> memStatOutput =
-    getCgroupNames::readControl(hierarchy,
+    cgroups::readControl(hierarchy,
                          getCgroupName(frameworkId, executorId),
                          "memory.stat");
   if (memStatOutput.isError()) {
@@ -636,25 +637,10 @@ launcher::ExecutorLauncher* CgroupsIsolationModule::createExecutorLauncher(
 }
 
 
-std::string CgroupsIsolationModule::cgroup(
-    const FrameworkID& frameworkId,
-    const ExecutorID& executorId)
-{
-  std::ostringstream ss;
-  if (flags.cgroup_outer_container) {
-    ss << flags.cgroup_outer_container_name << '/';
-  }
-  ss << "mesos_cgroup_executor_" << executorId << "_framework_"
-     << frameworkId;
-  return ss.str();
-}
-
-
-
 Try<bool> CgroupsIsolationModule::cpusChanged(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   Resource r;
   r.set_name("cpus");
@@ -690,7 +676,7 @@ Try<bool> CgroupsIsolationModule::cpusChanged(
 Try<bool> CgroupsIsolationModule::memChanged(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId,
-    const Resources& resources)
+    const ResourceHints& resources)
 {
   Resource r;
   r.set_name("mem");
@@ -700,7 +686,7 @@ Try<bool> CgroupsIsolationModule::memChanged(
   if (memResource.isNone()) {
     LOG(WARNING) << "Resource mem cannot be retrieved for executor "
                  << executorId << " of framework " << frameworkId;
-  } else if (flags.cgroups_enforce_memory_limits) {
+  } else if (flags.cgroup_enforce_memory_limits) {
     double mem = memResource.get().scalar().value();
     size_t limitInBytes =
       std::max((size_t)mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
@@ -823,8 +809,9 @@ void CgroupsIsolationModule::oom(
     {
       // TODO(Charles): Make this asynchronous, move to linux/cgroups.cpp
       {
-        Future<std::string> freezerState =
-          cgroups::freezeCgroup(hierarchy, getCgroupName(frameworkId, executorId));
+        Future<bool> freezerState =
+          cgroups::freezeCgroup(hierarchy,
+              getCgroupName(frameworkId, executorId));
         freezerState.await();
         if (freezerState.isFailed()) {
           LOG(ERROR) << "Freezing for OOM on " << frameworkId
@@ -874,9 +861,10 @@ void CgroupsIsolationModule::oom(
                 &CgroupsIsolationModule::oomWaited,
                 frameworkId,
                 executorId,
+                info->tag,
                 info->oomNotifier));
       {
-        Future<std::string> freezerState =
+        Future<bool> freezerState =
           cgroups::thawCgroup(hierarchy, getCgroupName(frameworkId, executorId));
         freezerState.await();
         if (freezerState.isFailed()) {
@@ -1069,6 +1057,9 @@ std::string CgroupsIsolationModule::getCgroupName(
   CHECK(info != NULL) << "Cgroup info is not registered";
 
   std::ostringstream out;
+  if (flags.cgroup_outer_container) {
+    out << flags.cgroup_outer_container_name << "/";
+  }
   out << "mesos_cgroup_framework_" << frameworkId
       << "_executor_" << executorId
       << "_tag_" << info->tag;

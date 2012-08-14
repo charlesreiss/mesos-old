@@ -21,6 +21,9 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/resource.h>
+#include <sys/wait.h>
+
 #include <iostream>
 #include <string>
 

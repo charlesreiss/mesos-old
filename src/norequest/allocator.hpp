@@ -38,6 +38,7 @@ namespace norequest {
 using master::Allocator;
 using master::AllocatorMasterInterface;
 using master::Master;
+using master::Flags;
 
 struct Filter;
 
@@ -58,10 +59,14 @@ public:
 
   using process::Process<NoRequestAllocator>::self;
 
-  void initialize(const process::PID<Master>& _master) {
-    initialize(_master.operator process::PID<AllocatorMasterInterface>());
+  void initialize(const Flags& flags,
+                  const process::PID<Master>& _master) {
+    initialize(flags, _master.operator process::PID<AllocatorMasterInterface>());
   }
-  void initialize(const process::PID<AllocatorMasterInterface>& _master);
+
+  void initialize(const Flags& flags,
+                  const process::PID<AllocatorMasterInterface>& _master);
+
   void resourcesRequested(const FrameworkID& frameworkId,
       const std::vector<Request>& requests) {}
 
@@ -73,6 +78,7 @@ public:
                               const FrameworkInfo& frameworkInfo,
                               const Resources& used);
 
+  virtual void frameworkActivated(const FrameworkID&, const FrameworkInfo&) {}
   virtual void frameworkDeactivated(const FrameworkID& frameworkId);
   virtual void frameworkRemoved(const FrameworkID& frameworkId) {
     frameworkDeactivated(frameworkId); // XXX does this need to be different?

@@ -74,7 +74,7 @@ private:
 class UsageListenerTest : public testing::Test {
 protected:
   void SetUp() {
-    EXPECT_CALL(allocator, initialize(_)).Times(1);
+    EXPECT_CALL(allocator, initialize(_, _)).Times(1);
     EXPECT_CALL(allocator, gotUsage(_)).Times(testing::AtLeast(0));
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());

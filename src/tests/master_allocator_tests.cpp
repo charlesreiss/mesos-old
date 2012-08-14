@@ -100,7 +100,7 @@ protected:
   {
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());
-    EXPECT_CALL(allocator, initialize(master->self())).
+    EXPECT_CALL(allocator, initialize(_, master->self())).
       Times(1);
     GotMasterTokenMessage tokenMessage;
     tokenMessage.set_token("test-token");

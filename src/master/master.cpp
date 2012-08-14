@@ -1397,18 +1397,6 @@ struct ResourceUsageChecker : TaskInfoVisitor
       }
     }
 
-    // Check if this task uses more resources than offered.
-    Resources taskResources = task.resources();
-
-    if (!((usedResources + taskResources) <= offer->resources())) {
-      LOG(WARNING) << "Task " << task.task_id() << " attempted to use "
-                   << taskResources << " combined with already used "
-                   << usedResources << " is greater than offered "
-                   << offer->resources();
-
-      return TaskInfoError::some("Task uses more resources than offered");
-    }
-
     ResourceHints taskResources;
 
     // Check that the executor is using some resources.
@@ -1789,13 +1777,12 @@ void Master::removeFramework(Framework* framework)
   foreachkey (const SlaveID& slaveId, executors) {
     Slave* slave = getSlave(slaveId);
     if (slave != NULL) {
-      foreachpair (const ExecutorID& executorId,
-                   const ExecutorInfo& executorInfo,
-                   framework->executors[slaveId]) {
+      foreachvalue (const ExecutorInfo& executorInfo,
+                    framework->executors[slaveId]) {
         dispatch(allocator, &Allocator::resourcesRecovered,
                  framework->id,
                  slave->id,
-                 executorInfo.resources());
+                 ResourceHints::forExecutorInfo(executorInfo));
         removeExecutor(slave, framework, executorInfo);
       }
     }

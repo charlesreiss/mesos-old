@@ -58,7 +58,7 @@ void Scenario::spawnSlave(const Resources& resources)
     confForSlave.set("resources", ost.str());
   }
   FakeIsolationModule* module = new FakeIsolationModule(conf, tracker);
-  slave::Flags slaveFlags;
+  flags::Flags<logging::Flags, slave::Flags> slaveFlags;
   slaveFlags.load(conf.getMap());
   Slave* slave = new Slave("", resources, slaveFlags, true, module);
   slaves.push_back(slave);

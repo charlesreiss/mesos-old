@@ -822,7 +822,6 @@ check_PROGRAMS += mesos-tests
 
 mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 	              tests/master_tests.cpp tests/state_tests.cpp	\
-	              tests/slave_tests.cpp				\
 	              tests/statistics_tests.cpp			\
 	              tests/gc_tests.cpp				\
 	              tests/resource_offers_tests.cpp			\

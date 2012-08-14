@@ -130,7 +130,7 @@ Slave::Slave(const flags::Flags<logging::Flags, slave::Flags>& _flags,
 
 Slave::Slave(const std::string& name,
              const Resources& _resources,
-             const Flags& _flags,
+             const flags::Flags<logging::Flags, slave::Flags>& _flags,
              bool _local,
              IsolationModule* _isolationModule)
   : ProcessBase(name),

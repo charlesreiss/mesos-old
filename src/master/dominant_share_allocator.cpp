@@ -557,10 +557,6 @@ void DominantShareAllocator::expire(
     // DominantShareAllocator::offersRevived (but not deleted).
     if (filters.contains(frameworkId, filter)) {
       filters.remove(frameworkId, filter);
-      delete filter;
-      allocate();
-    } else {
-      delete filter;
     }
   }
 

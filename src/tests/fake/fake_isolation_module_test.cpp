@@ -67,7 +67,7 @@ public:
     mockMasterPid = mockMaster->start();
     conf.set("resources", "cpus:4.0;mem:4096");
     module.reset(new FakeIsolationModule(conf, taskTracker));
-    slave::Flags flags;
+    flags::Flags<logging::Flags, slave::Flags> flags;
     flags.load(conf.getMap());
     slave.reset(new Slave(flags, true, module.get()));
     slavePid = process::spawn(slave.get());
