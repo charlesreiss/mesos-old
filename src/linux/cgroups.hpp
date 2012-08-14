@@ -28,6 +28,7 @@
 #include <process/future.hpp>
 
 #include <stout/option.hpp>
+#include <stout/time.hpp>
 #include <stout/try.hpp>
 
 namespace cgroups {
@@ -260,14 +261,13 @@ process::Future<uint64_t> listenEvent(const std::string& hierarchy,
 // the given cgroup is not valid, or the given cgroup has already been frozen.
 // @param   hierarchy   Path to the hierarchy root.
 // @param   cgroup      Path to the cgroup relative to the hierarchy root.
-// @param   interval    The time interval between two state check requests. None
-//                      means using default time interval.
+// @param   interval    The time interval in seconds between two state check
+//                      requests (default: 0.1 seconds).
 // @return  A future which will become ready when all processes are frozen.
 //          Error if some unexpected happens.
-process::Future<std::string> freezeCgroup(const std::string& hierarchy,
-                                          const std::string& cgroup,
-                                          const Option<double>& interval =
-                                            Option<double>::none());
+process::Future<bool> freezeCgroup(const std::string& hierarchy,
+                                   const std::string& cgroup,
+                                   const seconds& interval = seconds(0.1));
 
 
 // Thaw the given cgroup. This is a revert operation of freezeCgroup. It will
@@ -276,14 +276,13 @@ process::Future<std::string> freezeCgroup(const std::string& hierarchy,
 // allow users to cancel the operation.
 // @param   hierarchy   Path to the hierarchy root.
 // @param   cgroup      Path to the cgroup relative to the hierarchy root.
-// @param   interval    The time interval between two state check requests. None
-//                      means using default time interval.
+// @param   interval    The time interval in seconds between two state check
+//                      requests (default: 0.1 seconds).
 // @return  A future which will become ready when all processes are thawed.
 //          Error if some unexpected happens.
-process::Future<std::string> thawCgroup(const std::string& hierarchy,
-                                        const std::string& cgroup,
-                                        const Option<double>& interval =
-                                          Option<double>::none());
+process::Future<bool> thawCgroup(const std::string& hierarchy,
+                                 const std::string& cgroup,
+                                 const seconds& interval = seconds(0.1));
 
 
 // Atomically kill all tasks in a given cgroup. This function will return a
@@ -296,14 +295,13 @@ process::Future<std::string> thawCgroup(const std::string& hierarchy,
 // available or not properly attached to the given hierarchy.
 // @param   hierarchy   Path to the hierarchy root.
 // @param   cgroup      Path to the cgroup relative to the hierarchy root.
-// @param   interval    The time interval between two check requests. None
-//                      means using default time interval.
+// @param   interval    The time interval in seconds between two state check
+//                      requests (default: 0.1 seconds).
 // @return  A future which will become ready when the operation is done.
 //          Error if some unexpected happens.
 process::Future<bool> killTasks(const std::string& hierarchy,
                                 const std::string& cgroup,
-                                const Option<double>& interval =
-                                  Option<double>::none());
+                                const seconds& interval = seconds(0.1));
 
 
 // Destroy a cgroup under a given hierarchy. This function is different from
@@ -315,14 +313,13 @@ process::Future<bool> killTasks(const std::string& hierarchy,
 // process. The future will become ready when the destroy operation finishes.
 // @param   hierarchy   Path to the hierarchy root.
 // @param   cgroup      Path to the cgroup relative to the hierarchy root.
-// @param   interval    The time interval between two check requests. None
-//                      means using default time interval.
+// @param   interval    The time interval in seconds between two state check
+//                      requests (default: 0.1 seconds).
 // @return  A future which will become ready when the operation is done.
 //          Error if some unexpected happens.
 process::Future<bool> destroyCgroup(const std::string& hierarchy,
                                     const std::string& cgroup = "/",
-                                    const Option<double>& interval =
-                                      Option<double>::none());
+                                    const seconds& interval = seconds(0.1));
 
 } // namespace cgroups {
 

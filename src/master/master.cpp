@@ -323,7 +323,7 @@ void Master::initialize()
 
   // Spawn the allocator.
   spawn(allocator);
-  dispatch(allocator, &Allocator::initialize, self());
+  dispatch(allocator, &Allocator::initialize, flags, self());
 
   // Parse the white list
   whitelistWatcher = new WhitelistWatcher(flags.whitelist, allocator);
@@ -450,10 +450,10 @@ void Master::initialize()
   install<AllocatorEstimates>(&Master::forwardAllocatorEstimates);
 
   // Setup HTTP request handlers.
+  route("/redirect", bind(&http::redirect, cref(*this), params::_1));
   route("/vars", bind(&http::vars, cref(*this), params::_1));
   route("/stats.json", bind(&http::json::stats, cref(*this), params::_1));
   route("/state.json", bind(&http::json::state, cref(*this), params::_1));
-  route("/log.json", bind(&http::json::log, cref(*this), params::_1));
 
   // Provide HTTP assets from a "webui" directory. This is either
   // specified via flags (which is necessary for running out of the
@@ -462,6 +462,11 @@ void Master::initialize()
   // Makefile.
   provide("", path::join(flags.webui_dir, "master/static/index.html"));
   provide("static", path::join(flags.webui_dir, "master/static"));
+
+  // TODO(benh): Ask glog for file name (i.e., mesos-master.INFO).
+  if (flags.log_dir.isSome()) {
+    files.attach(flags.log_dir.get() + "/mesos-master.INFO", "/log");
+  }
 }
 
 
@@ -517,7 +522,8 @@ void Master::exited(const UPID& pid)
 
   foreachvalue (Slave* slave, slaves) {
     if (slave->pid == pid) {
-      LOG(INFO) << "Slave " << slave->id << "(" << slave->info.hostname() << ") disconnected";
+      LOG(INFO) << "Slave " << slave->id << "(" << slave->info.hostname()
+                << ") disconnected";
       removeSlave(slave);
       return;
     }
@@ -540,16 +546,16 @@ void Master::newMasterDetected(const UPID& pid)
   // master, (2) newly elected master, (3) no longer elected master,
   // or (4) still elected master.
 
-  UPID master = pid;
+  leader = pid;
 
-  if (master != self() && !elected) {
+  if (leader != self() && !elected) {
     LOG(INFO) << "Waiting to be master!";
-  } else if (master == self() && !elected) {
+  } else if (leader == self() && !elected) {
     LOG(INFO) << "Elected as master!";
     elected = true;
-  } else if (master != self() && elected) {
+  } else if (leader != self() && elected) {
     LOG(FATAL) << "No longer elected master ... committing suicide!";
-  } else if (master == self() && elected) {
+  } else if (leader == self() && elected) {
     LOG(INFO) << "Still acting as master!";
   }
 }
@@ -757,9 +763,6 @@ void Master::launchTasks(const FrameworkID& frameworkId,
                          const vector<TaskInfo>& tasks,
                          const Filters& filters)
 {
-  LOG(INFO) << "Received reply for offer " << offerId
-            << " from " << frameworkId;
-
   Framework* framework = getFramework(frameworkId);
   if (framework != NULL) {
     // TODO(benh): Support offer "hoarding" and allow multiple offers
@@ -1394,6 +1397,18 @@ struct ResourceUsageChecker : TaskInfoVisitor
       }
     }
 
+    // Check if this task uses more resources than offered.
+    Resources taskResources = task.resources();
+
+    if (!((usedResources + taskResources) <= offer->resources())) {
+      LOG(WARNING) << "Task " << task.task_id() << " attempted to use "
+                   << taskResources << " combined with already used "
+                   << usedResources << " is greater than offered "
+                   << offer->resources();
+
+      return TaskInfoError::some("Task uses more resources than offered");
+    }
+
     ResourceHints taskResources;
 
     // Check that the executor is using some resources.
@@ -1407,16 +1422,6 @@ struct ResourceUsageChecker : TaskInfoVisitor
               "Task's executor uses invalid resources");
         }
       }
-
-      /* TODO(charles): add min_resources to executroInfo
-      foreach (const Resource& resource, executorInfo.resources()) {
-        if (!Resources::isAllocatable(resource)) {
-          // TODO(benh): Send back the invalid resources?
-          return TaskInfoError::some(
-              "Task's executor uses invalid resources");
-        }
-      }
-      */
 
       // Check if this task's executor is running, and if not check if
       // the task + the executor use more resources than offered.
@@ -1513,7 +1518,10 @@ void Master::processTasks(Offer* offer,
     }
   }
 
-  LOG(INFO) << "processing " << tasks.size() << " tasks";
+  VLOG(1) << "Processing reply for offer " << offer->id()
+          << " on slave " << slave->id
+          << " (" << slave->info.hostname() << ")"
+          << " for framework " << framework->id;
 
   // Create task visitors.
   list<TaskInfoVisitor*> visitors;
@@ -1542,7 +1550,8 @@ void Master::processTasks(Offer* offer,
       launchedTasks.push_back(newTask);
     } else {
       // Error validating task, send a failed status update.
-      LOG(WARNING) << "Error validating task: " << error.get();
+      LOG(WARNING) << "Error validating task " << task.task_id()
+                   << " : " << error.get();
       StatusUpdateMessage message;
       StatusUpdate* update = message.mutable_update();
       update->mutable_framework_id()->MergeFrom(framework->id);
@@ -1712,10 +1721,11 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
   link(newPid);
 
   // Make sure we can get offers again.
-  framework->active = true;
-
-  dispatch(allocator, &Allocator::frameworkAdded,
-           framework->id, framework->info, framework->resources);
+  if (!framework->active) {
+    framework->active = true;
+    dispatch(allocator, &Allocator::frameworkActivated,
+             framework->id, framework->info);
+  }
 
   framework->reregisteredTime = Clock::now();
 
@@ -1779,7 +1789,13 @@ void Master::removeFramework(Framework* framework)
   foreachkey (const SlaveID& slaveId, executors) {
     Slave* slave = getSlave(slaveId);
     if (slave != NULL) {
-      foreachvalue (const ExecutorInfo& executorInfo, executors[slaveId]) {
+      foreachpair (const ExecutorID& executorId,
+                   const ExecutorInfo& executorInfo,
+                   framework->executors[slaveId]) {
+        dispatch(allocator, &Allocator::resourcesRecovered,
+                 framework->id,
+                 slave->id,
+                 executorInfo.resources());
         removeExecutor(slave, framework, executorInfo);
       }
     }

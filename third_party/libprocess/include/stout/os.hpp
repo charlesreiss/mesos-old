@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <glog/logging.h>
@@ -106,6 +107,47 @@ inline Try<bool> close(int fd)
 }
 
 
+inline Try<bool> cloexec(int fd)
+{
+  int flags = ::fcntl(fd, F_GETFD);
+  if (flags == -1) {
+    return Try<bool>::error(strerror(errno));
+  }
+  if (::fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == -1) {
+    return Try<bool>::error(strerror(errno));;
+  }
+  return true;
+}
+
+
+inline Try<bool> nonblock(int fd)
+{
+  int flags = ::fcntl(fd, F_GETFL);
+
+  if (flags == -1) {
+    return Try<bool>::error(strerror(errno));
+  }
+
+  if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+    return Try<bool>::error(strerror(errno));
+  }
+
+  return true;
+}
+
+
+inline Try<bool> isNonblock(int fd)
+{
+  int flags = ::fcntl(fd, F_GETFL);
+
+  if (flags == -1) {
+    return Try<bool>::error(strerror(errno));
+  }
+
+  return (flags & O_NONBLOCK) != 0;
+}
+
+
 inline Try<bool> touch(const std::string& path)
 {
   Try<int> fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IRWXO);
@@ -113,6 +155,10 @@ inline Try<bool> touch(const std::string& path)
   if (fd.isError()) {
     return Try<bool>::error("Failed to open file " + path);
   }
+
+  // TODO(benh): Is opening/closing sufficient to have the same
+  // semantics as the touch utility (i.e., doesn't the utility change
+  // the modified date)?
 
   Try<bool> result = close(fd.get());
 
@@ -270,12 +316,13 @@ inline bool exists(const std::string& path, bool directory = false)
 }
 
 
-inline Try<long> modtime(const std::string& path)
+// TODO(benh): Put this in the 'paths' or 'files' or 'fs' namespace.
+inline Try<long> mtime(const std::string& path)
 {
   struct stat s;
 
   if (::stat(path.c_str(), &s) < 0) {
-    return Try<long>::error("Cannot stat " + path + " for modification time");
+    return Try<long>::error(strerror(errno));
   }
 
   return s.st_mtime;
@@ -435,7 +482,7 @@ inline std::string getcwd()
 }
 
 
-inline std::list<std::string> listdir(const std::string& directory)
+inline std::list<std::string> ls(const std::string& directory)
 {
   std::list<std::string> result;
 
@@ -474,6 +521,9 @@ inline std::list<std::string> listdir(const std::string& directory)
   int error;
 
   while ((error = readdir_r(dir, temp, &entry)) == 0 && entry != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
     result.push_back(entry->d_name);
   }
 
@@ -503,7 +553,7 @@ inline Try<std::list<std::string> > find(const std::string& directory,
     return Try<std::list<std::string> >::error("Directory " + directory + " doesn't exist!");
   }
 
-  foreach (const std::string& entry, listdir(directory)) {
+  foreach (const std::string& entry, ls(directory)) {
     if (entry == "." || entry == "..") {
       continue;
     }

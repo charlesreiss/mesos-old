@@ -62,6 +62,7 @@
 
 #include <stout/foreach.hpp>
 #include <stout/lambda.hpp>
+#include <stout/os.hpp>
 
 #include "config.hpp"
 #include "decoder.hpp"
@@ -3063,47 +3064,17 @@ Future<short> poll(int fd, short events)
 }
 
 
-int nonblock(int fd)
-{
-  int flags = ::fcntl(fd, F_GETFL);
-  if (flags == -1) {
-    return -1;
-  }
-
-  if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
-    return -1;
-  }
-
-  return 0;
-}
-
-
-int isNonblock(int fd)
-{
-  int flags = ::fcntl(fd, F_GETFL);
-  if (flags == -1) {
-    return -1;
-  }
-
-  if ((flags & O_NONBLOCK) == 0) {
-    return 0;
-  } else {
-    return 1;
-  }
-}
-
-
 Future<size_t> read(int fd, void* data, size_t size)
 {
   std::tr1::shared_ptr<Promise<size_t> > promise(new Promise<size_t>());
 
   // Check the file descriptor.
-  int check = isNonblock(fd);
-  if (check == -1) {
+  Try<bool> nonblock = os::isNonblock(fd);
+  if (nonblock.isError()) {
     // The file descriptor is not valid (e.g. fd has been closed).
     promise->fail(strerror(errno));
     return promise->future();
-  } else if (check == 0) {
+  } else if (!nonblock.get()) {
     // The fd is not opened with O_NONBLOCK set.
     promise->fail("Please use a fd opened with O_NONBLOCK set");
     return promise->future();

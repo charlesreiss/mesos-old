@@ -24,8 +24,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#include <glog/logging.h>
-
 #include <gmock/gmock.h>
 
 #include <stout/option.hpp>
@@ -408,7 +406,7 @@ TEST_F(CgroupsTest, ROOT_CGROUPS_ListenEvent)
                                                 stringify(limit));
   ASSERT_TRUE(writeResult.isSome());
 
-  // Start listen on oom events for "/prof" cgroup.
+  // Listen on oom events for "/prof" cgroup.
   Future<uint64_t> future =
     cgroups::listenEvent(hierarchy,
                          "/prof",
@@ -436,7 +434,9 @@ TEST_F(CgroupsTest, ROOT_CGROUPS_ListenEvent)
     Try<bool> assignResult = cgroups::assignTask(hierarchy,
                                                  "/prof",
                                                  ::getpid());
-    assert(assignResult.isSome()); // Exit the process if not true.
+    if (assignResult.isError()) {
+      FAIL() << "Failed to assign cgroup: " << assignResult.error();
+    }
 
     // Blow up the memory.
     size_t limit = 1024 * 1024 * 512;
@@ -447,62 +447,92 @@ TEST_F(CgroupsTest, ROOT_CGROUPS_ListenEvent)
     }
 
     // Should not reach here.
-    LOG(FATAL) << "OOM does not happen!";
+    FAIL() << "OOM does not happen!";
   }
 }
 
 
 TEST_F(CgroupsTest, ROOT_CGROUPS_Freezer)
 {
+  int pipes[2];
+  int dummy;
+  ASSERT_NE(-1, ::pipe(pipes));
+
   pid_t pid = ::fork();
   ASSERT_NE(-1, pid);
 
   if (pid) {
     // In parent process.
-    ::sleep(2); // Enough for the child to start up.
+    ::close(pipes[1]);
+
+    // Wait until child has assigned the cgroup.
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ::close(pipes[0]);
 
     // Freeze the "/prof" cgroup.
-    Future<std::string> freeze = cgroups::freezeCgroup(hierarchy, "/prof");
-    freeze.await(1.0);
-    EXPECT_TRUE(freeze.isReady());
-    EXPECT_EQ("FROZEN", freeze.get());
+    Future<bool> freeze = cgroups::freezeCgroup(hierarchy, "/prof");
+    freeze.await(5.0);
+    ASSERT_TRUE(freeze.isReady());
+    EXPECT_EQ(true, freeze.get());
 
     // Thaw the "/prof" cgroup.
-    Future<std::string> thaw = cgroups::thawCgroup(hierarchy, "/prof");
-    thaw.await(1.0);
-    EXPECT_TRUE(thaw.isReady());
-    EXPECT_EQ("THAWED", thaw.get());
+    Future<bool> thaw = cgroups::thawCgroup(hierarchy, "/prof");
+    thaw.await(5.0);
+    ASSERT_TRUE(thaw.isReady());
+    EXPECT_EQ(true, thaw.get());
 
     // Kill the child process.
-    EXPECT_NE(-1, ::kill(pid, SIGKILL));
+    ASSERT_NE(-1, ::kill(pid, SIGKILL));
 
     // Wait for the child process.
     int status;
     EXPECT_NE(-1, ::waitpid((pid_t) -1, &status, 0));
   } else {
     // In child process.
+    close(pipes[0]);
+
     // Put self into the "/prof" cgroup.
     Try<bool> assign = cgroups::assignTask(hierarchy,
                                            "/prof",
                                            ::getpid());
-
-    for (int i = 0; i < 5; i++) {
-      ::sleep(1);
+    if (assign.isError()) {
+      FAIL() << "Failed to assign cgroup: " << assign.error();
     }
 
-    ::exit(0);
+    // Notify the parent.
+    if (::write(pipes[1], &dummy, sizeof(dummy)) != sizeof(dummy)) {
+      FAIL() << "Failed to notify the parent";
+    }
+    ::close(pipes[1]);
+
+    // Infinite loop here.
+    while (true) ;
+
+    // Should not reach here.
+    FAIL() << "Reach an unreachable statement!";
   }
 }
 
 
 TEST_F(CgroupsTest, ROOT_CGROUPS_KillTasks)
 {
+  int pipes[2];
+  int dummy;
+  ASSERT_NE(-1, ::pipe(pipes));
+
   pid_t pid = ::fork();
   ASSERT_NE(-1, pid);
 
   if (pid) {
     // In parent process.
-    ::sleep(2);
+    ::close(pipes[1]);
+
+    // Wait until all children have assigned the cgroup.
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ::close(pipes[0]);
 
     Future<bool> future = cgroups::killTasks(hierarchy, "/prof");
     future.await(5.0);
@@ -519,16 +549,21 @@ TEST_F(CgroupsTest, ROOT_CGROUPS_KillTasks)
     // Put self into "/prof" cgroup.
     Try<bool> assign = cgroups::assignTask(hierarchy, "/prof", ::getpid());
     if (assign.isError()) {
-      LOG(ERROR) << assign.error();
+      FAIL() << "Failed to assign cgroup: " << assign.error();
     }
+
+    // Notify the parent.
+    ::close(pipes[0]);
+    if (::write(pipes[1], &dummy, sizeof(dummy)) != sizeof(dummy)) {
+      FAIL() << "Failed to notify the parent";
+    }
+    ::close(pipes[1]);
 
     // Wait kill signal from parent.
-    while (true) {
-      sleep(1);
-    }
+    while (true) ;
 
     // Should not reach here.
-    LOG(FATAL) << "Reached an unreachable statement";
+    FAIL() << "Reach an unreachable statement!";
   }
 }
 
@@ -540,12 +575,23 @@ TEST_F(CgroupsTest, ROOT_CGROUPS_DestroyCgroup)
   ASSERT_TRUE(future.isReady());
   EXPECT_TRUE(future.get());
 
+  int pipes[2];
+  int dummy;
+  ASSERT_NE(-1, ::pipe(pipes));
+
   pid_t pid = ::fork();
   ASSERT_NE(-1, pid);
 
   if (pid) {
     // In parent process.
-    ::sleep(2);
+    ::close(pipes[1]);
+
+    // Wait until all children have assigned the cgroup.
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ASSERT_NE(-1, ::read(pipes[0], &dummy, sizeof(dummy)));
+    ::close(pipes[0]);
 
     Future<bool> future = cgroups::destroyCgroup(hierarchy, "/");
     future.await(5.0);
@@ -556,21 +602,28 @@ TEST_F(CgroupsTest, ROOT_CGROUPS_DestroyCgroup)
     EXPECT_NE(-1, ::waitpid((pid_t) -1, &status, 0));
   } else {
     // In child process.
+    // We create 4 child processes here using two forks to test the case in
+    // which there are multiple active processes in the given cgroup.
     ::fork();
     ::fork();
 
     // Put self into "/prof" cgroup.
     Try<bool> assign = cgroups::assignTask(hierarchy, "/prof", ::getpid());
     if (assign.isError()) {
-      LOG(ERROR) << assign.error();
+      FAIL() << "Failed to assign cgroup: " << assign.error();
     }
+
+    // Notify the parent.
+    ::close(pipes[0]);
+    if (::write(pipes[1], &dummy, sizeof(dummy)) != sizeof(dummy)) {
+      FAIL() << "Failed to notify the parent";
+    }
+    ::close(pipes[1]);
 
     // Wait kill signal from parent.
-    while (true) {
-      sleep(1);
-    }
+    while (true) ;
 
     // Should not reach here.
-    LOG(FATAL) << "Reached an unreachable statement";
+    FAIL() << "Reach an unreachable statement!";
   }
 }

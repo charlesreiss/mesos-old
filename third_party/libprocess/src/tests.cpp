@@ -22,6 +22,8 @@
 #include <process/run.hpp>
 #include <process/thread.hpp>
 
+#include <stout/os.hpp>
+
 #include "encoder.hpp"
 
 using namespace process;
@@ -131,6 +133,74 @@ TEST(Process, then)
 
   ASSERT_TRUE(future.isReady());
   EXPECT_EQ("42", future.get());
+}
+
+
+Future<bool> readyFuture()
+{
+  return true;
+}
+
+
+Future<bool> failedFuture()
+{
+  return Future<bool>::failed("The value is not positive (or zero)");
+}
+
+
+Future<bool> pendingFuture(Future<bool>* future)
+{
+  return *future; // Keep it pending.
+}
+
+
+Future<std::string> second(const bool& b)
+{
+  return b ? std::string("true") : std::string("false");
+}
+
+
+Future<std::string> third(const std::string& s)
+{
+  return s;
+}
+
+
+TEST(Process, chain)
+{
+  Promise<int*> promise;
+
+  Future<std::string> s = readyFuture()
+    .then(std::tr1::bind(&second, std::tr1::placeholders::_1))
+    .then(std::tr1::bind(&third, std::tr1::placeholders::_1));
+
+  s.await();
+
+  ASSERT_TRUE(s.isReady());
+  EXPECT_EQ("true", s.get());
+
+  s = failedFuture()
+    .then(std::tr1::bind(&second, std::tr1::placeholders::_1))
+    .then(std::tr1::bind(&third, std::tr1::placeholders::_1));
+
+  s.await();
+
+  ASSERT_TRUE(s.isFailed());
+
+  Future<bool> future;
+
+  s = pendingFuture(&future)
+    .then(std::tr1::bind(&second, std::tr1::placeholders::_1))
+    .then(std::tr1::bind(&third, std::tr1::placeholders::_1));
+
+  ASSERT_TRUE(s.isPending());
+  ASSERT_TRUE(future.isPending());
+
+  s.discard();
+
+  future.await();
+
+  ASSERT_TRUE(future.isDiscarded());
 }
 
 
@@ -1083,27 +1153,7 @@ TEST(Process, poll)
 }
 
 
-TEST(libprocess, nonblock)
-{
-  ASSERT_TRUE(GTEST_IS_THREADSAFE);
-
-  int pipes[2];
-
-  ASSERT_NE(-1, pipe(pipes));
-  EXPECT_EQ(0, io::isNonblock(pipes[0]));
-
-  ASSERT_EQ(0, io::nonblock(pipes[0]));
-  EXPECT_EQ(1, io::isNonblock(pipes[0]));
-
-  close(pipes[0]);
-  close(pipes[1]);
-
-  EXPECT_EQ(-1, io::nonblock(pipes[0]));
-  EXPECT_EQ(-1, io::isNonblock(pipes[0]));
-}
-
-
-TEST(libprocess, read)
+TEST(Process, read)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
 
@@ -1112,7 +1162,7 @@ TEST(libprocess, read)
   Future<size_t> future;
 
   // Create a blocking pipe.
-  ASSERT_NE(-1, pipe(pipes));
+  ASSERT_NE(-1, ::pipe(pipes));
 
   // Test on a blocking file descriptor.
   future = io::read(pipes[0], data, 3);
@@ -1128,9 +1178,9 @@ TEST(libprocess, read)
   EXPECT_TRUE(future.isFailed());
 
   // Create a nonblocking pipe.
-  ASSERT_NE(-1, pipe(pipes));
-  ASSERT_EQ(0, io::nonblock(pipes[0]));
-  ASSERT_EQ(0, io::nonblock(pipes[1]));
+  ASSERT_NE(-1, ::pipe(pipes));
+  ASSERT_TRUE(os::nonblock(pipes[0]).isSome());
+  ASSERT_TRUE(os::nonblock(pipes[1]).isSome());
 
   // Test reading nothing.
   future = io::read(pipes[0], data, 0);

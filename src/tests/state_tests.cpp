@@ -20,6 +20,7 @@
 
 #include <set>
 #include <string>
+#include <vector>
 
 #include <mesos/mesos.hpp>
 
@@ -33,7 +34,10 @@
 
 #include "messages/messages.hpp"
 
+#include "state/leveldb.hpp"
+#include "state/serializer.hpp"
 #include "state/state.hpp"
+#include "state/zookeeper.hpp"
 
 #ifdef MESOS_HAS_JAVA
 #include "tests/base_zookeeper_test.hpp"
@@ -48,15 +52,15 @@ using namespace mesos::internal::test;
 using namespace process;
 
 
-void GetSetGet(State* state)
+void GetSetGet(State<ProtobufSerializer>* state)
 {
-  Future<State::Variable<Slaves> > variable = state->get<Slaves>("slaves");
+  Future<Variable<Slaves> > variable = state->get<Slaves>("slaves");
 
   variable.await();
 
   ASSERT_TRUE(variable.isReady());
 
-  State::Variable<Slaves> slaves1 = variable.get();
+  Variable<Slaves> slaves1 = variable.get();
 
   EXPECT_TRUE(slaves1->infos().size() == 0);
 
@@ -66,12 +70,12 @@ void GetSetGet(State* state)
 
   slaves1->add_infos()->MergeFrom(info);
 
-  Future<bool> result = state->set(&slaves1);
+  Future<Option<Variable<Slaves> > > result = state->set(slaves1);
 
   result.await();
 
   ASSERT_TRUE(result.isReady());
-  EXPECT_TRUE(result.get());
+  ASSERT_TRUE(result.get().isSome());
 
   variable = state->get<Slaves>("slaves");
 
@@ -79,7 +83,7 @@ void GetSetGet(State* state)
 
   ASSERT_TRUE(variable.isReady());
 
-  State::Variable<Slaves> slaves2 = variable.get();
+  Variable<Slaves> slaves2 = variable.get();
 
   ASSERT_TRUE(slaves2->infos().size() == 1);
   EXPECT_EQ("localhost", slaves2->infos(0).hostname());
@@ -87,15 +91,15 @@ void GetSetGet(State* state)
 }
 
 
-void GetSetSetGet(State* state)
+void GetSetSetGet(State<ProtobufSerializer>* state)
 {
-  Future<State::Variable<Slaves> > variable = state->get<Slaves>("slaves");
+  Future<Variable<Slaves> > variable = state->get<Slaves>("slaves");
 
   variable.await();
 
   ASSERT_TRUE(variable.isReady());
 
-  State::Variable<Slaves> slaves1 = variable.get();
+  Variable<Slaves> slaves1 = variable.get();
 
   EXPECT_TRUE(slaves1->infos().size() == 0);
 
@@ -105,19 +109,21 @@ void GetSetSetGet(State* state)
 
   slaves1->add_infos()->MergeFrom(info);
 
-  Future<bool> result = state->set(&slaves1);
+  Future<Option<Variable<Slaves> > > result = state->set(slaves1);
 
   result.await();
 
   ASSERT_TRUE(result.isReady());
-  EXPECT_TRUE(result.get());
+  ASSERT_TRUE(result.get().isSome());
 
-  result = state->set(&slaves1);
+  slaves1 = result.get().get();
+
+  result = state->set(slaves1);
 
   result.await();
 
   ASSERT_TRUE(result.isReady());
-  EXPECT_TRUE(result.get());
+  ASSERT_TRUE(result.get().isSome());
 
   variable = state->get<Slaves>("slaves");
 
@@ -125,7 +131,7 @@ void GetSetSetGet(State* state)
 
   ASSERT_TRUE(variable.isReady());
 
-  State::Variable<Slaves> slaves2 = variable.get();
+  Variable<Slaves> slaves2 = variable.get();
 
   ASSERT_TRUE(slaves2->infos().size() == 1);
   EXPECT_EQ("localhost", slaves2->infos(0).hostname());
@@ -133,15 +139,15 @@ void GetSetSetGet(State* state)
 }
 
 
-void GetGetSetSetGet(State* state)
+void GetGetSetSetGet(State<ProtobufSerializer>* state)
 {
-  Future<State::Variable<Slaves> > variable = state->get<Slaves>("slaves");
+  Future<Variable<Slaves> > variable = state->get<Slaves>("slaves");
 
   variable.await();
 
   ASSERT_TRUE(variable.isReady());
 
-  State::Variable<Slaves> slaves1 = variable.get();
+  Variable<Slaves> slaves1 = variable.get();
 
   EXPECT_TRUE(slaves1->infos().size() == 0);
 
@@ -151,7 +157,7 @@ void GetGetSetSetGet(State* state)
 
   ASSERT_TRUE(variable.isReady());
 
-  State::Variable<Slaves> slaves2 = variable.get();
+  Variable<Slaves> slaves2 = variable.get();
 
   EXPECT_TRUE(slaves2->infos().size() == 0);
 
@@ -161,12 +167,12 @@ void GetGetSetSetGet(State* state)
 
   slaves2->add_infos()->MergeFrom(info2);
 
-  Future<bool> result = state->set(&slaves2);
+  Future<Option<Variable<Slaves> > > result = state->set(slaves2);
 
   result.await();
 
   ASSERT_TRUE(result.isReady());
-  EXPECT_TRUE(result.get());
+  ASSERT_TRUE(result.get().isSome());
 
   SlaveInfo info1;
   info1.set_hostname("localhost1");
@@ -174,12 +180,12 @@ void GetGetSetSetGet(State* state)
 
   slaves1->add_infos()->MergeFrom(info1);
 
-  result = state->set(&slaves1);
+  result = state->set(slaves1);
 
   result.await();
 
   ASSERT_TRUE(result.isReady());
-  EXPECT_FALSE(result.get());
+  EXPECT_TRUE(result.get().isNone());
 
   variable = state->get<Slaves>("slaves");
 
@@ -195,6 +201,41 @@ void GetGetSetSetGet(State* state)
 }
 
 
+void Names(State<ProtobufSerializer>* state)
+{
+  Future<Variable<Slaves> > variable = state->get<Slaves>("slaves");
+
+  variable.await();
+
+  ASSERT_TRUE(variable.isReady());
+
+  Variable<Slaves> slaves1 = variable.get();
+
+  EXPECT_TRUE(slaves1->infos().size() == 0);
+
+  SlaveInfo info;
+  info.set_hostname("localhost");
+  info.set_webui_hostname("localhost");
+
+  slaves1->add_infos()->MergeFrom(info);
+
+  Future<Option<Variable<Slaves> > > result = state->set(slaves1);
+
+  result.await();
+
+  ASSERT_TRUE(result.isReady());
+  EXPECT_TRUE(result.get().isSome());
+
+  Future<std::vector<std::string> > names = state->names();
+
+  names.await();
+
+  ASSERT_TRUE(names.isReady());
+  ASSERT_TRUE(names.get().size() == 1);
+  EXPECT_EQ("slaves", names.get()[0]);
+}
+
+
 class LevelDBStateTest : public ::testing::Test
 {
 public:
@@ -205,7 +246,7 @@ protected:
   virtual void SetUp()
   {
     os::rmdir(path);
-    state = new LevelDBState(path);
+    state = new LevelDBState<ProtobufSerializer>(path);
   }
 
   virtual void TearDown()
@@ -214,7 +255,7 @@ protected:
     os::rmdir(path);
   }
 
-  State* state;
+  State<ProtobufSerializer>* state;
 
 private:
   const std::string path;
@@ -239,6 +280,12 @@ TEST_F(LevelDBStateTest, GetGetSetSetGet)
 }
 
 
+TEST_F(LevelDBStateTest, Names)
+{
+  Names(state);
+}
+
+
 #ifdef MESOS_HAS_JAVA
 class ZooKeeperStateTest : public mesos::internal::test::BaseZooKeeperTest
 {
@@ -250,7 +297,10 @@ protected:
   virtual void SetUp()
   {
     BaseZooKeeperTest::SetUp();
-    state = new ZooKeeperState(zks->connectString(), NO_TIMEOUT, "/state/");
+    state = new ZooKeeperState<ProtobufSerializer>(
+        zks->connectString(),
+        NO_TIMEOUT,
+        "/state/");
   }
 
   virtual void TearDown()
@@ -259,7 +309,7 @@ protected:
     BaseZooKeeperTest::TearDown();
   }
 
-  State* state;
+  State<ProtobufSerializer>* state;
 };
 
 
@@ -278,5 +328,10 @@ TEST_F(ZooKeeperStateTest, GetSetSetGet)
 TEST_F(ZooKeeperStateTest, GetGetSetSetGet)
 {
   GetGetSetSetGet(state);
+}
+
+TEST_F(ZooKeeperStateTest, Names)
+{
+  Names(state);
 }
 #endif // MESOS_HAS_JAVA

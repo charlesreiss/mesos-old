@@ -16,19 +16,6 @@ Future<short> poll(int fd, short events);
 
 // TODO(benh): Add a version which takes multiple file descriptors.
 
-
-// Set the open file descriptor fd to be non-blocking. If succeeds, the function
-// will return 0. Otherwise, -1 will be returned and the errno will be set
-// accordingly.
-int nonblock(int fd);
-
-
-// Check whether the open file descriptor fd is non-blocking. The function will
-// return 1 if fd is non-blocking, 0 if fd is blocking, -1 if error occurs. The
-// errno will be set accordingly if error is returned.
-int isNonblock(int fd);
-
-
 // Performs a single non-blocking read by polling on the specified file
 // descriptor until any data can be be read. The future will become ready when
 // some data is read (may be less than that specified by size). A future failure

@@ -24,6 +24,7 @@
 
 #include <stout/foreach.hpp>
 #include <stout/json.hpp>
+#include <stout/net.hpp>
 #include <stout/numify.hpp>
 #include <stout/os.hpp>
 #include <stout/result.hpp>
@@ -48,6 +49,7 @@ using process::http::BadRequest;
 using process::http::InternalServerError;
 using process::http::NotFound;
 using process::http::OK;
+using process::http::TemporaryRedirect;
 using process::http::Response;
 using process::http::Request;
 
@@ -157,6 +159,7 @@ JSON::Object model(const Slave& slave)
 {
   JSON::Object object;
   object.values["id"] = slave.id.value();
+  object.values["pid"] = string(slave.pid);
   object.values["hostname"] = slave.info.hostname();
   object.values["webui_hostname"] = slave.info.webui_hostname();
   object.values["webui_port"] = slave.info.webui_port();
@@ -193,6 +196,24 @@ Future<Response> vars(
   response.headers["Content-Length"] = stringify(out.str().size());
   response.body = out.str().data();
   return response;
+}
+
+Future<Response> redirect(
+    const Master& master,
+    const Request& request)
+{
+  VLOG(1) << "HTTP request for '" << request.path << "'";
+
+  // If there's no leader, redirect to this master's base url.
+  UPID pid = master.leader != UPID() ? master.leader : master.self();
+
+  Try<string> hostname = net::getHostname(pid.ip);
+  if (hostname.isError()) {
+    return InternalServerError(hostname.error());
+  }
+
+  return TemporaryRedirect(
+      "http://" + hostname.get() + ":" + stringify(pid.port));
 }
 
 
@@ -276,6 +297,11 @@ Future<Response> state(
   object.values["id"] = master.info.id();
   object.values["pid"] = string(master.self());
 
+  // TODO(benh): Use an Option for the leader PID.
+  if (master.leader != UPID()) {
+    object.values["leader"] = string(master.leader);
+  }
+
   if (master.flags.log_dir.isSome()) {
     object.values["log_dir"] = master.flags.log_dir.get();
   }
@@ -310,120 +336,6 @@ Future<Response> state(
 
     object.values["completed_frameworks"] = array;
   }
-
-  std::ostringstream out;
-
-  JSON::render(out, object);
-
-  OK response;
-  response.headers["Content-Type"] = "application/json";
-  response.headers["Content-Length"] = stringify(out.str().size());
-  response.body = out.str().data();
-  return response;
-}
-
-
-Future<Response> log(
-    const Master& master,
-    const Request& request)
-{
-  VLOG(1) << "HTTP request for '" << request.path << "'";
-
-  map<string, vector<string> > pairs =
-    strings::pairs(request.query, ";&", "=");
-
-  off_t offset = -1;
-  ssize_t length = -1;
-  string level = pairs.count("level") > 0 ? pairs["level"][0] : "INFO";
-
-  if (pairs.count("offset") > 0 && pairs["offset"].size() > 0) {
-    Try<off_t> result = numify<off_t>(pairs["offset"].back());
-    if (result.isError()) {
-      LOG(WARNING) << "Failed to \"numify\" the 'offset' value (\""
-                   << pairs["offset"].back() << "\"): "
-                   << result.error();
-      return BadRequest();
-    }
-    offset = result.get();
-  }
-
-  if (pairs.count("length") > 0 && pairs["length"].size() > 0) {
-    Try<ssize_t> result = numify<ssize_t>(pairs["length"].back());
-    if (result.isError()) {
-      LOG(WARNING) << "Failed to \"numify\" the 'length' value (\""
-                   << pairs["length"].back() << "\"): "
-                   << result.error();
-      return BadRequest();
-    }
-    length = result.get();
-  }
-
-  if (master.flags.log_dir.isNone()) {
-    return NotFound();
-  }
-
-  string path = master.flags.log_dir.get() + "/mesos-master." + level;
-
-  Try<int> fd = os::open(path, O_RDONLY);
-
-  if (fd.isError()) {
-    LOG(WARNING) << "Failed to open log file at "
-                 << path << ": " << fd.error();
-    return InternalServerError();
-  }
-
-  off_t size = lseek(fd.get(), 0, SEEK_END);
-
-  if (size == -1) {
-    PLOG(WARNING) << "Failed to seek in the log";
-    close(fd.get());
-    return InternalServerError();
-  }
-
-  if (offset == -1) {
-    offset = size;
-  }
-
-  if (length == -1) {
-    length = size - offset;
-  }
-
-  JSON::Object object;
-
-  if (offset < size) {
-    // Seek to the offset we want to read from.
-    if (lseek(fd.get(), offset, SEEK_SET) == -1) {
-      PLOG(WARNING) << "Failed to seek in the log";
-      close(fd.get());
-      return InternalServerError();
-    }
-
-    // Read length bytes (or to EOF).
-    char* temp = new char[length];
-
-    length = ::read(fd.get(), temp, length);
-
-    if (length == 0) {
-      object.values["offset"] = offset;
-      object.values["length"] = 0;
-      delete[] temp;
-    } else if (length == -1) {
-      PLOG(WARNING) << "Failed to read from the log";
-      delete[] temp;
-      close(fd.get());
-      return InternalServerError();
-    } else {
-      object.values["offset"] = offset;
-      object.values["length"] = length;
-      object.values["data"] = string(temp, length);
-      delete[] temp;
-    }
-  } else {
-    object.values["offset"] = size;
-    object.values["length"] = 0;
-  }
-
-  close(fd.get());
 
   std::ostringstream out;
 
