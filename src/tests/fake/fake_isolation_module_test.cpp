@@ -428,14 +428,17 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
   EXPECT_CALL(mockTask, getUsage(seconds(start + kTick * 2),
                                  seconds(start + kTick * 3))).
     WillRepeatedly(Return(Resources::parse("cpus:0.25;mem:0.375")));
+  const UsageInfo firstInfo(TASK_RUNNING, Resources::parse("A:1000"));
   EXPECT_CALL(mockTask, takeUsage(seconds(start), seconds(start + kTick), _)).
-    WillOnce(DoAll(Trigger(&tookFirst), Return(TASK_RUNNING)));
+    WillOnce(DoAll(Trigger(&tookFirst), Return(firstInfo)));
+  const UsageInfo secondInfo(TASK_RUNNING, Resources::parse("B:1000"));
   EXPECT_CALL(mockTask, takeUsage(
         seconds(start + kTick), seconds(start + kTick * 2), _)).
-    WillOnce(DoAll(Trigger(&tookSecond), Return(TASK_RUNNING)));
+    WillOnce(DoAll(Trigger(&tookSecond), Return(secondInfo)));
+  const UsageInfo thirdInfo(TASK_FINISHED, Resources::parse("C:50"));
   EXPECT_CALL(mockTask, takeUsage(
         seconds(start + kTick * 2), seconds(start + kTick * 3), _)).
-    WillOnce(DoAll(Trigger(&tookThird), Return(TASK_FINISHED)));
+    WillOnce(DoAll(Trigger(&tookThird), Return(thirdInfo)));
 
   process::Clock::advance(kTick);
   WAIT_UNTIL(tookFirst);
@@ -464,12 +467,14 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
   EXPECT_DOUBLE_EQ(start + kTick * 2.0, firstUsage.timestamp());
   EXPECT_DOUBLE_EQ(kTick * 2.0, firstUsage.duration());
   EXPECT_EQ(Resources::parse("cpus:0.6875;mem:0.5"), firstUsage.resources());
+  EXPECT_EQ(Resources::parse("A:1000;B:1000"), firstUsage.progress().progress());
   EXPECT_EQ("task0", firstUsage.executor_id().value());
   EXPECT_TRUE(firstUsage.still_running());
   FrameworkID expectFrameworkId = DEFAULT_FRAMEWORK_ID;
   EXPECT_EQ(expectFrameworkId, firstUsage.framework_id());
   EXPECT_DOUBLE_EQ(start + kTick * 4.0, secondUsage.timestamp());
   EXPECT_DOUBLE_EQ(kTick * 2.0, secondUsage.duration());
+  EXPECT_EQ(Resources::parse("C:50"), secondUsage.progress().progress());
   EXPECT_EQ(Resources::parse("cpus:0.125;mem:0.375"), secondUsage.resources());
   EXPECT_FALSE(secondUsage.still_running());
   stopSlave();

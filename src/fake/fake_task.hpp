@@ -45,6 +45,11 @@ struct UsageInfo {
   UsageInfo(const mesos::TaskState& _state, const mesos::Progress& _progress)
     : state(_state), progress(_progress) {}
 
+  UsageInfo(const mesos::TaskState& _state, const Resources& _progress)
+    : state(_state), progress() {
+    progress.mutable_progress()->MergeFrom(_progress);
+  }
+
   UsageInfo(const mesos::TaskState& _state)
     : state(_state), progress() {}
 

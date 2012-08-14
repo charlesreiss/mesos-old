@@ -182,11 +182,14 @@ private:
     double maxMemory;
     bool dead;
     Resources expectedResources;
+    Resources progressResources;
 
     ResourceRecord();
 
-    void accumulate(seconds secs, const Resources& measurement, bool dead);
+    void accumulate(seconds secs, const Resources& measurement,
+        const Progress& progress, bool dead);
     Resources getResult(seconds secs) const;
+    Progress getProgress() const;
     void clear();
   };
   typedef hashmap<std::pair<FrameworkID, ExecutorID>, ResourceRecord>

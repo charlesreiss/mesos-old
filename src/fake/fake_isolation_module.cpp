@@ -428,19 +428,19 @@ bool FakeIsolationModule::tick() {
     foreach (const DesiredUsage& usage, usages) {
       VLOG(1) << "decided on usage for " << usage;
       FakeTask* fakeTask = usage.task->fakeTask;
-      TaskState state =
+      UsageInfo usageInfo =
           fakeTask->takeUsage(oldTime, newTime, usage.assignedUsage);
       recentUsage[usage.id].accumulate(seconds(interval), usage.assignedUsage,
-          state != TASK_RUNNING);
+          usageInfo.progress, usageInfo.state != TASK_RUNNING);
       recentUsage[usage.id].expectedResources =
         usage.task->assignedResources.expectedResources;
       VLOG(1) << "state == "
-              << TaskState_descriptor()->FindValueByNumber(state)->name();
-      if (state != TASK_RUNNING) {
+              << TaskState_descriptor()->FindValueByNumber(usageInfo.state)->name();
+      if (usageInfo.state != TASK_RUNNING) {
         MesosExecutorDriver* driver = drivers[usage.id].first;
         TaskStatus status;
         status.mutable_task_id()->MergeFrom(usage.task->taskId);
-        status.set_state(state);
+        status.set_state(usageInfo.state);
         driver->sendStatusUpdate(status);
         toUnregister.push_back(boost::make_tuple(
               usage.id.first, usage.id.second, usage.task->taskId));
@@ -499,7 +499,8 @@ FakeIsolationModule::ResourceRecord::ResourceRecord()
 }
 
 void FakeIsolationModule::ResourceRecord::accumulate(
-    seconds secs, const Resources& measurement, bool dead_)
+    seconds secs, const Resources& measurement,
+    const Progress& progress, bool dead_)
 {
   cpuTime += measurement.get("cpus", Value::Scalar()).value() * secs.value;
   memoryTime +=
@@ -507,6 +508,7 @@ void FakeIsolationModule::ResourceRecord::accumulate(
   maxMemory = std::max(
       measurement.get("mem", Value::Scalar()).value(),
       maxMemory);
+  progressResources += progress.progress();
   dead = dead_;
 }
 
@@ -530,10 +532,18 @@ Resources FakeIsolationModule::ResourceRecord::getResult(seconds secs) const
   return result;
 }
 
+Progress FakeIsolationModule::ResourceRecord::getProgress() const
+{
+  Progress progress;
+  progress.mutable_progress()->MergeFrom(progressResources);
+  return progress;
+}
+
 void FakeIsolationModule::ResourceRecord::clear()
 {
   cpuTime = memoryTime = maxMemory = 0.0;
   expectedResources = Resources();
+  progressResources = Resources();
 }
 
 void FakeIsolationModule::sendUsage()
@@ -549,6 +559,7 @@ void FakeIsolationModule::sendUsage()
     message.set_duration(interval.value);
     message.mutable_resources()->MergeFrom(record.getResult(interval));
     message.set_still_running(!record.dead);
+    message.mutable_progress()->MergeFrom(record.getProgress());
 
     message.mutable_expected_resources()->MergeFrom(
         record.expectedResources);
