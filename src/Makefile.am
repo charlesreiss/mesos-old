@@ -533,6 +533,7 @@ MESOS_JAR_SOURCE =							\
 	$(srcdir)/java/src/org/apache/mesos/ExecutorDriver.java		\
 	$(srcdir)/java/src/org/apache/mesos/Executor.java		\
 	$(srcdir)/java/src/org/apache/mesos/Log.java			\
+	$(srcdir)/java/src/org/apache/mesos/ProgressIndicator.java      \
 	$(srcdir)/java/src/org/apache/mesos/MesosExecutorDriver.java	\
 	$(srcdir)/java/src/org/apache/mesos/MesosSchedulerDriver.java	\
 	$(srcdir)/java/src/org/apache/mesos/SchedulerDriver.java	\
