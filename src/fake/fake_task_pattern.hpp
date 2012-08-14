@@ -56,7 +56,7 @@ public:
               double _cpuPerUnit, seconds _baseTime);
 
   Resources getUsage(seconds from, seconds to) const;
-  TaskState takeUsage(seconds from, seconds to, const Resources& resources);
+  UsageInfo takeUsage(seconds from, seconds to, const Resources& resources);
   ResourceHints getResourceRequest() const { return request; }
   void printToStream(std::ostream& out) const;
   double getViolations() const { return violations; }

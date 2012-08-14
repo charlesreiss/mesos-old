@@ -36,7 +36,7 @@ ConstantTask::getUsage(seconds from, seconds to) const
   return usage;
 }
 
-TaskState
+UsageInfo
 ConstantTask::takeUsage(seconds from, seconds to, const Resources& given)
 {
   bool less = true;
@@ -92,7 +92,7 @@ BatchTask::getUsage(seconds from, seconds to) const
   return result;
 }
 
-TaskState
+UsageInfo
 BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
 {
   // Make sure rounding errors between getUsage() --> takeUsage() don't cause
