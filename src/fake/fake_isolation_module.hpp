@@ -79,7 +79,8 @@ private:
   FakeIsolationModule* module;
 };
 
-struct FakeIsolationModuleTicker : public process::Process<FakeIsolationModuleTicker> {
+struct FakeIsolationModuleTicker
+    : public process::Process<FakeIsolationModuleTicker> {
   FakeIsolationModuleTicker(FakeIsolationModule* module_, double interval_)
       : module(module_), interval(interval_) {}
 
@@ -98,7 +99,8 @@ class FakeIsolationModule : public IsolationModule {
 public:
   static void registerOptions(Configurator* configurator);
 
-  FakeIsolationModule(const Configuration& conf, const FakeTaskTracker& fakeTasks_);
+  FakeIsolationModule(const Configuration& conf,
+                      const FakeTaskTracker& fakeTasks_);
 
   void initialize(const slave::Flags& flags, bool local,
                   const process::PID<Slave>& slave);

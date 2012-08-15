@@ -288,7 +288,8 @@ struct DesiredUsage {
     Resources missing = desiredUsage - assignedUsage;
     foreach (const Resource& resource, missing) {
       if (resource.type() != Value::SCALAR) continue;
-      if (resource.scalar().value() <= kClose && resource.scalar().value() > 0.0) {
+      if (resource.scalar().value() <= kClose &&
+          resource.scalar().value() > 0.0) {
         foreach (Resource& assignedResource, assignedUsage) {
           if (assignedResource.name() == resource.name()) {
             assignedResource.MergeFrom(desiredUsage.get(resource).get());
@@ -410,8 +411,8 @@ bool FakeIsolationModule::tick() {
 
     // 2a) If using free CPU is enabled, distribute it.
     if (extraCpu) {
-      distributeFree("cpus", &DesiredUsage::cpuWeight, &DesiredUsage::excessCpu,
-          totalUsed, totalResources, &usages);
+      distributeFree("cpus", &DesiredUsage::cpuWeight,
+          &DesiredUsage::excessCpu, totalUsed, totalResources, &usages);
     }
 
     if (extraMem) {
@@ -435,7 +436,8 @@ bool FakeIsolationModule::tick() {
       recentUsage[usage.id].expectedResources =
         usage.task->assignedResources.expectedResources;
       VLOG(1) << "state == "
-              << TaskState_descriptor()->FindValueByNumber(usageInfo.state)->name();
+              << TaskState_descriptor()->FindValueByNumber(
+                  usageInfo.state)->name();
       if (usageInfo.state != TASK_RUNNING) {
         MesosExecutorDriver* driver = drivers[usage.id].first;
         TaskStatus status;
