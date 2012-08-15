@@ -370,6 +370,7 @@ public class FrameworkScheduler implements Scheduler {
     }
 
     if (ttInfo.maps.size() >= ttInfo.maxMaps) {
+      LOG.info("No maps because too many running");
       return false;
     }
 
@@ -385,6 +386,9 @@ public class FrameworkScheduler implements Scheduler {
     // For now, we just add 1
     if (jobs.size() > 0)
       neededMaps += 1;
+
+    LOG.info("Seen " + neededMaps + " versus " +
+        unassignedMaps + " unassigned");
 
     if (unassignedMaps < neededMaps) {
 
@@ -422,6 +426,8 @@ public class FrameworkScheduler implements Scheduler {
         int state = job.getStatus().getRunState();
         if (state == JobStatus.RUNNING) {
           int availLevel = availableMapLevel(job, host, maxLevel);
+          LOG.info("available level for job " + job.getJobID() + " is " +
+              availLevel);
           if (availLevel != -1) {
             lastMapWasLocal = (availLevel == 0);
             return true;
@@ -801,7 +807,10 @@ public class FrameworkScheduler implements Scheduler {
 
       // Return false right away if the task cache isn't ready, either because
       // we are still initializing or because we are cleaning up
-      if (job.nonRunningMapCache == null) return -1;
+      if (job.nonRunningMapCache == null) {
+        LOG.info("availableMapLevel for " + job.getJobID() + ": map cache not ready");
+        return -1;
+      }
 
       // We fall to linear scan of the list (III above) if we have misses in the
       // above caches
@@ -809,6 +818,7 @@ public class FrameworkScheduler implements Scheduler {
       Node node = jobTracker.getNode(host);
 
       int maxLevel = job.getMaxCacheLevel();
+      LOG.info("maxLevel = " + maxLevel);
 
       //
       // I) Non-running TIP :
@@ -827,6 +837,7 @@ public class FrameworkScheduler implements Scheduler {
         // tasks
         int maxLevelToSchedule = Math.min(maxCacheLevel, maxLevel);
         for (level = 0;level < maxLevelToSchedule; ++level) {
+          LOG.info("Checking locally at level " + level + "; key = " + key.getName());
           List <TaskInProgress> cacheForLevel = job.nonRunningMapCache.get(key);
           if (hasUnlaunchedTask(cacheForLevel)) {
             return level;
@@ -836,8 +847,11 @@ public class FrameworkScheduler implements Scheduler {
 
         // Check if we need to only schedule a local task (node-local/rack-local)
         if (level == maxCacheLevel) {
+          LOG.info("availableMapLevel: rejecting for maxCacheLevel");
           return -1;
         }
+      } else {
+        LOG.info("No local node for " + host);
       }
 
       //2. Search breadth-wise across parents at max level for non-running
@@ -857,11 +871,15 @@ public class FrameworkScheduler implements Scheduler {
 
         // skip the parent that has already been scanned
         if (parent == nodeParentAtMaxLevel) {
+          LOG.info("Skipping checking " + parent.getName());
           continue;
         }
 
+        LOG.info("Checking " + parent.getName());
+
         List<TaskInProgress> cache = job.nonRunningMapCache.get(parent);
         if (hasUnlaunchedTask(cache)) {
+          LOG.info("nonRunningMapCache: has unlaunched task at level " + maxLevel);
           return maxLevel-1;
         }
       }
@@ -920,6 +938,7 @@ public class FrameworkScheduler implements Scheduler {
         }
       }
 
+      LOG.info("Defaulting to no task found");
       return -1;
     }
   }
@@ -930,9 +949,19 @@ public class FrameworkScheduler implements Scheduler {
    */
   boolean hasUnlaunchedTask(Collection<TaskInProgress> cache) {
     if (cache != null)
-      for (TaskInProgress tip: cache)
+      for (TaskInProgress tip: cache) {
+        LOG.info("Checking " + tip.getTIPId() + ": " + 
+                 tip.isRunnable() + " / " + tip.isRunning());
+        if (!tip.isRunning()) {
+          LOG.info("Checking if we can use " + tip.getTIPId());
+          for (TaskStatus status : tip.getTaskStatuses()) {
+            LOG.info("Status " + status.getTaskID() + ": " +
+                status.getRunState());
+          }
+        }
         if (tip.isRunnable() && !tip.isRunning())
           return true;
+      }
     return false;
   }
 
