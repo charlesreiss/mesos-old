@@ -78,6 +78,7 @@ void UsageRecorder::initialize()
   install<StatusUpdateMessage>(&UsageRecorder::recordStatusUpdateMessage);
   install<OfferRecord>(&UsageRecorder::recordOffer);
   install<AllocatorEstimates>(&UsageRecorder::recordAllocatorEstimates);
+  install<ExitedExecutorMessage>(&UsageRecorder::recordExitedExecutor);
 }
 
 void UsageRecorder::finalize()
@@ -126,6 +127,11 @@ void UsageRecorder::recordAllocatorEstimates(const AllocatorEstimates& estimates
   foreach (const AllocatorEstimate& estimate, estimates.estimate()) {
     getRecord(estimate.time())->add_allocator_estimate()->MergeFrom(estimate);
   }
+}
+
+// FIXME TEST
+void UsageRecorder::recordExitedExecutor(const ExitedExecutorMessage& exit) {
+  getRecord(process::Clock::now())->add_exit()->MergeFrom(exit);
 }
 
 void UsageRecorder::emit()

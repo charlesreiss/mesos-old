@@ -24,21 +24,21 @@ protected:
 
 TEST_F(ConstantTaskTest, TakeUsageSuccess)
 {
-  EXPECT_EQ(TASK_RUNNING,
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:16")),
             task->takeUsage(seconds(1.0), seconds(5.0),
                             Resources::parse("mem:1024;cpus:4")));
   // If it doesn't get the CPU it wants, it still runs.
-  EXPECT_EQ(TASK_RUNNING,
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:8")),
             task->takeUsage(seconds(5.0), seconds(9.0),
                             Resources::parse("mem:1024;cpus:2")));
-  EXPECT_EQ(TASK_RUNNING,
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:4")),
             task->takeUsage(seconds(5.0), seconds(9.0),
                             Resources::parse("mem:1024;cpus:1")));
 }
 
 TEST_F(ConstantTaskTest, TakeUsageFailure)
 {
-  EXPECT_EQ(TASK_LOST,
+  EXPECT_EQ(UsageInfo(TASK_LOST, Resources::parse("")),
             task->takeUsage(seconds(1.0), seconds(5.0),
                             Resources::parse("mem:768;cpus:4")));
 }
@@ -68,7 +68,7 @@ TEST_F(BatchTaskTest, GetUsageInitial)
 
 TEST_F(BatchTaskTest, GetUsageAfterTakeUsage)
 {
-  EXPECT_EQ(TASK_RUNNING,
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:20.0")),
             task->takeUsage(seconds(1.0), seconds(11.0),
                             Resources::parse("cpus:2.0;mem:1024")));
   EXPECT_EQ(Resources::parse("cpus:3.0;mem:1024"),
@@ -79,25 +79,25 @@ TEST_F(BatchTaskTest, GetUsageAfterTakeUsage)
 
 TEST_F(BatchTaskTest, TakeUsageNormal)
 {
-  EXPECT_EQ(TASK_RUNNING,
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:20.0")),
             task->takeUsage(seconds(1.0), seconds(11.0),
                             Resources::parse("cpus:2.0;mem:1024")));
-  EXPECT_EQ(TASK_RUNNING,
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:5.0")),
             task->takeUsage(seconds(11.0), seconds(16.0),
                             Resources::parse("cpus:1.0;mem:1024")));
-  EXPECT_EQ(TASK_FINISHED,
+  EXPECT_EQ(UsageInfo(TASK_FINISHED, Resources::parse("cpuTime:5.0")),
             task->takeUsage(seconds(16.0), seconds(18.5),
                             Resources::parse("cpus:2.0;mem:1024")));
 }
 
 TEST_F(BatchTaskTest, TakeUsageFailure)
 {
-  EXPECT_EQ(TASK_RUNNING,
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:20.0")),
             task->takeUsage(seconds(1.0), seconds(11.0),
                             Resources::parse("cpus:2.0;mem:1024")));
   EXPECT_EQ(Resources::parse("cpus:1.0;mem:1024"),
             task->getUsage(seconds(11.0), seconds(21.0)));
-  EXPECT_EQ(TASK_LOST,
+  EXPECT_EQ(UsageInfo(TASK_LOST, Resources::parse("")),
             task->takeUsage(seconds(11.0), seconds(12.0),
                             Resources::parse("cpus:3.0;mem:768")));
   EXPECT_EQ(Resources::parse("cpus:3.0;mem:1024"),

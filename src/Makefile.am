@@ -160,14 +160,15 @@ libmesos_no_third_party_la_SOURCES = sched/sched.cpp local/local.cpp	\
 	master/allocator_factory.cpp 					\
 	master/dominant_share_allocator.cpp slave/slave.cpp		\
 	slave/http.cpp slave/isolation_module.cpp			\
-	slave/statistics.cpp						\
+	slave/statistics.cpp slave/gc.cpp				\
 	slave/process_based_isolation_module.cpp slave/reaper.cpp	\
 	launcher/launcher.cpp exec/exec.cpp common/lock.cpp		\
 	detector/detector.cpp configurator/configurator.cpp		\
 	common/date_utils.cpp common/resources.cpp			\
-	common/attributes.cpp common/values.cpp logging/logging.cpp	\
-	zookeeper/zookeeper.cpp zookeeper/authentication.cpp		\
-	zookeeper/group.cpp messages/messages.proto
+	common/attributes.cpp common/values.cpp files/files.cpp		\
+	logging/logging.cpp zookeeper/zookeeper.cpp			\
+	zookeeper/authentication.cpp zookeeper/group.cpp		\
+	messages/messages.proto
 
 pkginclude_HEADERS = $(top_srcdir)/include/mesos/executor.hpp	\
 		     $(top_srcdir)/include/mesos/scheduler.hpp	\
@@ -197,16 +198,17 @@ libmesos_no_third_party_la_SOURCES += common/attributes.hpp		\
 	common/type_utils.hpp common/thread.hpp common/units.hpp	\
 	common/values.hpp configurator/configuration.hpp		\
 	configurator/configurator.hpp configurator/option.hpp		\
-	detector/detector.hpp flags/flag.hpp flags/flags.hpp		\
-	flags/loader.hpp launcher/launcher.hpp linux/cgroups.hpp	\
-	linux/fs.hpp linux/proc.hpp local/flags.hpp local/local.hpp	\
+	detector/detector.hpp examples/utils.hpp files/files.hpp	\
+	flags/flag.hpp flags/flags.hpp flags/loader.hpp			\
+	launcher/launcher.hpp linux/cgroups.hpp linux/fs.hpp		\
+	linux/proc.hpp local/flags.hpp local/local.hpp			\
 	logging/flags.hpp logging/logging.hpp master/allocator.hpp	\
 	master/constants.hpp master/flags.hpp				\
 	master/frameworks_manager.hpp master/http.hpp			\
 	master/master.hpp master/dominant_share_allocator.hpp		\
 	master/slaves_manager.hpp master/webui.hpp			\
 	messages/messages.hpp slave/constants.hpp slave/flags.hpp	\
-	slave/http.hpp slave/isolation_module.hpp			\
+	slave/gc.hpp slave/http.hpp slave/isolation_module.hpp		\
 	slave/isolation_module_factory.hpp				\
 	slave/cgroups_isolation_module.hpp				\
 	slave/lxc_isolation_module.hpp					\
@@ -258,7 +260,8 @@ libmesos_no_third_party_la_LIBADD += liblog.la
 # include the leveldb headers.
 noinst_LTLIBRARIES += libstate.la
 libstate_la_SOURCES = state/leveldb.cpp state/zookeeper.cpp
-libstate_la_SOURCES += state/state.hpp messages/state.hpp	\
+libstate_la_SOURCES += state/leveldb.hpp state/serializer.hpp	\
+  state/state.hpp state/zookeeper.hpp messages/state.hpp	\
   messages/state.proto
 nodist_libstate_la_SOURCES = $(STATE_PROTOS)
 libstate_la_CPPFLAGS = -I../$(LEVELDB)/include $(MESOS_CPPFLAGS)
@@ -434,7 +437,7 @@ nobase_dist_webui_DATA += webui/master/static/graph.css	\
 nobase_dist_webui_DATA += webui/master/static/dashboard.html		\
   webui/master/static/framework.html					\
   webui/master/static/frameworks.html webui/master/static/home.html	\
-  webui/master/static/index.html webui/master/static/log.html		\
+  webui/master/static/index.html webui/master/static/pailer.html	\
   webui/master/static/slaves.html
 
 # Need to distribute/install webui images.
@@ -530,10 +533,15 @@ MESOS_JAR_SOURCE =							\
 	$(srcdir)/java/src/org/apache/mesos/ExecutorDriver.java		\
 	$(srcdir)/java/src/org/apache/mesos/Executor.java		\
 	$(srcdir)/java/src/org/apache/mesos/Log.java			\
+	$(srcdir)/java/src/org/apache/mesos/ProgressIndicator.java      \
 	$(srcdir)/java/src/org/apache/mesos/MesosExecutorDriver.java	\
 	$(srcdir)/java/src/org/apache/mesos/MesosSchedulerDriver.java	\
 	$(srcdir)/java/src/org/apache/mesos/SchedulerDriver.java	\
-	$(srcdir)/java/src/org/apache/mesos/Scheduler.java
+	$(srcdir)/java/src/org/apache/mesos/Scheduler.java		\
+	$(srcdir)/java/src/org/apache/mesos/state/InMemoryState.java	\
+	$(srcdir)/java/src/org/apache/mesos/state/State.java		\
+	$(srcdir)/java/src/org/apache/mesos/state/Variable.java		\
+	$(srcdir)/java/src/org/apache/mesos/state/ZooKeeperState.java
 MESOS_JAR_GENERATED = $(JAVA_PROTOS)					\
 	java/generated/org/apache/mesos/MesosNativeLibrary.java
 EXTRA_DIST += $(MESOS_JAR_SOURCE)					\
@@ -571,7 +579,7 @@ CLEANFILES += $(PROTOBUF_JAR)
 
 $(MESOS_JAR): $(MESOS_JAR_SOURCE) $(MESOS_JAR_GENERATED) $(PROTOBUF_JAR)
 	@echo "Building mesos-$(PACKAGE_VERSION).jar ..."
-	@rm -f java/classes/org/apache/mesos/*
+	@rm -rf java/classes/org/apache/mesos
 	@$(MKDIR_P) java/classes/org/apache/mesos
 	@$(JAVA_HOME)/bin/javac \
           -cp $(PROTOBUF_JAR) \
@@ -598,9 +606,11 @@ CLEANFILES += $(MESOS_SOURCES_JAR)
 noinst_LTLIBRARIES += libjava.la
 
 libjava_la_SOURCES = java/jni/convert.cpp java/jni/construct.cpp	\
+	java/jni/org_apache_mesos_Log.cpp				\
 	java/jni/org_apache_mesos_MesosSchedulerDriver.cpp		\
 	java/jni/org_apache_mesos_MesosExecutorDriver.cpp		\
-	java/jni/org_apache_mesos_Log.cpp jvm/jvm.cpp
+	java/jni/org_apache_mesos_state_Variable.cpp			\
+	java/jni/org_apache_mesos_state_ZooKeeperState.cpp jvm/jvm.cpp
 
 libjava_la_SOURCES += java/jni/convert.hpp java/jni/construct.hpp jvm/jvm.hpp
 
@@ -631,11 +641,15 @@ libmesos_la_LIBADD += $(JAVA_LDFLAGS)
 nodist_libjava_la_SOURCES =					\
 	java/jni/org_apache_mesos_MesosSchedulerDriver.h	\
 	java/jni/org_apache_mesos_MesosExecutorDriver.h		\
-	java/jni/org_apache_mesos_Log.h
+	java/jni/org_apache_mesos_Log.h				\
+	java/jni/org_apache_mesos_state_Variable.h		\
+	java/jni/org_apache_mesos_state_ZooKeeperState.h
 
 BUILT_SOURCES += java/jni/org_apache_mesos_MesosSchedulerDriver.h	\
 	java/jni/org_apache_mesos_MesosExecutorDriver.h			\
-	java/jni/org_apache_mesos_Log.h
+	java/jni/org_apache_mesos_Log.h					\
+	java/jni/org_apache_mesos_state_Variable.h		\
+	java/jni/org_apache_mesos_state_ZooKeeperState.h
 
 
 java/jni/org_apache_mesos_MesosSchedulerDriver.h: $(MESOS_JAR)
@@ -651,6 +665,14 @@ java/jni/org_apache_mesos_MesosExecutorDriver.h: $(MESOS_JAR)
 java/jni/org_apache_mesos_Log.h: $(MESOS_JAR)
 	@$(JAVA_HOME)/bin/javah -d java/jni -classpath		\
           $(PROTOBUF_JAR):java/classes org.apache.mesos.Log
+
+java/jni/org_apache_mesos_state_Variable.h: $(MESOS_JAR)
+	@$(JAVA_HOME)/bin/javah -d java/jni -classpath		\
+          $(PROTOBUF_JAR):java/classes org.apache.mesos.state.Variable
+
+java/jni/org_apache_mesos_state_ZooKeeperState.h: $(MESOS_JAR)
+	@$(JAVA_HOME)/bin/javah -d java/jni -classpath		\
+          $(PROTOBUF_JAR):java/classes org.apache.mesos.state.ZooKeeperState
 
 $(EXAMPLES_JAR): $(EXAMPLES_SOURCE)
 	@echo "Building examples.jar ..."
@@ -801,8 +823,8 @@ check_PROGRAMS += mesos-tests
 
 mesos_tests_SOURCES = tests/main.cpp tests/utils.cpp			\
 	              tests/master_tests.cpp tests/state_tests.cpp	\
-	              tests/slave_tests.cpp				\
 	              tests/statistics_tests.cpp			\
+	              tests/gc_tests.cpp				\
 	              tests/resource_offers_tests.cpp			\
 	              tests/fault_tolerance_tests.cpp			\
 	              tests/flags_tests.cpp tests/log_tests.cpp		\
@@ -885,16 +907,17 @@ EXTRA_DIST += examples/python/test_framework.py \
 	      examples/python/test_executor.py
 
 
-EXTERNALSCRIPTS =						\
-  tests/external/LxcIsolation/HoldMoreMemThanRequested.sh	\
-  tests/external/LxcIsolation/ScaleUpAndDown.sh			\
-  tests/external/LxcIsolation/TwoSeparateTasks.sh		\
-  tests/external/LxcIsolation/run_scheduled_memhog_test.sh	\
-  tests/external/SampleFrameworks/CppFramework.sh		\
-  tests/external/SampleFrameworks/NoExecutorFramework.sh	\
-  tests/external/SampleFrameworks/JavaExceptionFramework.sh	\
-  tests/external/SampleFrameworks/JavaFramework.sh		\
-  tests/external/SampleFrameworks/PythonFramework.sh		\
+EXTERNALSCRIPTS =							\
+  tests/external/CgroupsIsolation/ROOT_CGROUPS_BalloonFramework.sh	\
+  tests/external/LxcIsolation/HoldMoreMemThanRequested.sh		\
+  tests/external/LxcIsolation/ScaleUpAndDown.sh				\
+  tests/external/LxcIsolation/TwoSeparateTasks.sh			\
+  tests/external/LxcIsolation/run_scheduled_memhog_test.sh		\
+  tests/external/SampleFrameworks/CppFramework.sh			\
+  tests/external/SampleFrameworks/NoExecutorFramework.sh		\
+  tests/external/SampleFrameworks/JavaExceptionFramework.sh		\
+  tests/external/SampleFrameworks/JavaFramework.sh			\
+  tests/external/SampleFrameworks/PythonFramework.sh			\
   tests/external/KillTree/KillTreeTest.sh
 
 dist_check_SCRIPTS += $(EXTERNALSCRIPTS)

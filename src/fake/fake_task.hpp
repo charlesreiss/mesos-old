@@ -38,10 +38,37 @@ namespace mesos {
 namespace internal {
 namespace fake {
 
+struct UsageInfo {
+  mesos::TaskState state;
+  mesos::Progress progress;
+
+  UsageInfo(const mesos::TaskState& _state, const mesos::Progress& _progress)
+    : state(_state), progress(_progress) {}
+
+  UsageInfo(const mesos::TaskState& _state, const Resources& _progress)
+    : state(_state), progress() {
+    progress.mutable_progress()->MergeFrom(_progress);
+  }
+
+  UsageInfo(const mesos::TaskState& _state)
+    : state(_state), progress() {}
+
+  operator mesos::TaskState() const { return state; }
+
+  bool operator==(const UsageInfo& other) const {
+    return state == other.state &&
+           progress.progress() == other.progress.progress();
+  }
+};
+
+inline std::ostream& operator<<(std::ostream& out, const UsageInfo& info) {
+  return out << info.state << "/" << info.progress.DebugString();
+}
+
 struct FakeTask {
   virtual Resources getUsage(seconds from, seconds to) const = 0;
-  virtual mesos::TaskState takeUsage(seconds from, seconds to,
-                                     const Resources& resources) = 0;
+  virtual UsageInfo takeUsage(seconds from, seconds to,
+                              const Resources& resources) = 0;
   virtual ResourceHints getResourceRequest() const = 0;
   virtual void printToStream(std::ostream&) const = 0;
   virtual double getScore() const { return 0.0; }

@@ -56,7 +56,7 @@ public:
         &UsageListenerTestProcess::registered);
     install<StatusUpdateMessage>(&UsageListenerTestProcess::gotUpdate,
                                  &StatusUpdateMessage::update);
-
+    install<ExitedExecutorMessage>(&UsageListenerTestProcess::gotExit);
     RegisterUsageListenerMessage registerMessage;
     registerMessage.set_pid(self());
     send(master, registerMessage);
@@ -64,6 +64,7 @@ public:
 
   MOCK_METHOD1(gotUsage, void(const UsageMessage&));
   MOCK_METHOD1(gotUpdate, void(const StatusUpdate&));
+  MOCK_METHOD1(gotExit, void(const ExitedExecutorMessage&));
   MOCK_METHOD1(registered, void(const UsageListenerRegisteredMessage&));
 
 private:
@@ -73,7 +74,7 @@ private:
 class UsageListenerTest : public testing::Test {
 protected:
   void SetUp() {
-    EXPECT_CALL(allocator, initialize(_)).Times(1);
+    EXPECT_CALL(allocator, initialize(_, _)).Times(1);
     EXPECT_CALL(allocator, gotUsage(_)).Times(testing::AtLeast(0));
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());
@@ -129,6 +130,22 @@ TEST_F(UsageListenerTest, ForwardStatus)
     WillOnce(Trigger(&gotUpdate));
   process::dispatch(masterPid, &Master::statusUpdate, update, UPID());
   WAIT_UNTIL(gotUpdate);
+}
+
+TEST_F(UsageListenerTest, ForwardExecutorExit)
+{
+  ExitedExecutorMessage message;
+  message.mutable_slave_id()->set_value("slave0");
+  message.mutable_framework_id()->set_value("framework0");
+  message.mutable_executor_id()->set_value("executor0");
+  message.set_status(42);
+  trigger gotExit;
+  EXPECT_CALL(*listener, gotExit(_)).
+    WillOnce(Trigger(&gotExit));
+  process::dispatch(masterPid, &Master::exitedExecutor,
+      message.slave_id(), message.framework_id(), message.executor_id(),
+      message.status());
+  WAIT_UNTIL(gotExit);
 }
 
 

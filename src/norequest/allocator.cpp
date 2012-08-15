@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <cmath>
 
 #include <glog/logging.h>
 
@@ -39,6 +40,7 @@ using std::vector;
 namespace mesos {
 namespace internal {
 namespace norequest {
+
 
 using process::Timeout;
 
@@ -115,6 +117,7 @@ bool NoRequestAllocator::checkFilters(const FrameworkID& frameworkId,
 
 void
 NoRequestAllocator::initialize(
+    const Flags& flags,
     const process::PID<AllocatorMasterInterface>& _master)
 {
   master = _master;

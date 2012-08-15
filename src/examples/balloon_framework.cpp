@@ -16,6 +16,7 @@
  * limitations under the License.
  */
 
+#include <assert.h>
 #include <libgen.h>
 #include <stdlib.h>
 
@@ -25,21 +26,30 @@
 #include <string>
 #include <vector>
 
-#include <boost/lexical_cast.hpp>
-
 #include <mesos/scheduler.hpp>
 
+#include <stout/numify.hpp>
+#include <stout/stringify.hpp>
+
+#include "examples/utils.hpp"
+
 using namespace mesos;
+
+
+// The amount of memory in MB the executor itself takes.
+const static size_t EXECUTOR_MEMORY_MB = 64;
 
 
 class BalloonScheduler : public Scheduler
 {
 public:
   BalloonScheduler(const ExecutorInfo& _executor,
-                   const int32_t _balloonSize)
+                   const int32_t _balloonSize,
+                   const int32_t _lowPriorityBalloonSize)
     : executor(_executor),
       balloonSize(_balloonSize),
-      tasksLaunched(0) {}
+      lowPriorityBalloonSize(_lowPriorityBalloonSize),
+      taskLaunched(false) {}
 
   virtual ~BalloonScheduler() {}
 
@@ -69,9 +79,9 @@ public:
       const Offer& offer = offers[i];
 
       // We just launch one task.
-      if (tasksLaunched++ == 0) {
+      if (!taskLaunched) {
         double mem = getScalarResource(offer, "mem");
-        assert(mem > 64);
+        assert(mem > EXECUTOR_MEMORY_MB);
 
         std::vector<TaskInfo> tasks;
         std::cout << "Starting the task" << std::endl;
@@ -81,17 +91,20 @@ public:
         task.mutable_task_id()->set_value("1");
         task.mutable_slave_id()->MergeFrom(offer.slave_id());
         task.mutable_executor()->MergeFrom(executor);
-        task.set_data(boost::lexical_cast<std::string>(balloonSize));
+        task.set_data(stringify<size_t>(balloonSize)
+            + " " + stringify<size_t>(lowPriorityBalloonSize));
 
         // Use up all the memory from the offer. 64MB for the executor itself.
         Resource* resource;
         resource = task.add_resources();
         resource->set_name("mem");
         resource->set_type(Value::SCALAR);
-        resource->mutable_scalar()->set_value(mem - 64);
+        resource->mutable_scalar()->set_value(mem - EXECUTOR_MEMORY_MB);
 
         tasks.push_back(task);
         driver->launchTasks(offer.id(), tasks);
+
+        taskLaunched = true;
       }
     }
   }
@@ -106,11 +119,12 @@ public:
   {
     std::cout << "Task in state " << status.state() << std::endl;
 
-    if (status.state() == TASK_FINISHED ||
-        status.state() == TASK_FAILED ||
-        status.state() == TASK_KILLED ||
-        status.state() == TASK_LOST) {
+    if (status.state() == TASK_FINISHED) {
       driver->stop();
+    } else if (status.state() == TASK_FAILED ||
+               status.state() == TASK_KILLED ||
+               status.state() == TASK_LOST) {
+      driver->abort();
     }
   }
 
@@ -141,32 +155,18 @@ public:
   }
 
 private:
-  double getScalarResource(const Offer& offer, const std::string& name)
-  {
-    double value = 0.0;
-
-    for (int i = 0; i < offer.resources_size(); i++) {
-      const Resource& resource = offer.resources(i);
-      if (resource.name() == name &&
-          resource.type() == Value::SCALAR) {
-        value = resource.scalar().value();
-      }
-    }
-
-    return value;
-  }
-
   const ExecutorInfo executor;
-  int32_t balloonSize;
-  int tasksLaunched;
+  const size_t balloonSize;
+  const size_t lowPriorityBalloonSize;
+  bool taskLaunched;
 };
 
 
 int main(int argc, char** argv)
 {
-  if (argc != 3) {
+  if (argc != 3 && argc != 4) {
     std::cerr << "Usage: " << argv[0]
-              << " <master> <balloon size in MB>" << std::endl;
+              << " <master> <balloon size in MB> <high-priority balloon size>" << std::endl;
     return -1;
   }
 
@@ -182,12 +182,13 @@ int main(int argc, char** argv)
   executor.mutable_executor_id()->set_value("default");
   executor.mutable_command()->set_value(uri);
 
-  Resource *mem = executor.add_resources();
+  Resource* mem = executor.add_resources();
   mem->set_name("mem");
   mem->set_type(Value::SCALAR);
-  mem->mutable_scalar()->set_value(64); // Executor takes 64MB.
+  mem->mutable_scalar()->set_value(EXECUTOR_MEMORY_MB);
 
-  BalloonScheduler scheduler(executor, atoi(argv[2]));
+  BalloonScheduler scheduler(executor, atoi(argv[2]),
+      argc > 3 ? atoi(argv[3]) : 0);
 
   FrameworkInfo framework;
   framework.set_user(""); // Have Mesos fill in the current user.
@@ -195,5 +196,12 @@ int main(int argc, char** argv)
 
   MesosSchedulerDriver driver(&scheduler, framework, argv[1]);
 
-  return driver.run() == DRIVER_STOPPED ? 0 : 1;
+  if (driver.run() == DRIVER_STOPPED) {
+    return 0;
+  } else {
+    // We stop the driver here so that we don't run into deadlock when the
+    // deallocator of the driver is called.
+    driver.stop();
+    return 1;
+  }
 }

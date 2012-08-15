@@ -70,15 +70,21 @@ public:
        "allocator",
        "Allocator to use",
        "drf");
+
+   add(&Flags::batch_seconds,
+        "batch_seconds",
+        "Seconds to wait between batch allocations",
+        1.0);
   }
 
   bool root_submissions;
   std::string slaves;
   std::string webui_dir;
-  short webui_port;
+  uint16_t webui_port;
   std::string whitelist;
   std::string usage_log_file;
   std::string allocator;
+  double batch_seconds;
 };
 
 } // namespace mesos {

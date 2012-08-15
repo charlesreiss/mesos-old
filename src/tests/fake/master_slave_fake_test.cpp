@@ -66,12 +66,12 @@ public:
     conf.set("fake_interval", kTick);
     process::Clock::pause();
     ASSERT_TRUE(GTEST_IS_THREADSAFE);
-    EXPECT_CALL(allocator, initialize(_));
+    EXPECT_CALL(allocator, initialize(_, _));
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());
 
     module.reset(new FakeIsolationModule(conf, tasks));
-    slave::Flags flags;
+    flags::Flags<logging::Flags, slave::Flags> flags;
     flags.load(conf.getMap());
     slave.reset(new Slave("slave", Resources::parse("cpu:8.0;mem:4096"), flags,
                           true, module.get()));

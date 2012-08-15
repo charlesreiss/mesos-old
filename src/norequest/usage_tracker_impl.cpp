@@ -26,6 +26,14 @@ namespace mesos {
 namespace internal {
 namespace norequest {
 
+namespace {
+
+double weightFromHalfLife(double life) {
+  return 1.0 - 1.0 / std::pow(2.0, 1.0 / life);
+}
+
+}
+
 Resources maxResources(Resources a, Resources b) {
   Resources both = a + b;
   Resources result;
@@ -305,15 +313,25 @@ UsageTrackerImpl::estimateFor(const FrameworkID& frameworkId,
 }
 
 UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
-    : lastTickTime(0.0), smoothUsage(conf_.get<bool>("norequest_smooth", false)),
-      smoothDecay(conf_.get<double>("norequest_decay", 0.8))
+    : lastTickTime(0.0), smoothUsage(conf_.get<bool>("norequest_smooth", false))
 {
-  smoothDecayMem = conf_.get<double>("norequest_decay_mem", smoothDecay);
+  if (conf_.get<double>("norequest_halflife", -1.0) > 0.0) {
+    smoothDecay =
+      weightFromHalfLife(conf_.get<double>("norequest_halflife", -1.0));
+    smoothDecayMem =
+      weightFromHalfLife(conf_.get<double>("norequest_halflife_mem",
+            conf_.get<double>("norequest_halflife", -1.0)));
+  } else {
+    smoothDecay = conf_.get<double>("norequest_decay", 0.0);
+    smoothDecayMem = conf_.get<double>("norequest_decay_mem", smoothDecay);
+  }
+  LOG(INFO) << "Configured UsageTrackerImpl; decay = " << smoothDecay
+    << "; mem decay = " << smoothDecayMem << "; smooth = " << smoothUsage;
 }
 
 void
 UsageTrackerImpl::recordUsage(const UsageMessage& update) {
-  LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
+  // LOG(INFO) << "recordUsage(" << update.DebugString() << ")";
   Resources usage = update.resources();
   ResourceEstimates* estimate = estimateFor(update.framework_id(),
       update.executor_id(), update.slave_id());
@@ -350,8 +368,8 @@ UsageTrackerImpl::forgetExecutor(const FrameworkID& frameworkId,
                                  const ExecutorID& executorId,
                                  const SlaveID& slaveId,
                                  bool clearCharge) {
-  LOG(INFO) << "forgetExecutor(" << frameworkId << "," << executorId
-            << "," << slaveId << ")";
+  //LOG(INFO) << "forgetExecutor(" << frameworkId << "," << executorId
+  //          << "," << slaveId << ")";
   const ExecutorKey key(frameworkId, executorId, slaveId);
   if (estimateByExecutor.count(key) > 0) {
     estimateByExecutor[key].clearUsage(lastTickTime, clearCharge);

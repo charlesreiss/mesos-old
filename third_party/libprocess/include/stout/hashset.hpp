@@ -48,6 +48,12 @@ public:
       }
     }
   }
+
+  inline hashset<Elem>& operator=(const hashset<Elem>& other)
+  {
+    boost::unordered_set<Elem>::operator=(other);
+    return *this;
+  }
 };
 
 #endif // __STOUT_HASHSET_HPP__

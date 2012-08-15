@@ -29,7 +29,7 @@ class ConstantTask : public FakeTask {
 public:
   ConstantTask(const Resources& usage_, const ResourceHints& request_);
   Resources getUsage(seconds from, seconds to) const;
-  TaskState takeUsage(seconds from, seconds to, const Resources& resources);
+  UsageInfo takeUsage(seconds from, seconds to, const Resources& resources);
   ResourceHints getResourceRequest() const;
   void printToStream(std::ostream& out) const;
 
@@ -44,7 +44,7 @@ public:
   BatchTask(const Resources& constUsage_, const ResourceHints& request_,
             double cpuUnits_, double maxCpuRate_);
   Resources getUsage(seconds from, seconds to) const;
-  TaskState takeUsage(seconds from, seconds to, const Resources& resources);
+  UsageInfo takeUsage(seconds from, seconds to, const Resources& resources);
   ResourceHints getResourceRequest() const;
   void printToStream(std::ostream& out) const;
 

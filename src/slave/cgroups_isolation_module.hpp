@@ -22,9 +22,11 @@
 #include <string>
 
 #include <process/future.hpp>
-#include <process/id.hpp>
+#include <process/pid.hpp>
 
 #include <stout/hashmap.hpp>
+#include <stout/hashset.hpp>
+#include <stout/lambda.hpp>
 
 #include "launcher/launcher.hpp"
 
@@ -37,6 +39,11 @@
 namespace mesos {
 namespace internal {
 namespace slave {
+
+enum CgroupOOMPolicy {
+  OOM_KILL,
+  OOM_KILL_PRIORITY
+};
 
 class CgroupsIsolationModule
   : public IsolationModule,
@@ -65,8 +72,6 @@ public:
                                 const ExecutorID& executorId,
                                 const ResourceHints& resources);
 
-  virtual void processExited(pid_t pid, int status);
-
   virtual Option<ResourceStatistics> collectResourceStatistics(
       const FrameworkID& frameworkId,
       const ExecutorID& executorId);
@@ -82,18 +87,25 @@ protected:
       const ExecutorInfo& executorInfo,
       const std::string& directory);
 
+
+  virtual void processExited(pid_t pid, int status);
+
 private:
   // No copying, no assigning.
   CgroupsIsolationModule(const CgroupsIsolationModule&);
   CgroupsIsolationModule& operator = (const CgroupsIsolationModule&);
 
-  // The cgroup information for each registered executor.
+  // The cgroup information for each live executor.
   struct CgroupInfo
   {
     FrameworkID frameworkId;
     ExecutorID executorId;
 
-    // PID of the executor.
+    // The UUID tag to distinguish between different launches of the same
+    // executor (which have the same frameworkId and executorId).
+    std::string tag;
+
+    // PID of the leading process of the executor.
     pid_t pid;
 
     // Whether the executor has been killed.
@@ -103,94 +115,23 @@ private:
     process::Future<uint64_t> oomNotifier;
   };
 
-  // Return the subsystems used by the isolation module.
-  // @return  The comma-separated subsystem names.
-  std::string subsystems();
-
-  // Return the path to the hierarchy root used by the isolation module. We use
-  // a single hierarchy root for all the subsystems.
-  // @return  The path to the hierarchy root.
-  std::string hierarchy();
-
-  // Return the canonicalized name of the cgroup used by a given executor in a
-  // given framework.
-  // @param   frameworkId   The id of the given framework.
-  // @param   executorId    The id of the given executor.
-  // @return  The canonicalized name of the cgroup.
-  std::string cgroup(const FrameworkID& frameworkId,
-                     const ExecutorID& executorId);
-
-  // Register a cgroup in the isolation module.
-  // @param   frameworkId   The id of the given framework.
-  // @param   executorId    The id of the given executor.
-  // @return  A pointer to the cgroup info registered.
-  CgroupInfo* registerCgroupInfo(const FrameworkID& frameworkId,
-                                 const ExecutorID& executorId)
-  {
-    CgroupInfo* info = new CgroupInfo;
-    info->frameworkId = frameworkId;
-    info->executorId = executorId;
-    info->pid = -1;
-    info->killed = false;
-    infos[frameworkId][executorId] = info;
-    return info;
-  }
-
-  // Unregister a cgroup in the isolation module.
-  // @param   frameworkId   The id of the given framework.
-  // @param   executorId    The id of the given executor.
-  void unregisterCgroupInfo(const FrameworkID& frameworkId,
-                            const ExecutorID& executorId)
-  {
-    if (infos.find(frameworkId) != infos.end()) {
-      if (infos[frameworkId].find(executorId) != infos[frameworkId].end()) {
-        delete infos[frameworkId][executorId];
-        infos[frameworkId].erase(executorId);
-        if (infos[frameworkId].empty()) {
-          infos.erase(frameworkId);
-        }
-      }
-    }
-  }
-
-  // Find a registered cgroup by the PID of the leading process.
-  // @param   pid           The PID of the leading process in the cgroup.
-  // @return  A pointer to the cgroup info if found, NULL otherwise.
-  CgroupInfo* findCgroupInfo(pid_t pid)
-  {
-    foreachkey (const FrameworkID& frameworkId, infos) {
-      foreachvalue (CgroupInfo* info, infos[frameworkId]) {
-        if (info->pid == pid) {
-          return info;
-        }
-      }
-    }
-    return NULL;
-  }
-
-  // Find a registered cgroup by the frameworkId and the executorId.
-  // @param   frameworkId   The id of the given framework.
-  // @param   executorId    The id of the given executor.
-  // @return  A pointer to the cgroup info if found, NULL otherwise.
-  CgroupInfo* findCgroupInfo(const FrameworkID& frameworkId,
-                             const ExecutorID& executorId)
-  {
-    if (infos.find(frameworkId) != infos.end()) {
-      if (infos[frameworkId].find(executorId) != infos[frameworkId].end()) {
-        return infos[frameworkId][executorId];
-      }
-    }
-    return NULL;
-  }
-
-  // Set controls for the cgroup used by a given executor in a given framework.
+  // The callback which will be invoked when "cpus" resource has changed.
   // @param   frameworkId   The id of the given framework.
   // @param   executorId    The id of the given executor.
   // @param   resources     The handle for the resources.
   // @return  Whether the operation successes.
-  Try<bool> setCgroupControls(const FrameworkID& frameworkId,
-                              const ExecutorID& executorId,
-                              const ResourceHints& resources);
+  Try<bool> cpusChanged(const FrameworkID& frameworkId,
+                        const ExecutorID& executorId,
+                        const ResourceHints& resources);
+
+  // The callback which will be invoked when "mem" resource has changed.
+  // @param   frameworkId   The id of the given framework.
+  // @param   executorId    The id of the given executor.
+  // @param   resources     The handle for the resources.
+  // @return  Whether the operation successes.
+  Try<bool> memChanged(const FrameworkID& frameworkId,
+                       const ExecutorID& executorId,
+                       const ResourceHints& resources);
 
   // Start listening on OOM events. This function will create an eventfd and
   // start polling on it.
@@ -202,23 +143,19 @@ private:
   // This function is invoked when the polling on eventfd has a result.
   // @param   frameworkId   The id of the given framework.
   // @param   executorId    The id of the given executor.
+  // @param   tag           The uuid tag.
   void oomWaited(const FrameworkID& frameworkId,
                  const ExecutorID& executorId,
+                 const std::string& tag,
                  const process::Future<uint64_t>& future);
 
   // This function is invoked when the OOM event happens.
   // @param   frameworkId   The id of the given framework.
   // @param   executorId    The id of the given executor.
+  // @param   tag           The uuid tag.
   void oom(const FrameworkID& frameworkId,
-           const ExecutorID& executorId);
-
-  // This callback is invoked when destroy cgroup has a result.
-  // @param   frameworkId   The id of the given framework.
-  // @param   executorId    The id of the given executor.
-  // @param   future        The future describing the destroy process.
-  void destroyWaited(const FrameworkID& frameworkId,
-                     const ExecutorID& executorId,
-                     const process::Future<bool>& future);
+           const ExecutorID& executorId,
+           const std::string& tag);
 
   void setupOuterOom();
 
@@ -239,20 +176,88 @@ private:
                    const std::string& prefix,
                    hashmap<std::string, int64_t>* counters);
 
+
+  // This callback is invoked when destroy cgroup has a result.
+  // @param   cgroup        The cgroup that is being destroyed.
+  // @param   future        The future describing the destroy process.
+  void destroyWaited(const std::string& cgroup,
+                     const process::Future<bool>& future);
+
+  // Register a cgroup in the isolation module.
+  // @param   frameworkId   The id of the given framework.
+  // @param   executorId    The id of the given executor.
+  // @return  A pointer to the cgroup info registered.
+  CgroupInfo* registerCgroupInfo(const FrameworkID& frameworkId,
+                                 const ExecutorID& executorId);
+
+  // Unregister a cgroup in the isolation module.
+  // @param   frameworkId   The id of the given framework.
+  // @param   executorId    The id of the given executor.
+  void unregisterCgroupInfo(const FrameworkID& frameworkId,
+                            const ExecutorID& executorId);
+
+  // Find a registered cgroup by the PID of the leading process.
+  // @param   pid           The PID of the leading process in the cgroup.
+  // @return  A pointer to the cgroup info if found, NULL otherwise.
+  CgroupInfo* findCgroupInfo(pid_t pid);
+
+  // Find a registered cgroup by the frameworkId and the executorId.
+  // @param   frameworkId   The id of the given framework.
+  // @param   executorId    The id of the given executor.
+  // @return  A pointer to the cgroup info if found, NULL otherwise.
+  CgroupInfo* findCgroupInfo(const FrameworkID& frameworkId,
+                             const ExecutorID& executorId);
+
+  // Return the canonicalized name of the cgroup used by a given executor in a
+  // given framework.
+  // @param   frameworkId   The id of the given framework.
+  // @param   executorId    The id of the given executor.
+  // @return  The canonicalized name of the cgroup.
+  std::string getCgroupName(const FrameworkID& frameworkId,
+                            const ExecutorID& executorId);
+
+  // Return true if the given name is a valid cgroup name used by this isolation
+  // module.
+  // @param   name          The name to check.
+  // @return  True if the given name is valid cgroup name, False otherwise.
+  bool isValidCgroupName(const std::string& name);
+
   Flags flags;
   bool local;
   process::PID<Slave> slave;
   bool initialized;
-  Reaper* reaper;
+  Reaper* reaper;;
+
+  // The cgroup information for each live executor.
   hashmap<FrameworkID, hashmap<ExecutorID, CgroupInfo*> > infos;
 
-  process::Future<uint64_t> outerOomNotifier;
-};
+  // The path to the cgroups hierarchy root.
+  std::string hierarchy;
 
+  // The activated cgroups subsystems that can be used by the module.
+  hashset<std::string> activatedSubsystems;
+
+  // The mapping between resource name and corresponding cgroups subsystem.
+  hashmap<std::string, std::string> resourceSubsystemMap;
+
+  // Mapping between resource name to the corresponding resource changed
+  // handler function.
+  hashmap<std::string,
+          Try<bool>(CgroupsIsolationModule::*)(
+              const FrameworkID&,
+              const ExecutorID&,
+              const ResourceHints&)> resourceChangedHandlers;
+
+  // XXX FIXME Hack
+  hashmap<FrameworkID, hashset<ExecutorID> > recentKills;
+  hashmap<FrameworkID, hashset<ExecutorID> > recentOoms;
+
+  process::Future<uint64_t> outerOomNotifier;
+  CgroupOOMPolicy oomPolicy;
+};
 
 } // namespace mesos {
 } // namespace internal {
 } // namespace slave {
-
 
 #endif // __CGROUPS_ISOLATION_MODULE_HPP__

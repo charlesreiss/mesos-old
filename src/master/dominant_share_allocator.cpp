@@ -23,15 +23,16 @@
 #include <process/timer.hpp>
 
 #include <stout/foreach.hpp>
+#include <stout/timer.hpp>
 
 #include "logging/logging.hpp"
 
 #include "master/dominant_share_allocator.hpp"
+#include "master/flags.hpp"
 
 using std::sort;
 using std::string;
 using std::vector;
-
 
 namespace mesos {
 namespace internal {
@@ -123,15 +124,15 @@ struct DominantShareComparator
 };
 
 
-void DominantShareAllocator::initialize(const process::PID<Master>& _master)
+void DominantShareAllocator::initialize(
+    const Flags& _flags,
+    const process::PID<Master>& _master)
 {
+  flags = _flags;
   master = _master;
   initialized = true;
 
-  // TODO(benh): Consider running periodic allocations. This will
-  // definitely be necessary for frameworks that hoard resources (in
-  // offers), since otherwise we'll just sit waiting.
-  // delay(1.0, self(), &DominantShareAllocator::allocate);
+  delay(flags.batch_seconds, self(), &DominantShareAllocator::batch);
 }
 
 
@@ -142,37 +143,15 @@ void DominantShareAllocator::frameworkAdded(
 {
   CHECK(initialized);
 
-  // Either a framework is being added for the first time or it's
-  // being "re-added" (e.g., due to failover). If it's being added for
-  // the first time it's possible that it has some resources already
-  // allocated to it (e.g., because it just registered with a new
-  // master even though the slaves have already registered).
-  if (!frameworks.contains(frameworkId)) {
-    CHECK(!allocated.contains(frameworkId));
-    allocated[frameworkId] = used;
-  }
+  CHECK(!frameworks.contains(frameworkId));
+  CHECK(!allocated.contains(frameworkId));
 
-  // We always update the framework info, even if we already had some
-  // state about the framework. TODO(benh): Consider adding a check
-  // which confirms that the resources used are a subset or equal to
-  // the resources allocated (a subset because the allocator might
-  // have just asked the master to offer some more resources).
   frameworks[frameworkId] = frameworkInfo;
+  allocated[frameworkId] = used;
 
   LOG(INFO) << "Added framework " << frameworkId;
 
   allocate();
-}
-
-
-void DominantShareAllocator::frameworkDeactivated(
-    const FrameworkID& frameworkId)
-{
-  CHECK(initialized);
-
-  frameworks.erase(frameworkId);
-
-  LOG(INFO) << "Deactivated framework " << frameworkId;
 }
 
 
@@ -189,16 +168,60 @@ void DominantShareAllocator::frameworkRemoved(const FrameworkID& frameworkId)
 
   foreach (Filter* filter, filters.get(frameworkId)) {
     filters.remove(frameworkId, filter);
-    // We *must* delete filter because DominantShareAllocator::expire
-    // will have an invalid FrameworkID and won't delete.
-    delete filter;
+
+    // Do not delete the filter, see comments in
+    // DominantShareAllocator::offersRevived and
+    // DominantShareAllocator::expire.
   }
 
   filters.remove(frameworkId);
 
   LOG(INFO) << "Removed framework " << frameworkId;
+}
+
+
+void DominantShareAllocator::frameworkActivated(
+    const FrameworkID& frameworkId,
+    const FrameworkInfo& frameworkInfo)
+{
+  CHECK(initialized);
+
+  CHECK(!frameworks.contains(frameworkId));
+
+  frameworks[frameworkId] = frameworkInfo;
+
+  LOG(INFO) << "Activated framework " << frameworkId;
 
   allocate();
+}
+
+
+void DominantShareAllocator::frameworkDeactivated(
+    const FrameworkID& frameworkId)
+{
+  CHECK(initialized);
+
+  frameworks.erase(frameworkId);
+
+  // Note that we *do not* remove the resources allocated to this
+  // framework (i.e., 'allocated.erase(frameworkId)'). For now, this
+  // is important because we might have already dispatched a
+  // Master::offer and we'll soon be getting back an
+  // Allocator::resourcesRecovered where we'll update 'allocated'
+  // appropriately. We might be able to collapse the added/removed and
+  // activated/deactivated in the future.
+
+  foreach (Filter* filter, filters.get(frameworkId)) {
+    filters.remove(frameworkId, filter);
+
+    // Do not delete the filter, see comments in
+    // DominantShareAllocator::offersRevived and
+    // DominantShareAllocator::expire.
+  }
+
+  filters.remove(frameworkId);
+
+  LOG(INFO) << "Deactivated framework " << frameworkId;
 }
 
 
@@ -312,9 +335,10 @@ void DominantShareAllocator::resourcesUnused(
     : Filters().refuse_seconds();
 
   if (timeout != 0.0) {
-    LOG(INFO) << "Framework " << frameworkId
-	      << " filtered slave " << slaveId
-	      << " for " << timeout << " seconds";
+    VLOG(1) << "Framework " << frameworkId
+            << " refused resources on slave " << slaveId
+            << "(" << slaves[slaveId].hostname() << "), "
+            << " creating " << timeout << " second filter";
 
     // Create a new filter and delay it's expiration.
     RefusedFilter* filter = new RefusedFilter(slaveId, resources, timeout);
@@ -326,8 +350,6 @@ void DominantShareAllocator::resourcesUnused(
           &DominantShareAllocator::expire,
 	  frameworkId, filter);
   }
-
-  allocate(slaveId);
 }
 
 
@@ -345,8 +367,7 @@ void DominantShareAllocator::resourcesRecovered(
 
   // Updated resources allocated to framework (if framework still
   // exists, which it might not in the event that we dispatched
-  // Master::offer before we received Allocator::frameworkRemoved or
-  // Allocator::frameworkDeactivated).
+  // Master::offer before we received Allocator::frameworkRemoved).
   if (allocated.contains(frameworkId)) {
     allocated[frameworkId] -= resources;
   }
@@ -360,8 +381,6 @@ void DominantShareAllocator::resourcesRecovered(
     VLOG(1) << "Recovered " << resources.allocatable()
             << " on slave " << slaveId
             << " from framework " << frameworkId;
-
-    allocate(slaveId);
   }
 }
 
@@ -373,13 +392,12 @@ void DominantShareAllocator::offersRevived(const FrameworkID& frameworkId)
   foreach (Filter* filter, filters.get(frameworkId)) {
     filters.remove(frameworkId, filter);
 
-    // TODO(benh): We don't actually delete each Filter right now
-    // because that should happen when DominantShareAllocator::expire
-    // gets invoked. If we delete the Filter here it's possible that
-    // the same Filter (i.e., same address) could get reused and
-    // DominantShareAllocator::expire would expire that filter too
-    // soon. Note that this only works right now because ALL Filter
-    // types "expire".
+    // We delete each actual Filter when
+    // DominantShareAllocator::expire gets invoked. If we delete the
+    // Filter here it's possible that the same Filter (i.e., same
+    // address) could get reused and DominantShareAllocator::expire
+    // would expire that filter too soon. Note that this only works
+    // right now because ALL Filter types "expire".
   }
 
   filters.remove(frameworkId);
@@ -390,11 +408,26 @@ void DominantShareAllocator::offersRevived(const FrameworkID& frameworkId)
 }
 
 
+void DominantShareAllocator::batch()
+{
+  CHECK(initialized);
+  allocate();
+  delay(flags.batch_seconds, self(), &DominantShareAllocator::batch);
+}
+
+
 void DominantShareAllocator::allocate()
 {
   CHECK(initialized);
 
+  ::Timer timer;
+  timer.start();
+
   allocate(slaves.keys());
+
+  LOG(INFO) << "Performed allocation for "
+            << slaves.size() << " slaves in "
+            << timer.elapsed().millis() << " milliseconds";
 }
 
 
@@ -405,7 +438,14 @@ void DominantShareAllocator::allocate(const SlaveID& slaveId)
   hashset<SlaveID> slaveIds;
   slaveIds.insert(slaveId);
 
+  ::Timer timer;
+  timer.start();
+
   allocate(slaveIds);
+
+  LOG(INFO) << "Performed allocation for slave "
+            << slaveId << " in "
+            << timer.elapsed().millis() << " milliseconds";
 }
 
 
@@ -432,6 +472,10 @@ void DominantShareAllocator::allocate(const hashset<SlaveID>& slaveIds)
   // allocatable and above a certain threshold, see below).
   hashmap<SlaveID, Resources> available;
   foreachpair (const SlaveID& slaveId, Resources resources, allocatable) {
+    if (!slaveIds.contains(slaveId)) {
+      continue;
+    }
+
     if (isWhitelisted(slaveId)) {
       resources = resources.allocatable(); // Make sure they're allocatable.
 
@@ -513,12 +557,10 @@ void DominantShareAllocator::expire(
     // DominantShareAllocator::offersRevived (but not deleted).
     if (filters.contains(frameworkId, filter)) {
       filters.remove(frameworkId, filter);
-      delete filter;
-      allocate();
-    } else {
-      delete filter;
     }
   }
+
+  delete filter;
 }
 
 

@@ -82,6 +82,7 @@ private:
   void recordStatusUpdateMessage(const StatusUpdateMessage&);
   void recordAllocatorEstimates(const AllocatorEstimates&);
   void recordOffer(const OfferRecord&);
+  void recordExitedExecutor(const ExitedExecutorMessage&);
 
   // We collect two sets of pending measurements. Index 0 contains
   // the next measurements we are about to emit, and index 1 contains

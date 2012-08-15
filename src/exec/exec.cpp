@@ -24,6 +24,7 @@
 
 #include <mesos/executor.hpp>
 
+#include <process/delay.hpp>
 #include <process/dispatch.hpp>
 #include <process/id.hpp>
 #include <process/process.hpp>
@@ -39,6 +40,8 @@
 
 #include "messages/messages.hpp"
 
+#include "slave/constants.hpp"
+
 using namespace mesos;
 using namespace mesos::internal;
 
@@ -51,6 +54,31 @@ using process::wait; // Necessary on some OS's to disambiguate.
 
 namespace mesos {
 namespace internal {
+
+class ShutdownProcess : public Process<ShutdownProcess>
+{
+protected:
+  virtual void initialize()
+  {
+    LOG(INFO) << "Scheduling shutdown of the executor";
+    delay(slave::EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, self(), &Self::kill);
+  }
+
+  void kill()
+  {
+    LOG(INFO) << "Committing suicide by killing the process group";
+
+    // TODO(vinod): Invoke killtree without killing ourselves.
+    // Kill the process group (including ourself).
+    killpg(0, SIGKILL);
+
+    // The signal might not get delivered immediately, so sleep for a
+    // few seconds. Worst case scenario, exit abnormally.
+    sleep(5);
+    exit(-1);
+  }
+};
+
 
 class ExecutorProcess : public ProtobufProcess<ExecutorProcess>
 {
@@ -97,6 +125,9 @@ public:
 
     install<ShutdownExecutorMessage>(
         &ExecutorProcess::shutdown);
+
+    install<ProgressRequestMessage>(
+        &ExecutorProcess::requestProgress);
   }
 
   virtual ~ExecutorProcess() {}
@@ -183,11 +214,15 @@ protected:
 
     VLOG(1) << "Executor asked to shutdown";
 
+    if (!local) {
+      // Start the Shutdown Process.
+      spawn(new ShutdownProcess(), true);
+    }
+
     // TODO(benh): Any need to invoke driver.stop?
     executor->shutdown(driver);
-    if (!local) {
-      exit(0);
-    } else {
+
+    if (local) {
       terminate(this);
     }
   }
@@ -207,6 +242,11 @@ protected:
 
     VLOG(1) << "Slave exited, trying to shutdown";
 
+    if (!local) {
+      // Start the Shutdown Process.
+      spawn(new ShutdownProcess(), true);
+    }
+
     // TODO: Pass an argument to shutdown to tell it this is abnormal?
     executor->shutdown(driver);
 
@@ -215,9 +255,7 @@ protected:
     // ourself) hoping to clean up any processes this executor
     // launched itself.
     // TODO(benh): Maybe do a SIGTERM and then later do a SIGKILL?
-    if (!local) {
-      killpg(0, SIGKILL);
-    } else {
+    if (local) {
       terminate(this);
     }
   }
@@ -258,6 +296,20 @@ protected:
     message.mutable_executor_id()->MergeFrom(executorId);
     message.set_data(data);
     send(slave, message);
+  }
+
+  void requestProgress() {
+    executor->requestProgress(driver);
+  }
+
+  void sendProgress(const Progress& progress)
+  {
+    ProgressMessage message;
+    message.mutable_slave_id()->MergeFrom(slaveId);
+    message.mutable_framework_id()->MergeFrom(frameworkId);
+    message.mutable_executor_id()->MergeFrom(executorId);
+    message.mutable_progress()->MergeFrom(progress);
+    send(slave, progress);
   }
 
 private:
@@ -472,4 +524,9 @@ Status MesosExecutorDriver::sendFrameworkMessage(const string& data)
   dispatch(process, &ExecutorProcess::sendFrameworkMessage, data);
 
   return status;
+}
+
+Status MesosExecutorDriver::sendProgress(const Progress& progress)
+{
+  dispatch(process, &ExecutorProcess::sendProgress, progress);
 }

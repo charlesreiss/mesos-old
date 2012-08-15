@@ -58,7 +58,7 @@ Resources PatternTask::getUsage(seconds from, seconds to) const
   return constUsage + cpus;
 }
 
-TaskState PatternTask::takeUsage(seconds from, seconds to,
+UsageInfo PatternTask::takeUsage(seconds from, seconds to,
                                  const Resources& resources)
 {
   if (!(constUsage <= resources)) {

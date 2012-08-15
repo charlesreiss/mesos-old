@@ -78,4 +78,9 @@ public interface ExecutorDriver {
    * retransmitted in any reliable fashion.
    */
   public Status sendFrameworkMessage(byte[] data);
+
+  /**
+   * Send a Progress update.
+   */
+  public Status sendProgress(Progress progress);
 }

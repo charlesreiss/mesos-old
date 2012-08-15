@@ -30,12 +30,15 @@
 
 #include "slave/constants.hpp"
 #include "slave/flags.hpp"
+#include "slave/gc.hpp"
 #include "slave/http.hpp"
 #include "slave/isolation_module.hpp"
 
 #include "common/attributes.hpp"
 #include "common/resources.hpp"
 #include "common/type_utils.hpp"
+
+#include "files/files.hpp"
 
 #include "messages/messages.hpp"
 
@@ -58,13 +61,13 @@ public:
         bool local,
         IsolationModule* isolationModule);
 
-  Slave(const Flags& flags,
+  Slave(const flags::Flags<logging::Flags, slave::Flags>& flags,
         bool local,
         IsolationModule *isolationModule);
 
   Slave(const std::string& name,
         const Resources& resources,
-        const Flags& flags,
+        const flags::Flags<logging::Flags, slave::Flags>& flags,
         bool local,
         IsolationModule* isolationModule);
 
@@ -163,21 +166,15 @@ protected:
                                const ExecutorID& executorId,
                                const UUID& uuid);
 
-  // Schedules the executor directory for deletion after a timeout.
-  void garbageCollectExecutorDir(const std::string& directory);
-
-  // Schedules old slave directories under the given directory root
-  // for deletion after a timeout.
-  void garbageCollectSlaveDirs(const std::string& directory);
-
-  // Actually deletes the directories.
-  void garbageCollect(const std::list<std::string>& directories);
-
   // Helper function for generating a unique work directory for this
   // framework/executor pair (non-trivial since a framework/executor
   // pair may be launched more than once on the same slave).
   std::string createUniqueWorkDirectory(const FrameworkID& frameworkId,
                                         const ExecutorID& executorId);
+
+  void gotProgress(const FrameworkID& frameworkId,
+                   const ExecutorID& executorId,
+                   const Progress& progress);
 
 private:
   // HTTP handlers, friends of the slave in order to access state,
@@ -195,7 +192,7 @@ private:
       const Slave& slave,
       const process::http::Request& request);
 
-  const Flags flags;
+  const flags::Flags<logging::Flags, slave::Flags> flags;
 
   bool local;
 
@@ -223,6 +220,9 @@ private:
   double startTime;
 
   bool connected; // Flag to indicate if slave is registered.
+
+  Files files;
+  GarbageCollector gc;
 };
 
 
@@ -319,6 +319,8 @@ struct Executor
 
   hashmap<TaskID, TaskInfo> queuedTasks;
   hashmap<TaskID, Task*> launchedTasks;
+
+  Progress pendingProgress;
 };
 
 

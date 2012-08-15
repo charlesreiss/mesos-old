@@ -141,6 +141,11 @@ public:
    * callback.
    */
   virtual void error(ExecutorDriver* driver, const std::string& message) = 0;
+
+  /**
+   * Ask for progress update
+   */
+  virtual void requestProgress(ExecutorDriver *driver) {}
 };
 
 
@@ -210,6 +215,11 @@ public:
    * retransmitted in any reliable fashion.
    */
   virtual Status sendFrameworkMessage(const std::string& data) = 0;
+
+  /**
+   * Send a progress update to the slave.
+   */
+  virtual Status sendProgress(const Progress& progress) = 0;
 };
 
 
@@ -259,6 +269,7 @@ public:
   virtual Status run();
   virtual Status sendStatusUpdate(const TaskStatus& status);
   virtual Status sendFrameworkMessage(const std::string& data);
+  virtual Status sendProgress(const Progress& progress);
 
 private:
   friend class internal::ExecutorProcess;

@@ -28,7 +28,9 @@ message UsageLogRecord {
 
   repeated AllocatorEstimate allocator_estimate = 10;
 
-  // Next available number: 11
+  repeated ExitedExecutorMessage exit = 11;
+
+  // Next available number: 12
 }
 
 message AllocatorEstimate {

@@ -28,6 +28,8 @@
 using namespace mesos;
 using namespace mesos::internal;
 
+using mesos::internal::fake::UsageInfo;
+
 #define DEFAULT_FRAMEWORK_ID \
   ({ \
     mesos::FrameworkID id; \
@@ -45,7 +47,7 @@ using namespace mesos::internal;
 
 struct MockFakeTask : mesos::internal::fake::FakeTask {
   MOCK_CONST_METHOD2(getUsage, Resources(seconds, seconds));
-  MOCK_METHOD3(takeUsage, TaskState(seconds, seconds, const Resources&));
+  MOCK_METHOD3(takeUsage, UsageInfo(seconds, seconds, const Resources&));
   MOCK_CONST_METHOD0(getResourceRequest, ResourceHints());
   MOCK_CONST_METHOD0(getScore, double());
 

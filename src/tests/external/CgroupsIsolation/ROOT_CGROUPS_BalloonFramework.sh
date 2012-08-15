@@ -26,6 +26,7 @@ fi
 $MESOS_BUILD_DIR/src/mesos-slave \
     --master=localhost:5432 \
     --isolation=cgroups \
+    --cgroups_hierarchy_root=/cgroups \
     --resources="cpus:1;mem:96" \
     > slave.log 2>&1 &
 SLAVE_PID=$!
@@ -43,7 +44,7 @@ fi
 
 # Launch balloon framework
 echo "Running balloon framework"
-$MESOS_BUILD_DIR/src/balloon-framework localhost:5432 \
+$MESOS_BUILD_DIR/src/balloon-framework master@localhost:5432 \
   1024 > balloon.log 2>&1
 EXIT_CODE=$?
 echo "Balloon framework exit code: $?"
@@ -57,9 +58,13 @@ echo "Killing master: $MASTER_PID"
 kill $MASTER_PID
 sleep 2
 
+# Cleanup the cgroups hierarchy root
+rmdir /cgroups/*
+umount /cgroups
+
 echo "Exiting"
 # Check whether balloon framework returned the right code
-if [[ $EXIT_CODE -eq 0 ]]; then
+if [[ $EXIT_CODE -eq 1 ]]; then
   exit 0
 else
   exit 1

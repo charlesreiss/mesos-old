@@ -100,7 +100,7 @@ protected:
   {
     master.reset(new Master(&allocator));
     masterPid = process::spawn(master.get());
-    EXPECT_CALL(allocator, initialize(master->self())).
+    EXPECT_CALL(allocator, initialize(_, master->self())).
       Times(1);
     GotMasterTokenMessage tokenMessage;
     tokenMessage.set_token("test-token");
@@ -379,8 +379,6 @@ TEST_F(MasterAllocatorTest, UnregisterFramework) {
           "taskId", &tasks);
   launchTasks(theOffer, tasks);
   EXPECT_CALL(allocator, taskRemoved(_, _));
-  EXPECT_CALL(allocator, executorRemoved(_, _,
-                                         EqProto(DEFAULT_EXECUTOR_INFO)));
   EXPECT_CALL(allocator, resourcesRecovered(_, _, _));
   unregisterFramework();
 }

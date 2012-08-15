@@ -123,10 +123,12 @@ protected:
     allocatorPtr.reset(new NoRequestAllocator(&tracker, Configuration()));
     allocator = nrAllocator = process::spawn(allocatorPtr.get());
     masterPid = process::spawn(&master);
+    master::Flags flags;
     process::dispatch(nrAllocator,
         static_cast<void(NoRequestAllocator::*)(
+          const master::Flags&,
           const process::PID<AllocatorMasterInterface>&)>(
-            &NoRequestAllocator::initialize), masterPid);
+            &NoRequestAllocator::initialize), flags, masterPid);
     ON_CALL(tracker, nextUsedForExecutor(_, _, _)).
       WillByDefault(Return(Resources()));
     EXPECT_CALL(tracker, nextUsedForExecutor(_, _, _)).

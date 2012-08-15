@@ -3,6 +3,7 @@
 #include <google/protobuf/message.h>
 
 #include <string>
+#include <vector>
 
 #include <process/dispatch.hpp>
 #include <process/future.hpp>
@@ -16,41 +17,17 @@
 
 #include "messages/state.hpp"
 
+#include "state/leveldb.hpp"
 #include "state/state.hpp"
 
 using namespace process;
 
-using process::wait; // Necessary on some OS's to disambiguate.
-
 using std::string;
+using std::vector;
 
 namespace mesos {
 namespace internal {
 namespace state {
-
-class LevelDBStateProcess : public Process<LevelDBStateProcess>
-{
-public:
-  LevelDBStateProcess(const string& path);
-  virtual ~LevelDBStateProcess();
-
-  virtual void initialize();
-
-  // State implementation.
-  Future<Option<Entry> > fetch(const string& name);
-  Future<bool> swap(const Entry& entry, const UUID& uuid);
-
-private:
-  // Helpers for interacting with leveldb.
-  Try<Option<Entry> > get(const string& name);
-  Try<bool> put(const Entry& entry);
-
-  const string path;
-  leveldb::DB* db;
-
-  Option<string> error;
-};
-
 
 LevelDBStateProcess::LevelDBStateProcess(const string& _path)
   : path(_path), db(NULL) {}
@@ -76,6 +53,29 @@ void LevelDBStateProcess::initialize()
 
   // TODO(benh): Conditionally compact to avoid long recovery times?
   db->CompactRange(NULL, NULL);
+}
+
+
+Future<vector<string> > LevelDBStateProcess::names()
+{
+  if (error.isSome()) {
+    return Future<vector<string> >::failed(error.get());
+  }
+
+  vector<string> results;
+
+  leveldb::Iterator* iterator = db->NewIterator(leveldb::ReadOptions());
+
+  iterator->SeekToFirst();
+
+  while (iterator->Valid()) {
+    results.push_back(iterator->key().ToString());
+    iterator->Next();
+  }
+
+  delete iterator;
+
+  return results;
 }
 
 
@@ -178,33 +178,6 @@ Try<bool> LevelDBStateProcess::put(const Entry& entry)
   }
 
   return true;
-}
-
-
-LevelDBState::LevelDBState(const std::string& path)
-{
-  process = new LevelDBStateProcess(path);
-  spawn(process);
-}
-
-
-LevelDBState::~LevelDBState()
-{
-  terminate(process);
-  wait(process);
-  delete process;
-}
-
-
-Future<Option<Entry> > LevelDBState::fetch(const string& name)
-{
-  return dispatch(process, &LevelDBStateProcess::fetch, name);
-}
-
-
-Future<bool> LevelDBState::swap(const Entry& entry, const UUID& uuid)
-{
-  return dispatch(process, &LevelDBStateProcess::swap, entry, uuid);
 }
 
 } // namespace state {

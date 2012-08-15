@@ -150,10 +150,17 @@ public:
         "Enforce cgroup CPU shares (at all)",
         true);
 
-    add(&Flags::cgroup_hierarchy,
-        "cgroup_hierarchy",
-        "Root of cgroup mounts",
-        "/cgroup");
+    add(&Flags::cgroup_oom_policy,
+        "cgroup_oom_policy",
+        "OOM kill policy for cgroups isolation module (kill, kill-priority)",
+        "kill");
+
+#ifdef __linux__
+    add(&Flags::cgroups_hierarchy_root,
+        "cgroups_hierarchy_root",
+        "The path to the cgroups hierarchy root\n",
+        "/cgroups");
+#endif
   }
 
   Option<std::string> resources;
@@ -161,7 +168,7 @@ public:
   std::string work_dir;
   std::string launcher_dir;
   std::string webui_dir;
-  short webui_port;
+  uint16_t webui_port;
   std::string hadoop_home; // TODO(benh): Make an Option.
   bool switch_user;
   std::string frameworks_home;  // TODO(benh): Make an Option.
@@ -181,7 +188,11 @@ public:
   bool cgroup_outer_container_memory_ratio;
   bool cgroup_enforce_memory_limits;
   bool cgroup_enforce_cpu_limits;
-  std::string cgroup_hierarchy;
+
+  std::string cgroup_oom_policy;
+#ifdef __linux__
+  std::string cgroups_hierarchy_root;
+#endif
 };
 
 } // namespace mesos {

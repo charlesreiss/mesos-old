@@ -36,21 +36,36 @@ ConstantTask::getUsage(seconds from, seconds to) const
   return usage;
 }
 
-TaskState
+UsageInfo
 ConstantTask::takeUsage(seconds from, seconds to, const Resources& given)
 {
   bool less = true;
+  double cpuTime = 0;
   foreach (const Resource& resource, usage) {
-    if (resource.name() == "cpus") continue;
-    Option<Resource> givenResource = given.get(resource);
-    if (givenResource.isNone() || resource <= givenResource.get()) {
-      less = false;
+    if (resource.name() == "cpus") {
+      Option<Resource> givenResource = given.get(resource);
+      if (!givenResource.isNone()) {
+        double cpuRate = std::min(givenResource.get().scalar().value(),
+                                  resource.scalar().value());
+        cpuTime = cpuRate * (to - from).value;
+      }
+    } else {
+      Option<Resource> givenResource = given.get(resource);
+      if (givenResource.isNone() || resource <= givenResource.get()) {
+        less = false;
+      }
     }
   }
   if (less) {
     return TASK_LOST;
   } else {
-    return TASK_RUNNING;
+    Resource cpuTimeRes;
+    cpuTimeRes.set_name("cpuTime");
+    cpuTimeRes.set_type(Value::SCALAR);
+    cpuTimeRes.mutable_scalar()->set_value(cpuTime);
+    Resources progress;
+    progress += cpuTimeRes;
+    return UsageInfo(TASK_RUNNING, progress);
   }
 }
 
@@ -92,7 +107,7 @@ BatchTask::getUsage(seconds from, seconds to) const
   return result;
 }
 
-TaskState
+UsageInfo
 BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
 {
   // Make sure rounding errors between getUsage() --> takeUsage() don't cause
@@ -108,11 +123,17 @@ BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
   } else {
     double cpuTaken = resources.get("cpus", Value::Scalar()).value();
     CHECK_GT(cpuTaken, 1e-10) << *this << " got " << resources;
-    cpuUnits -= resources.get("cpus", Value::Scalar()).value() * delta;
+    double cpuTime = resources.get("cpus", Value::Scalar()).value() * delta;
+    cpuUnits -= cpuTime;
+    Resources progress;
+    Resource cpuTimeRes;
+    cpuTimeRes.set_name("cpuTime");
+    cpuTimeRes.mutable_scalar()->set_value(cpuTime);
+    progress += cpuTimeRes;
     if (cpuUnits <= kSmall) {
-      return TASK_FINISHED;
+      return UsageInfo(TASK_FINISHED, progress);
     } else {
-      return TASK_RUNNING;
+      return UsageInfo(TASK_RUNNING, progress);
     }
   }
 }

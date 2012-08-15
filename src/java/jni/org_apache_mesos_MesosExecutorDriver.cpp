@@ -51,6 +51,7 @@ public:
   virtual void frameworkMessage(ExecutorDriver* driver, const string& data);
   virtual void shutdown(ExecutorDriver* driver);
   virtual void error(ExecutorDriver* driver, const string& message);
+  virtual void requestProgress(ExecutorDriver* driver);
 
   JavaVM* jvm;
   JNIEnv* env;
@@ -342,6 +343,38 @@ void JNIExecutor::error(ExecutorDriver* driver, const string& message)
   jvm->DetachCurrentThread();
 }
 
+void JNIExecutor::requestProgress(ExecutorDriver* driver)
+{
+  jvm->AttachCurrentThread((void**) &env, NULL);
+
+  jclass clazz = env->GetObjectClass(jdriver);
+
+  jfieldID listener = env->GetFieldID(clazz, "progressIndicator",
+      "Lorg/apache/mesos/ProgressIndicator;");
+  jobject jlistener = env->GetObjectField(jdriver, listener);
+
+  if (jlistener != NULL) {
+    clazz = env->GetObjectClass(jlistener);
+
+    jmethodID requestProgress = env->GetMethodID(clazz, "requestProgress",
+        "(Lorg/apache/mesos/ExecutorDriver;)V");
+
+    env->ExceptionClear();
+
+    env->CallVoidMethod(jlistener, requestProgress, jdriver);
+
+    if (env->ExceptionCheck()) {
+      env->ExceptionDescribe();
+      env->ExceptionClear();
+      jvm->DetachCurrentThread();
+      driver->abort();
+      return;
+    }
+  }
+
+  jvm->DetachCurrentThread();
+}
+
 
 extern "C" {
 
@@ -531,6 +564,28 @@ JNIEXPORT jobject JNICALL Java_org_apache_mesos_MesosExecutorDriver_sendFramewor
     (MesosExecutorDriver*) env->GetLongField(thiz, __driver);
 
   Status status = driver->sendFrameworkMessage(temp);
+
+  return convert<Status>(env, status);
+}
+
+/*
+ * Class:     org_apache_mesos_MesosExecutorDriver
+ * Method:    sendProgress
+ * Signature: ([Lorg/apache/mesos/Protos/Progress;)Lorg/apache/mesos/Protos/Status;
+ */
+JNIEXPORT jobject JNICALL Java_org_apache_mesos_MesosExecutorDriver_sendProgress
+  (JNIEnv* env, jobject thiz, jobject jprogress)
+{
+  const Progress& progress = construct<Progress>(env, jprogress);
+
+  // Now invoke the underlying driver.
+  jclass clazz = env->GetObjectClass(thiz);
+
+  jfieldID __driver = env->GetFieldID(clazz, "__driver", "J");
+  MesosExecutorDriver* driver =
+    (MesosExecutorDriver*) env->GetLongField(thiz, __driver);
+
+  Status status = driver->sendProgress(progress);
 
   return convert<Status>(env, status);
 }

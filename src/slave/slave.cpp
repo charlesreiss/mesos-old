@@ -51,7 +51,9 @@ using std::tr1::cref;
 using std::tr1::bind;
 
 
-namespace mesos { namespace internal { namespace slave {
+namespace mesos {
+namespace internal {
+namespace slave {
 
 
 // Helper function that returns true if the task state is terminal
@@ -70,11 +72,12 @@ Slave::Slave(const Resources& _resources,
   : ProcessBase(ID::generate("slave")),
     resources(_resources),
     local(_local),
-    isolationModule(_isolationModule)
+    isolationModule(_isolationModule),
+    flags()
 {}
 
 
-Slave::Slave(const Flags& _flags,
+Slave::Slave(const flags::Flags<logging::Flags, slave::Flags>& _flags,
              bool _local,
              IsolationModule* _isolationModule)
   : ProcessBase(ID::generate("slave")),
@@ -127,7 +130,7 @@ Slave::Slave(const Flags& _flags,
 
 Slave::Slave(const std::string& name,
              const Resources& _resources,
-             const Flags& _flags,
+             const flags::Flags<logging::Flags, slave::Flags>& _flags,
              bool _local,
              IsolationModule* _isolationModule)
   : ProcessBase(name),
@@ -293,6 +296,11 @@ void Slave::initialize()
   route("/stats.json", bind(&http::json::stats, cref(*this), params::_1));
   route("/state.json", bind(&http::json::state, cref(*this), params::_1));
   delay(1.0, self(), &Slave::queueUsageUpdates);
+
+  // TODO(benh): Ask glog for file name (i.e., mesos-slave.INFO).
+  if (flags.log_dir.isSome()) {
+    files.attach(flags.log_dir.get() + "/mesos-slave.INFO", "/log");
+  }
 }
 
 
@@ -352,7 +360,33 @@ void Slave::registered(const SlaveID& slaveId)
 
   connected = true;
 
-  garbageCollectSlaveDirs(path::join(flags.work_dir, "slaves"));
+  // Schedule all old slave directories to get garbage
+  // collected. TODO(benh): It's unclear if we really need/want to
+  // wait until the slave is registered to do this.
+  hours timeout(flags.gc_timeout_hours);
+
+  const string& directory = path::join(flags.work_dir, "slaves");
+
+  foreach (const string& file, os::ls(directory)) {
+    const string& path = path::join(directory, file);
+
+    // Check that this path is a directory but not our directory!
+    if (os::exists(path, true) && file != id.value()) {
+
+      Try<long> time = os::mtime(path);
+
+      if (time.isSome()) {
+        // Schedule the directory to be removed after some remaining
+        // delta of the timeout and last modification time.
+        seconds delta(timeout.secs() - (Clock::now() - time.get()));
+        gc.schedule(delta, path);
+      } else {
+        LOG(WARNING) << "Failed to get the modification time of "
+                     << path << ": " << time.error();
+        gc.schedule(timeout, path);
+      }
+    }
+  }
 }
 
 
@@ -1040,7 +1074,9 @@ void Slave::executorExited(const FrameworkID& frameworkId,
     send(master, message);
   }
 
-  garbageCollectExecutorDir(executor->directory);
+  // Schedule the executor directory to get garbage collected.
+  gc.schedule(hours(flags.gc_timeout_hours), executor->directory);
+
   framework->destroyExecutor(executor->id);
 }
 
@@ -1083,7 +1119,9 @@ void Slave::shutdownExecutorTimeout(const FrameworkID& frameworkId,
              &IsolationModule::killExecutor,
              framework->id, executor->id);
 
-    garbageCollectExecutorDir(executor->directory);
+    // Schedule the executor directory to get garbage collected.
+    gc.schedule(hours(flags.gc_timeout_hours), executor->directory);
+
     framework->destroyExecutor(executor->id);
   }
 
@@ -1095,46 +1133,6 @@ void Slave::shutdownExecutorTimeout(const FrameworkID& frameworkId,
 }
 
 
-void Slave::garbageCollectExecutorDir(const string& dir)
-{
-  hours timeout(flags.gc_timeout_hours);
-  std::list<string> result;
-
-  LOG(INFO) << "Scheduling executor directory " << dir << " for deletion";
-  result.push_back(dir);
-
-  delay(timeout.secs(), self(), &Slave::garbageCollect, result);
-}
-
-
-void Slave::garbageCollectSlaveDirs(const string& dir)
-{
-  hours timeout(flags.gc_timeout_hours);
-
-  std::list<string> result;
-
-  foreach (const string& d, os::listdir(dir)) {
-    if (d != "." && d != ".." && d != id.value()) {
-      const string& path = dir + "/" + d;
-      Try<long> modtime = os::modtime(path);
-      if (os::exists(path, true) && // Check if its a directory.
-        modtime.isSome() && (Clock::now() - modtime.get()) > timeout.secs()) {
-        LOG(INFO) << "Scheduling slave directory " << path << " for deletion";
-        result.push_back(path);
-      }
-    }
-  }
-  garbageCollect(result); // Delete these right away.
-}
-
-
-void Slave::garbageCollect(const std::list<string>& directories)
-{
-  foreach (const string& dir, directories) {
-    LOG(INFO) << "Deleting directory " << dir;
-    os::rmdir(dir);
-  }
-}
 
 
 string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
@@ -1179,7 +1177,16 @@ string Slave::createUniqueWorkDirectory(const FrameworkID& frameworkId,
 void Slave::queueUsageUpdates() {
   foreachkey (const FrameworkID& frameworkId, frameworks) {
     Framework* framework = frameworks[frameworkId];
-    foreachkey (const ExecutorID& executorId, framework->executors) {
+    foreachpair (const ExecutorID& executorId,
+                 Executor* executor, framework->executors) {
+      ProgressRequestMessage message;
+      send(executor->pid, message);
+    }
+  }
+  foreachkey (const FrameworkID& frameworkId, frameworks) {
+    Framework* framework = frameworks[frameworkId];
+    foreachpair (const ExecutorID& executorId,
+                 Executor* executor, framework->executors) {
       isolationModule->sampleUsage(frameworkId, executorId);
     }
   }
@@ -1204,7 +1211,11 @@ void Slave::gotStatistics(
       Executor* executor = framework->getExecutor(executorId);
       if (executor) {
         isRunning = true;
-        message.mutable_expected_resources()->MergeFrom(resources);
+        message.mutable_expected_resources()->MergeFrom(executor->resources);
+        mesos::Resource* tasks = message.add_pseudo_resources();
+        tasks->mutable_scalar()->set_value(executor->launchedTasks.size() * 1.0);
+        tasks->set_type(Value::SCALAR);
+        tasks->set_name("tasks");
       }
     }
     message.set_still_running(isRunning);
@@ -1223,7 +1234,31 @@ void Slave::gotStatistics(
 void Slave::sendUsageUpdate(const UsageMessage& _update) {
   UsageMessage update = _update;
   update.mutable_slave_id()->MergeFrom(id);
+  Framework* framework;
+  if ((framework = getFramework(update.framework_id())) != 0) {
+    Executor* executor = framework->getExecutor(update.executor_id());
+    if (executor) {
+      update.mutable_progress()->MergeFrom(executor->pendingProgress);
+      executor->pendingProgress.Clear();
+    }
+  }
   send(master, update);
+}
+
+void Slave::gotProgress(const FrameworkID& frameworkId,
+                        const ExecutorID& executorId,
+                        const Progress& progress)
+
+{
+  Framework* framework;
+  if ((framework = getFramework(frameworkId)) != 0) {
+    Executor* executor = framework->getExecutor(executorId);
+    if (executor) {
+      Resources progressTotal(executor->pendingProgress.progress());
+      progressTotal += progress.progress();
+      executor->pendingProgress.mutable_progress()->MergeFrom(progress.progress());
+    }
+  }
 }
 
 } // namespace slave {

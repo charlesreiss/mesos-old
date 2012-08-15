@@ -62,7 +62,7 @@ TEST_F(FakeScenarioTest, TwoTasksOneSlaveBatch)
 
 TEST_F(FakeScenarioTest, ThreeTasksOneSlaveBatch)
 {
-  batchTest(1, 3, 60.1);
+  batchTest(1, 3, 62.1);
 }
 
 TEST_F(FakeScenarioTest, ThreeTasksTwoSlavesBatch)

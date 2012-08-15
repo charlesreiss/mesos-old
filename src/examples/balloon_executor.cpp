@@ -16,26 +16,48 @@
  * limitations under the License.
  */
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/resource.h>
+#include <sys/wait.h>
+
 #include <iostream>
 #include <string>
 
-#include <boost/lexical_cast.hpp>
-
 #include <mesos/executor.hpp>
+
+#include <stout/numify.hpp>
 
 using namespace mesos;
 
 
-static void balloon(size_t mb)
+// The amount of memory in MB each balloon step consumes.
+const static size_t BALLOON_STEP_MB = 64;
+
+
+// This function will increase the memory footprint gradually. The parameter
+// limit specifies the upper limit (in MB) of the memory footprint. The
+// parameter step specifies the step size (in MB).
+static void balloon(size_t limit)
 {
-  size_t step = 64 * 1024 * 1024;
-  for (size_t i = 0; i < mb / 64; i++) {
-    char* buffer = (char *)malloc(step);
-    ::memset(buffer, 1, step);
+  size_t chunk = BALLOON_STEP_MB * 1024 * 1024;
+  for (size_t i = 0; i < limit / BALLOON_STEP_MB; i++) {
+    std::cout << "Increasing memory footprint by "
+              << BALLOON_STEP_MB << " MB" << std::endl;
+
+    // Allocate virtual memory.
+    char* buffer = (char *)malloc(chunk);
+
+    // We use memset here so that the memory actually gets paged in. However,
+    // the memory may get paged out again depending on the OS page replacement
+    // algorithm. Therefore, to ensure X MB of memory is actually used, we need
+    // to pass Y (Y > X) to this function.
+    ::memset(buffer, 1, chunk);
+
+    // Try not to increase the memory footprint too fast.
     ::sleep(1);
   }
 }
@@ -75,11 +97,30 @@ public:
 
     driver->sendStatusUpdate(status);
 
-    // Get the balloon size.
-    int balloonSize = boost::lexical_cast<int>(task.data());
+    std::istringstream istr(task.data());
+    int balloonSize = 0, childBalloonSize = 0;
+    istr >> balloonSize >> childBalloonSize;
+    if (istr) {
+      std::cerr << "Could not parse " << task.data();
+    }
+
+    pid_t child = 0;
+
+    if (childBalloonSize > 0) {
+      child = ::fork();
+      if (child == -1) {
+        ::setpriority(PRIO_PROCESS, getpid(), 10);
+        balloon(childBalloonSize);
+        ::_exit(0);
+      }
+    }
 
     // Simulate a memory leak situation.
     balloon(balloonSize);
+
+    if (child) {
+      waitpid(child, NULL, 0);
+    }
 
     std::cout << "Finishing task " << task.task_id().value() << std::endl;
 

@@ -50,6 +50,11 @@ public class MesosExecutorDriver implements ExecutorDriver {
     }
 
     this.executor = executor;
+    if (executor instanceof ProgressIndicator) {
+      this.progressIndicator = (ProgressIndicator) executor;
+    } else {
+      this.progressIndicator = null;
+    }
 
     initialize();
   }
@@ -69,11 +74,13 @@ public class MesosExecutorDriver implements ExecutorDriver {
 
   public native Status sendStatusUpdate(TaskStatus status);
   public native Status sendFrameworkMessage(byte[] data);
+  public native Status sendProgress(Progress progress);
 
   protected native void initialize();
   protected native void finalize();
 
   private final Executor executor;
+  private final ProgressIndicator progressIndicator;
 
   private long __executor;
   private long __driver;

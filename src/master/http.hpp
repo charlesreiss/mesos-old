@@ -37,6 +37,11 @@ process::Future<process::http::Response> vars(
     const Master& master,
     const process::http::Request& request);
 
+// Redirects immediately to the current leader. If there's no leader, this
+// redirects to the master.
+process::Future<process::http::Response> redirect(
+    const Master& master,
+    const process::http::Request& request);
 
 namespace json {
 
@@ -48,11 +53,6 @@ process::Future<process::http::Response> stats(
 
 // Returns current state of the cluster that the master knows about.
 process::Future<process::http::Response> state(
-    const Master& master,
-    const process::http::Request& request);
-
-// Returns data from the log.
-process::Future<process::http::Response> log(
     const Master& master,
     const process::http::Request& request);
 
