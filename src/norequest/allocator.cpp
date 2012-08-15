@@ -283,7 +283,7 @@ NoRequestAllocator::placeUsage(const FrameworkID& frameworkId,
   }
 
   tracker->placeUsage(frameworkId, executorId, slaveId, minResources, estimate,
-                      tasks->size());
+                      tasks->size(), process::Clock::now());
 }
 
 namespace {
@@ -577,7 +577,8 @@ void NoRequestAllocator::resourcesRecovered(const FrameworkID& frameworkId,
   }
 }
 
-void NoRequestAllocator::offersRevived(const FrameworkID& frameworkId) {
+void NoRequestAllocator::offersRevived(const FrameworkID& frameworkId)
+{
   LOG(INFO) << "offersRevived for " << frameworkId;
   removeFiltersFor(frameworkId); // TODO: test this (and elsewhere)
   std::vector<SlaveID> revivedSlaves;
@@ -594,7 +595,8 @@ void NoRequestAllocator::offersRevived(const FrameworkID& frameworkId) {
   makeNewOffers();
 }
 
-void NoRequestAllocator::timerTick() {
+void NoRequestAllocator::timerTick()
+{
   tickTimer = delay(1.0, self(), &NoRequestAllocator::timerTick);
   tracker->timerTick(process::Clock::now());
   if (aggressiveReoffer) {
@@ -621,6 +623,7 @@ void NoRequestAllocator::timerTick() {
       estimate->mutable_charge()->MergeFrom(
           tracker->chargeForFramework(framework));
     }
+    tracker->fillExecutorEstimates(&estimates);
     dispatch(master, &AllocatorMasterInterface::forwardAllocatorEstimates, estimates);
   }
 #endif
@@ -640,7 +643,8 @@ void NoRequestAllocator::timerTick() {
   makeNewOffers();
 }
 
-void NoRequestAllocator::gotUsage(const UsageMessage& update) {
+void NoRequestAllocator::gotUsage(const UsageMessage& update)
+{
   // TODO(Charles): Check whether we actually got more free resources on the
   // slave to short-circuit the reoffer; or defer reoffers until we likely have
   // a full set of usage updates.

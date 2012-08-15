@@ -23,6 +23,8 @@
 #include "common/resources.hpp"
 #include "master/allocator.hpp"
 
+#include "usage_log/usage_log.pb.h"
+
 namespace mesos {
 namespace internal {
 namespace norequest {
@@ -36,14 +38,15 @@ public:
                           const SlaveID& slaveId,
                           const Resources& minResources,
                           const Option<Resources>& estResources,
-                          int numTasks) = 0;
+                          int numTasks,
+                          double now) = 0;
   virtual void forgetExecutor(const FrameworkID& frameworkId,
                               const ExecutorID& executorId,
                               const SlaveID& slaveId,
                               bool clearCharge = false) = 0;
   virtual void setCapacity(const SlaveID& slaveId,
                            const Resources& resources) = 0;
-  virtual void timerTick(double cur_time) = 0;
+  virtual void timerTick(double curTime) = 0;
 
   virtual Resources nextUsedForExecutor(const SlaveID& slaveId,
                                         const FrameworkID& frameworkId,
@@ -68,6 +71,8 @@ public:
   virtual void sanityCheckAgainst(mesos::internal::master::Master* master) {
     LOG(FATAL) << "sanity check not implemented";
   }
+
+  virtual void fillExecutorEstimates(AllocatorEstimates* estimates) const {}
 
   virtual ~UsageTracker() {}
 };

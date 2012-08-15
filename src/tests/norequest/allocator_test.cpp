@@ -69,10 +69,10 @@ MATCHER_P(EqProto, value, "") {
 class MockUsageTracker : public UsageTracker {
 public:
   MOCK_METHOD1(recordUsage, void(const UsageMessage&));
-  MOCK_METHOD6(placeUsage, void(const FrameworkID&, const ExecutorID&,
+  MOCK_METHOD7(placeUsage, void(const FrameworkID&, const ExecutorID&,
                                 const SlaveID&, const Resources&,
                                 const Option<Resources>&,
-                                int));
+                                int, double));
   MOCK_METHOD4(forgetExecutor, void(const FrameworkID&, const ExecutorID&,
                                     const SlaveID&, bool));
   MOCK_METHOD2(setCapacity, void(const SlaveID&, const Resources&));
@@ -302,7 +302,7 @@ protected:
     EXPECT_CALL(tracker, placeUsage(EqId(frameworkId),
                                     Eq(DEFAULT_EXECUTOR_ID),
                                     EqId(slaveId), Eq(minResources),
-                                    EqOption(prediction), numTasks));
+                                    EqOption(prediction), numTasks, _));
     EXPECT_CALL(tracker, gaurenteedForExecutor(EqId(slaveId),
                                                EqId(frameworkId),
                                                Eq(DEFAULT_EXECUTOR_ID))).

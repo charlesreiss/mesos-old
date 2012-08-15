@@ -33,6 +33,14 @@ message UsageLogRecord {
   // Next available number: 12
 }
 
+message ExecutorEstimate {
+  required SlaveID slave_id = 1;
+  required FrameworkID framework_id = 2;
+  required ExecutorID executor_id = 3;
+  repeated Resource zero_usage = 4;
+  repeated Resource per_task_usage = 5;
+}
+
 message AllocatorEstimate {
   optional double time = 1;
   optional FrameworkID framework_id = 2;
@@ -43,5 +51,6 @@ message AllocatorEstimate {
 
 message AllocatorEstimates {
   repeated AllocatorEstimate estimate = 1;
+  repeated ExecutorEstimate executor = 2;
 }
 

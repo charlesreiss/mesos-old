@@ -99,7 +99,8 @@ public:
                   const SlaveID& slaveId,
                   const Resources& minResources,
                   const Option<Resources>& estResources,
-                  int numTasks);
+                  int numTasks,
+                  double now);
   void forgetExecutor(const FrameworkID& frameworkId,
                       const ExecutorID& executorId,
                       const SlaveID& slaveId,
@@ -128,6 +129,8 @@ public:
   Resources gaurenteedForExecutor(const SlaveID& slaveId,
                                   const FrameworkID& frameworkId,
                                   const ExecutorID& executorId) const;
+
+  void fillExecutorEstimates(AllocatorEstimates* estimates) const;
 
 #if 0
   void sanityCheckAgainst(mesos::internal::master::Master* master);

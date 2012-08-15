@@ -243,9 +243,11 @@ ResourceEstimates::setTasks(double now, int newTasks) {
     setGuess(now, multiplyResources(nextUsedResources,
                                     double(newTasks) / curTasks));
   }
-  setTaskTime = now;
   // TODO(charles): aggregate task counts??
-  curTasks = newTasks;
+  if (curTasks != newTasks) {
+    setTaskTime = now;
+    curTasks = newTasks;
+  }
 }
 
 void
@@ -354,13 +356,14 @@ UsageTrackerImpl::placeUsage(const FrameworkID& frameworkId,
                              const SlaveID& slaveId,
                              const Resources& minResources,
                              const Option<Resources>& estResources,
-                             int numTasks) {
+                             int numTasks,
+                             double now) {
   ResourceEstimates* executor = estimateFor(frameworkId, executorId, slaveId);
-  executor->setMin(lastTickTime, minResources);
+  executor->setMin(now, minResources);
   if (estResources.isSome()) {
-    executor->setGuess(lastTickTime, estResources.get());
+    executor->setGuess(now, estResources.get());
   }
-  executor->setTasks(lastTickTime, numTasks);
+  executor->setTasks(now, numTasks);
 }
 
 void
@@ -519,6 +522,23 @@ void UsageTrackerImpl::smoothUsageUpdate(Resources* observation,
       if (resource.name() == "mem") {
         resource.mutable_scalar()->set_value(mem);
       }
+    }
+  }
+}
+
+void UsageTrackerImpl::fillExecutorEstimates(AllocatorEstimates* estimates) const
+{
+  foreachpair (const ExecutorKey& key, const ResourceEstimates& execEstimates,
+               estimateByExecutor) {
+    ExecutorEstimate* estimate = estimates->add_executor();
+    estimate->mutable_slave_id()->MergeFrom(key.slaveId);
+    estimate->mutable_framework_id()->MergeFrom(key.frameworkId);
+    estimate->mutable_executor_id()->MergeFrom(key.executorId);
+    if (execEstimates.lastUsedForZero.isSome()) {
+      estimate->mutable_zero_usage()->MergeFrom(execEstimates.lastUsedForZero.get());
+    }
+    if (execEstimates.lastUsedPerTask.isSome()) {
+      estimate->mutable_per_task_usage()->MergeFrom(execEstimates.lastUsedPerTask.get());
     }
   }
 }

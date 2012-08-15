@@ -128,6 +128,7 @@ BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
     Resources progress;
     Resource cpuTimeRes;
     cpuTimeRes.set_name("cpuTime");
+    cpuTimeRes.set_type(Value::SCALAR);
     cpuTimeRes.mutable_scalar()->set_value(cpuTime);
     progress += cpuTimeRes;
     if (cpuUnits <= kSmall) {
