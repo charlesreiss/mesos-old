@@ -196,7 +196,7 @@ patch to do that for you:
 
 __EOF__
 
-cp -r ../mesos src/contrib || fail "cp -r ../mesos src/contrib"
+cp -r ../mesos/ src/contrib || fail "cp -r ../mesos src/contrib"
 cp -p ../mesos-executor bin || fail "cp -p ../mesos-executor bin"
 
 # Check and see if the patch has already been applied.
