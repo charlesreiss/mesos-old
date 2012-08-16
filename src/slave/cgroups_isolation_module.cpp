@@ -80,6 +80,7 @@ void CgroupsIsolationModule::initialize(
     const PID<Slave>& _slave)
 {
   flags = _flags;
+  slave = _slave;
 
   if (flags.cgroup_oom_policy == "kill") {
     oomPolicy = OOM_KILL;
