@@ -59,6 +59,7 @@ class BatchJob(GenericJob):
       sample_each_memory = False,
       sample_each_cpu = False,
       sort_by_cpu_time = True,
+      hidden_per_cpu = None,
       **ignored_args
   ):
     actual_memory = min(memory_max, memory_sample_func())
@@ -78,11 +79,13 @@ class BatchJob(GenericJob):
     else:
       const_resources = 'mem:' + str(actual_memory)
 
+
     job = BatchJob(
       request='cpus:' + str(request_cpu) + ';mem:' + str(request_memory),
       const_resources=const_resources,
       max_cpus=actual_cpu,
       start_time=start_time,
+      hidden_per_cpu=hidden_per_cpu
     )
 
     if target_memory_seconds:
