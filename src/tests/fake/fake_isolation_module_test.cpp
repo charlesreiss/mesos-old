@@ -480,3 +480,44 @@ TEST_F(FakeIsolationModuleTest, ReportUsageSimple)
   stopSlave();
 }
 
+TEST_F(FakeIsolationModuleTest, HiddenResourceOne)
+{
+  using testing::_;
+  startSlave();
+  MockFakeTask mockTask;
+  double now = process::Clock::now();
+  startTask("task0", &mockTask, ResourceHints::parse("cpus:4.0", ""));
+  EXPECT_CALL(mockTask, getUsage(seconds(now), seconds(now + kTick))).
+    WillRepeatedly(Return(Resources::parse("cpus:1.0;hidden:1.2")));
+  EXPECT_CALL(mockTask, takeUsage(_, _, Resources::parse("cpus:1.0;hidden:1.0"))).
+    WillOnce(Return(TASK_RUNNING));
+  process::Clock::advance(kTick);
+  process::Clock::settle();
+  killTask("task0");
+  stopSlave();
+}
+
+
+TEST_F(FakeIsolationModuleTest, HiddenResourceTwo)
+{
+  using testing::_;
+  startSlave();
+  MockFakeTask mockTask1;
+  MockFakeTask mockTask2;
+  double now = process::Clock::now();
+  startTask("task1", &mockTask1, ResourceHints::parse("cpus:4.0", ""));
+  startTask("task2", &mockTask2, ResourceHints::parse("cpus:4.0", ""));
+  EXPECT_CALL(mockTask1, getUsage(seconds(now), seconds(now + kTick))).
+    WillRepeatedly(Return(Resources::parse("cpus:1.0;hidden:1.2")));
+  EXPECT_CALL(mockTask2, getUsage(seconds(now), seconds(now + kTick))).
+    WillRepeatedly(Return(Resources::parse("cpus:2.0;hidden:0.6")));
+  EXPECT_CALL(mockTask1, takeUsage(_, _, Resources::parse("cpus:1.0;hidden:0.5"))).
+    WillOnce(Return(TASK_RUNNING));
+  EXPECT_CALL(mockTask2, takeUsage(_, _, Resources::parse("cpus:2.0;hidden:0.5"))).
+    WillOnce(Return(TASK_RUNNING));
+  process::Clock::advance(kTick);
+  process::Clock::settle();
+  killTask("task1");
+  killTask("task2");
+  stopSlave();
+}

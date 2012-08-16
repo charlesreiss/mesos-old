@@ -45,6 +45,10 @@ using mesos::internal::fake::UsageInfo;
         framework.mutable_id()->MergeFrom(DEFAULT_FRAMEWORK_ID);        \
         framework; })
 
+static void failTakeUsage() {
+  FAIL() << "takeUsage default";
+}
+
 struct MockFakeTask : mesos::internal::fake::FakeTask {
   MOCK_CONST_METHOD2(getUsage, Resources(seconds, seconds));
   MOCK_METHOD3(takeUsage, UsageInfo(seconds, seconds, const Resources&));
@@ -60,6 +64,10 @@ struct MockFakeTask : mesos::internal::fake::FakeTask {
     EXPECT_CALL(*this, getScore()).
       Times(testing::AtLeast(0)).
       WillRepeatedly(testing::Return(-1000000.0));
+    ON_CALL(*this, takeUsage(_, _, _)).
+      WillByDefault(
+          testing::DoAll(testing::InvokeWithoutArgs(&failTakeUsage),
+                         testing::Return(UsageInfo(TASK_LOST))));
   }
 };
 

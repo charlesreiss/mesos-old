@@ -259,11 +259,14 @@ struct DesiredUsage {
   double cpuWeight;
   double excessMem;
   double memWeight; // currently deliberately kept at 1.
+  double excessHidden;
+  double hiddenWeight;
 
   void setDesired(const Resources& desired) {
     desiredUsage = remainingDesiredUsage = desired;
     excessCpu = desired.get("cpus", Value::Scalar()).value();
     excessMem = desired.get("mem", Value::Scalar()).value();
+    excessHidden = desired.get("hidden", Value::Scalar()).value();
   }
 
   void assign(const Resources& usage) {
@@ -271,6 +274,7 @@ struct DesiredUsage {
     assignedUsage += usage;
     excessCpu -= usage.get("cpus", Value::Scalar()).value();
     excessMem -= usage.get("mem", Value::Scalar()).value();
+    excessHidden -= usage.get("hidden", Value::Scalar()).value();
   }
 
   void assign(const Resource& resource) {
@@ -280,6 +284,8 @@ struct DesiredUsage {
       excessCpu -= resource.scalar().value();
     } else if (resource.name() == "mem") {
       excessMem -= resource.scalar().value();
+    } else if (resource.name() == "hidden") {
+      excessHidden -= resource.scalar().value();
     }
   }
 
@@ -300,7 +306,7 @@ struct DesiredUsage {
   }
 
   DesiredUsage() : excessCpu(0.0), cpuWeight(0.0), excessMem(0.0),
-                   memWeight(1.0) {}
+                   memWeight(1.0), excessHidden(0.0), hiddenWeight(1.0) {}
 };
 
 inline std::ostream& operator<<(std::ostream& out, const DesiredUsage& usage)
@@ -419,6 +425,10 @@ bool FakeIsolationModule::tick() {
       distributeFree("mem", &DesiredUsage::memWeight, &DesiredUsage::excessMem,
           totalUsed, totalResources, &usages);
     }
+
+    distributeFree("hidden", &DesiredUsage::hiddenWeight,
+        &DesiredUsage::excessHidden, totalUsed, Resources::parse("hidden:1"),
+        &usages);
 
     // 2.5) Round up usage
     foreach (DesiredUsage& usage, usages) {
