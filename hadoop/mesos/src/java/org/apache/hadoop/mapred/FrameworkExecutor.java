@@ -19,14 +19,18 @@ import org.apache.mesos.MesosExecutorDriver;
 import org.apache.mesos.Protos.ExecutorInfo;
 import org.apache.mesos.Protos.FrameworkID;
 import org.apache.mesos.Protos.FrameworkInfo;
+import org.apache.mesos.Protos.Progress;
+import org.apache.mesos.Protos.Resource;
 import org.apache.mesos.Protos.SlaveID;
 import org.apache.mesos.Protos.SlaveInfo;
 import org.apache.mesos.Protos.Status;
 import org.apache.mesos.Protos.TaskID;
 import org.apache.mesos.Protos.TaskInfo;
 import org.apache.mesos.Protos.TaskState;
+import org.apache.mesos.Protos.Value;
+import org.apache.mesos.ProgressIndicator;
 
-public class FrameworkExecutor implements Executor {
+public class FrameworkExecutor implements Executor, ProgressIndicator {
   public static final Log LOG =
     LogFactory.getLog(FrameworkExecutor.class);
 
@@ -197,4 +201,31 @@ public class FrameworkExecutor implements Executor {
   static FrameworkExecutor getInstance() {
     return instance;
   }
+
+  @Override
+  public void requestProgress(ExecutorDriver d) {
+    double totalProgress = 0.0;
+    HashMap<TaskAttemptID, TaskStatus> newStatuses =
+      new HashMap<TaskAttemptID, TaskStatus>();
+    for (TaskStatus status : taskTracker.getRunningTaskStatuses()) {
+      TaskStatus prevStatus = prevStatuses.get(status.getTaskID());
+      totalProgress += status.getProgress();
+      if (prevStatus != null) {
+        totalProgress -= prevStatus.getProgress();
+      }
+      newStatuses.put(status.getTaskID(), status);
+    }
+    Progress p = Progress.newBuilder().
+      addProgress(
+          Resource.newBuilder().setName("taskProgress").setScalar(
+            Value.Scalar.newBuilder().setValue(totalProgress).build()
+          ).setType(Value.Type.SCALAR).build()
+      ).build();
+    d.sendProgress(p);
+    prevStatuses = newStatuses;
+  }
+
+  // TODO(Charles): Need to handle terminations!
+  private HashMap<TaskAttemptID, TaskStatus> prevStatuses
+    = new HashMap<TaskAttemptID, TaskStatus>();
 }
