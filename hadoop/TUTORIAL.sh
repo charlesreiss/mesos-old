@@ -346,6 +346,14 @@ __EOF__
     cp ${LIBRARY} lib || fail "cp ${LIBRARY} lib"
 fi
 
+MESOS_SOURCE_DIR=`echo @abs_top_srcdir@ | \
+  ${MESOS_BUILD_DIR}/config.status --file=-:-`
+
+cp ${MESOS_SOURCE_DIR}/hadoop/TaskTracker.java src/mapred/org/apache/mapred || \
+  fail "cp TaskTracker.java"
+cp ${MESOS_SOURCE_DIR}/hadoop/Gridmix.java src/contrib/gridmix/src/java/org/apache/hadoop/mapred/gridmix || \
+  fail "cp TaskTracker.java"
+
 
 # Build with ant.
 cat <<__EOF__
