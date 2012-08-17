@@ -103,3 +103,53 @@ TEST_F(BatchTaskTest, TakeUsageFailure)
   EXPECT_EQ(Resources::parse("cpus:3.0;mem:1024"),
             task->getUsage(seconds(12.0), seconds(22.0)));
 }
+
+class BatchTaskWithHiddenTest : public testing::Test
+{
+protected:
+  void SetUp() {
+    task.reset(new BatchTask(Resources::parse("mem:1024"),
+                             ResourceHints::parse("mem:1280;cpus:2.0",
+                                                  "mem:1280"),
+                             30.0, 3.0, 4.0));
+  }
+
+  scoped_ptr<BatchTask> task;
+};
+
+TEST_F(BatchTaskWithHiddenTest, GetUsageHidden)
+{
+  EXPECT_EQ(Resources::parse("cpus:3.0;hidden:12.0;mem:1024"),
+      task->getUsage(seconds(1.0), seconds(2.0)));
+  EXPECT_EQ(Resources::parse("cpus:3.0;hidden:12.0;mem:1024"),
+      task->getUsage(seconds(1.0), seconds(11.0)));
+  EXPECT_EQ(Resources::parse("cpus:1.0;hidden:4.0;mem:1024"),
+      task->getUsage(seconds(1.0), seconds(31.0)));
+}
+
+TEST_F(BatchTaskWithHiddenTest, GetUsageAfterTakeUsage)
+{
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:15.0")),
+            task->takeUsage(seconds(1.0), seconds(11.0),
+                            Resources::parse("cpus:2.0;mem:1024;hidden:6.0")));
+  EXPECT_EQ(Resources::parse("cpus:3.0;hidden:12.0;mem:1024"),
+      task->getUsage(seconds(11.0), seconds(12.0)));
+  EXPECT_EQ(Resources::parse("cpus:1.5;hidden:6.0;mem:1024"),
+      task->getUsage(seconds(11.0), seconds(21.0)));
+}
+
+TEST_F(BatchTaskWithHiddenTest, TakeUsageNormal)
+{
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:0.0")),
+            task->takeUsage(seconds(0.0), seconds(1.0),
+                            Resources::parse("cpus:10.0;mem:1024")));
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:15.0")),
+            task->takeUsage(seconds(1.0), seconds(11.0),
+                            Resources::parse("cpus:2.0;mem:1024;hidden:6.0")));
+  EXPECT_EQ(UsageInfo(TASK_RUNNING, Resources::parse("cpuTime:10.0")),
+            task->takeUsage(seconds(11.0), seconds(21.0),
+                            Resources::parse("cpus:1.0;mem:1024;hidden:12.0")));
+  EXPECT_EQ(UsageInfo(TASK_FINISHED, Resources::parse("cpuTime:5.0")),
+            task->takeUsage(seconds(21.0), seconds(23.5),
+                            Resources::parse("cpus:2.0;mem:1024;hidden:8.0")));
+}

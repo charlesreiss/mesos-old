@@ -42,7 +42,8 @@ private:
 class BatchTask : public FakeTask {
 public:
   BatchTask(const Resources& constUsage_, const ResourceHints& request_,
-            double cpuUnits_, double maxCpuRate_);
+            double cpuUnits_, double maxCpuRate_,
+            double hiddenPerCpu_ = 0.0);
   Resources getUsage(seconds from, seconds to) const;
   UsageInfo takeUsage(seconds from, seconds to, const Resources& resources);
   ResourceHints getResourceRequest() const;
@@ -51,7 +52,7 @@ public:
 private:
   Resources constUsage;
   ResourceHints request;
-  double initialCpuUnits, cpuUnits, maxCpuRate;
+  double initialCpuUnits, cpuUnits, maxCpuRate, hiddenPerCpu;
 };
 
 }  // namespace fake

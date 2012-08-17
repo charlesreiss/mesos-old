@@ -280,6 +280,8 @@ void populateScenarioFrom(const ptree& spec, Scenario* scenario)
       const Resources constResources(
           Resources::parse(batch.get<std::string>("const_resources", "")));
       const double baseMaxCpus(batch.get<double>("max_cpus", -1.0));
+      const double baseHiddenPerCpu(
+          batch.get<double>("hidden_per_cpu", 0.0));
       std::map<TaskID, FakeTask*> tasks;
       double totalTime = 0.0;
       foreachpair (const std::string& key,
@@ -290,11 +292,14 @@ void populateScenarioFrom(const ptree& spec, Scenario* scenario)
         const Resources extraConstResources(
             Resources::parse(task.get<std::string>("const_resources", "")));
         const double maxCpus(task.get<double>("max_cpus", baseMaxCpus));
+        const double hiddenPerCpu(task.get<double>("hidden_per_cpu",
+              baseHiddenPerCpu));
         CHECK_GT(maxCpus, 0.0);
         CHECK_GE(taskTime, 0.0);
         totalTime += taskTime;
         tasks[taskId] = new BatchTask(constResources + extraConstResources,
-                                      batchRequest, taskTime, maxCpus);
+                                      batchRequest, taskTime, maxCpus,
+                                      hiddenPerCpu);
         VLOG(2) << "parsed " << *tasks[taskId];
       }
       Attributes attrs;

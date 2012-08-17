@@ -83,9 +83,10 @@ ConstantTask::printToStream(std::ostream& out) const
 
 BatchTask::BatchTask(const Resources& constUsage_,
                      const ResourceHints& request_,
-                     double cpuUnits_, double maxCpuRate_)
+                     double cpuUnits_, double maxCpuRate_,
+                     double hiddenPerCpu_)
     : constUsage(constUsage_), request(request_), initialCpuUnits(cpuUnits_),
-      cpuUnits(cpuUnits_), maxCpuRate(maxCpuRate_)
+      cpuUnits(cpuUnits_), maxCpuRate(maxCpuRate_), hiddenPerCpu(hiddenPerCpu_)
 {
   CHECK(constUsage <= request.expectedResources);
   CHECK_GT(cpuUnits, 1e-8);
@@ -104,6 +105,13 @@ BatchTask::getUsage(seconds from, seconds to) const
   cpuResource.set_type(Value::SCALAR);
   cpuResource.mutable_scalar()->set_value(cpu);
   result += cpuResource;
+  if (hiddenPerCpu > 0.0) {
+    Resource hiddenResource;
+    hiddenResource.set_name("hidden");
+    hiddenResource.set_type(Value::SCALAR);
+    hiddenResource.mutable_scalar()->set_value(cpu * hiddenPerCpu);
+    result += hiddenResource;
+  }
   return result;
 }
 
@@ -122,8 +130,11 @@ BatchTask::takeUsage(seconds from, seconds to, const Resources& resources)
     return TASK_LOST;
   } else {
     double cpuTaken = resources.get("cpus", Value::Scalar()).value();
-    CHECK_GT(cpuTaken, 1e-10) << *this << " got " << resources;
-    double cpuTime = resources.get("cpus", Value::Scalar()).value() * delta;
+    double hiddenTaken = resources.get("hidden", Value::Scalar()).value();
+    if (hiddenPerCpu > 0.0 && hiddenTaken < cpuTaken * hiddenPerCpu) {
+      cpuTaken = hiddenTaken / hiddenPerCpu;
+    }
+    double cpuTime = cpuTaken * delta;
     cpuUnits -= cpuTime;
     Resources progress;
     Resource cpuTimeRes;

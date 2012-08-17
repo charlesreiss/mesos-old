@@ -85,6 +85,7 @@ TEST_F(FakeScenarioTest, PopulateScenarioOneBatchTask)
     "      \"request\": \"mem:20;cpus:1.0\",\n"
     "      \"const_resources\": \"mem:5\",\n"
     "      \"max_cpus\": 1.0,\n"
+    "      \"hidden_per_cpu\": 2.0,\n"
     "      \"tasks\": {\n"
     "         \"t0\": {\"cpu_time\": 10.0}\n"
     "      }\n"
@@ -100,6 +101,8 @@ TEST_F(FakeScenarioTest, PopulateScenarioOneBatchTask)
   populateScenarioFrom(&in, &scenario);
   scenario.finishSetup();
   scenario.runFor(10.1);
+  EXPECT_EQ(1, scenario.getScheduler("b0")->countRunning());
+  scenario.runFor(10.0);
   EXPECT_EQ(0, scenario.getScheduler("b0")->countPending());
   EXPECT_EQ(0, scenario.getScheduler("b0")->countRunning());
   EXPECT_EQ(Attributes::parse("total_time:10.0;type:batch;name:b0"),
