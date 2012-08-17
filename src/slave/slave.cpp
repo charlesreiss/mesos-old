@@ -288,6 +288,13 @@ void Slave::initialize()
   install<FrameworkPrioritiesMessage>(
       &Slave::setFrameworkPriorities);
 
+  install<ProgressMessage>(
+      &Slave::gotProgress,
+      &ProgressMessage::framework_id,
+      &ProgressMessage::executor_id,
+      &ProgressMessage::progress);
+
+
   // Install the ping message handler.
   install("PING", &Slave::ping);
 
