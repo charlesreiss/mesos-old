@@ -1263,12 +1263,12 @@ void Slave::gotProgress(const FrameworkID& frameworkId,
     if (executor) {
       Resources progressTotal(executor->pendingProgress.progress());
       progressTotal += progress.progress();
-      executor->pendingProgress.mutable_progress()->MergeFrom(progress.progress());
+      executor->pendingProgress.mutable_progress()->MergeFrom(progressTotal);
     } else {
       LOG(ERROR) << "Progress message for unknown executor " << executorId;
     }
   } else {
-    LOG(ERROR) << "Progress message for unkown framework " << frameworkId;
+    LOG(ERROR) << "Progress message for unknown framework " << frameworkId;
   }
 }
 

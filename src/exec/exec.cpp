@@ -309,7 +309,8 @@ protected:
     message.mutable_framework_id()->MergeFrom(frameworkId);
     message.mutable_executor_id()->MergeFrom(executorId);
     message.mutable_progress()->MergeFrom(progress);
-    send(slave, progress);
+
+    send(slave, message);
   }
 
 private:
