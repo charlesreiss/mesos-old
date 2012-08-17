@@ -148,7 +148,6 @@ TEST_F(UsageListenerTest, ForwardExecutorExit)
   WAIT_UNTIL(gotExit);
 }
 
-
 TEST_F(UsageListenerTest, HandleListenerDeath)
 {
   process::terminate(listenerPid);

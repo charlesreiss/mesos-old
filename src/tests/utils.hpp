@@ -247,6 +247,11 @@ public:
   MOCK_METHOD2(frameworkMessage, void(ExecutorDriver*, const std::string&));
   MOCK_METHOD1(shutdown, void(ExecutorDriver*));
   MOCK_METHOD2(error, void(ExecutorDriver*, const std::string&));
+  MOCK_METHOD1(requestProgress, void(ExecutorDriver*));
+
+  MockExecutor() {
+    EXPECT_CALL(*this, requestProgress(testing::_)).Times(testing::AnyNumber());
+  }
 };
 
 

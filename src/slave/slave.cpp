@@ -1227,7 +1227,7 @@ void Slave::gotStatistics(
     }
     message.set_still_running(isRunning);
     current.fillUsageMessage(prev, &message);
-    send(master, message);
+    sendUsageUpdate(message);
     if (isRunning) {
       delay(1.0, PID<Slave>(this), &Slave::fetchStatistics,
           frameworkId, executorId, Option<ResourceStatistics>(current));
@@ -1240,7 +1240,6 @@ void Slave::gotStatistics(
 
 void Slave::sendUsageUpdate(const UsageMessage& _update) {
   UsageMessage update = _update;
-  update.mutable_slave_id()->MergeFrom(id);
   Framework* framework;
   if ((framework = getFramework(update.framework_id())) != 0) {
     Executor* executor = framework->getExecutor(update.executor_id());
@@ -1264,7 +1263,11 @@ void Slave::gotProgress(const FrameworkID& frameworkId,
       Resources progressTotal(executor->pendingProgress.progress());
       progressTotal += progress.progress();
       executor->pendingProgress.mutable_progress()->MergeFrom(progress.progress());
+    } else {
+      LOG(ERROR) << "Progress message for unknown executor " << executorId;
     }
+  } else {
+    LOG(ERROR) << "Progress message for unkown framework " << frameworkId;
   }
 }
 

@@ -447,6 +447,26 @@ TEST_F(MasterSlaveTest, FrameworkMessage)
   stopMasterAndSlave();
 }
 
+TEST_F(MasterSlaveTest, RequestProgress)
+{
+  Clock::pause();
+  startMasterAndSlave();
+  vector<Offer> offers;
+  getOffers(&offers);
+  launchTaskForOffer(offers[0], "testTaskId");
+
+  trigger gotRequestProgress;
+  EXPECT_CALL(exec, requestProgress(_)).
+    WillOnce(Trigger(&gotRequestProgress));
+  Clock::advance(1.0f);
+  WAIT_UNTIL(gotRequestProgress);
+
+  stopScheduler();
+  stopMasterAndSlave();
+
+  Clock::resume();
+}
+
 TEST_F(MasterSlaveTest, MultipleExecutors)
 {
   MockExecutor exec1;
@@ -554,7 +574,8 @@ TEST_F(MasterSlaveTest, MultipleExecutors)
   stopMasterAndSlave();
 }
 
-TEST_F(MasterSlaveTest, AccumulateUsage) {
+TEST_F(MasterSlaveTest, AccumulateUsage)
+{
   useMockAllocator = true;
   startMasterAndSlave();
   OfferID offerId;
