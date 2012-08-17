@@ -204,22 +204,34 @@ public class FrameworkExecutor implements Executor, ProgressIndicator {
 
   @Override
   public void requestProgress(ExecutorDriver d) {
-    double totalProgress = 0.0;
+    double mapProgress = 0.0;
+    double reduceProgress = 0.0;
     HashMap<TaskAttemptID, TaskStatus> newStatuses =
       new HashMap<TaskAttemptID, TaskStatus>();
     for (TaskStatus status : taskTracker.getRunningTaskStatuses()) {
+      double curProgress = 0.0;
       TaskStatus prevStatus = prevStatuses.get(status.getTaskID());
-      totalProgress += status.getProgress();
+      curProgress += status.getProgress();
       if (prevStatus != null) {
-        totalProgress -= prevStatus.getProgress();
+        curProgress -= prevStatus.getProgress();
       }
       newStatuses.put(status.getTaskID(), status);
+      if (status.getIsMap()) {
+        mapProgress += curProgress;
+      } else {
+        reduceProgress += curProgress;
+      }
     }
     Progress p = Progress.newBuilder().
       addProgress(
-          Resource.newBuilder().setName("taskProgress").setScalar(
-            Value.Scalar.newBuilder().setValue(totalProgress).build()
+          Resource.newBuilder().setName("map").setScalar(
+            Value.Scalar.newBuilder().setValue(mapProgress).build()
           ).setType(Value.Type.SCALAR).build()
+      ).addProgress(
+          Resource.newBuilder().setName("reduce").setScalar(
+            Value.Scalar.newBuilder().setValue(reduceProgress).build()
+          ).setType(Value.Type.SCALAR).build()
+
       ).build();
     d.sendProgress(p);
     prevStatuses = newStatuses;
