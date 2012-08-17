@@ -1241,6 +1241,7 @@ void Slave::gotStatistics(
 void Slave::sendUsageUpdate(const UsageMessage& _update) {
   UsageMessage update = _update;
   Framework* framework;
+  update.mutable_slave_id()->MergeFrom(id);
   if ((framework = getFramework(update.framework_id())) != 0) {
     Executor* executor = framework->getExecutor(update.executor_id());
     if (executor) {
