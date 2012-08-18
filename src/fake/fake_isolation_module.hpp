@@ -201,6 +201,7 @@ private:
   double lastUsageTime;
   double slackMem;
   double baseCpuWeight;
+  bool assignZeroCpu;
 };
 
 }  // namespace fake

@@ -40,6 +40,7 @@ void Scenario::spawnMaster(mesos::internal::master::Allocator* allocator_)
 {
   CHECK(process::Clock::paused());
   allocator = allocator_;
+  CHECK(allocator) << conf.get<std::string>("allocator", "<unset>");
   master = new Master(allocator);
   masterPid = process::spawn(master);
   masterMasterDetector.reset(new BasicMasterDetector(masterPid));
@@ -57,7 +58,7 @@ void Scenario::spawnSlave(const Resources& resources)
     }
     confForSlave.set("resources", ost.str());
   }
-  FakeIsolationModule* module = new FakeIsolationModule(conf, tracker);
+  FakeIsolationModule* module = new FakeIsolationModule(confForSlave, tracker);
   flags::Flags<logging::Flags, slave::Flags> slaveFlags;
   slaveFlags.load(conf.getMap());
   Slave* slave = new Slave("", resources, slaveFlags, true, module);

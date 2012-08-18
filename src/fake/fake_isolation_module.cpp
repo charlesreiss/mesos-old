@@ -119,7 +119,10 @@ FakeIsolationModule::FakeIsolationModule(const Configuration& conf,
   assignMin = conf.get<bool>("fake_assign_min", false);
   slackMem = conf.get<double>("fake_slack_mem", 0.0);
   baseCpuWeight = conf.get<double>("fake_base_cpu_weight", 0.01);
+  assignZeroCpu = conf.get<bool>("fake_assign_zero_cpu", false);
   totalResources = Resources::parse(conf.get<std::string>("resources", ""));
+
+  VLOG(1) << "extraCpu " << extraCpu << "; conf = " << conf.str();
 }
 
 void FakeIsolationModule::initialize(const slave::Flags& flags, bool local,
@@ -404,16 +407,26 @@ bool FakeIsolationModule::tick() {
         Resources toAssign = minResources(usage->remainingDesiredUsage,
             assignMin ? task.assignedResources.minResources :
                         task.assignedResources.expectedResources);
+        if (assignZeroCpu) {
+          foreach (Resource& resource, toAssign) {
+            if (resource.name() == "cpus") {
+              resource.mutable_scalar()->set_value(0.0);
+            }
+          }
+        }
         usage->assign(toAssign);
         usage->cpuWeight =
             std::max(baseCpuWeight,
                 task.assignedResources.expectedResources.get(
                   "cpus", Value::Scalar()).value());
+        usage->memWeight = usage->cpuWeight;
         totalUsed += toAssign;
 
         VLOG(1) << "Created usage " << *usage;
       }
     }
+
+    VLOG(1) << "Total used " << totalUsed;
 
     // 2a) If using free CPU is enabled, distribute it.
     if (extraCpu) {

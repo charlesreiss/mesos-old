@@ -120,9 +120,11 @@ class BatchJob(GenericJob):
 
     
   def __init__(self, request, const_resources, 
-               max_cpus, start_time = 0.0):
+               max_cpus, start_time = 0.0, hidden_per_cpu=None):
     GenericJob.__init__(self, request, const_resources, start_time)
     self.for_json['max_cpus'] = max_cpus 
+    if hidden_per_cpu is not None:
+      self.for_json['hidden_per_cpu'] = hidden_per_cpu
 
 
   def add_tasks_dist(self, size_dist, task_length_dist):

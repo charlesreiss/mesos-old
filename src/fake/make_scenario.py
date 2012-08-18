@@ -1,3 +1,4 @@
+import sys
 import json
 import random
 import math
@@ -12,6 +13,8 @@ parser.add_argument('--memory_low', default=False, type=bool,
                     help='Low-ball memory requests.')
 parser.add_argument('--memory_accuracy', default=5.0, type=float,
                     help='Round interval for memory requests.')
+parser.add_argument('--fixed_memory', default=None, type=float,
+                    help='Fixed value for memory requests')
 parser.add_argument('--cpu_request', default=2.0, type=float,
                     help='CPU requested')
 parser.add_argument('--cpu_max', default=2.0, type=float,
@@ -51,7 +54,7 @@ parser.add_argument('--serve_cpu_unit', default=0.1, type=float)
 
 parser.add_argument('--vary_interval', default=False, action='store_true')
 parser.add_argument('--vary_interval_factor', default=0.5, type=float)
-parser.add_argument('--slave_resources', default='cpus:8.0;mem:40')
+parser.add_argument('--slave_resources', default='cpus:4.0;mem:40')
 
 args = parser.parse_args()
 
@@ -119,6 +122,8 @@ def make_scenario(offset):
     myargs.start_time = start_time
     if is_experiment:
       myargs.memory_sample_func = lambda ignored: args.experiment_memory
+    elif args.fixed_memory is not None:
+      myargs.memory_sample_func = lambda: args.fixed_memory
     else:
       myargs.memory_sample_func = sample_memory
     if is_experiment or not myargs.use_experiment:
@@ -152,6 +157,9 @@ def make_scenario(offset):
     serve_jobs[-1].set_pattern(args.serve_pattern.split(','),
         args.serve_time_unit)
 
+  sys.stderr.write('%d serving; %d fixed; %d experiment\n' % (
+    len(serve_jobs), len(fixed_jobs), len(experiment_jobs)
+  ))
   return Scenario(
             slaves = map(lambda x: Slave(resources=args.slave_resources),
               xrange(args.slaves)),
@@ -166,4 +174,3 @@ for i in xrange(args.max_offset):
   for j in xrange(args.repeat):
     print(scenario.dump())
     print ""
-
