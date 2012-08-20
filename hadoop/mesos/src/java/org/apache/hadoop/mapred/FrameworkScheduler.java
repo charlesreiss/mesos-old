@@ -499,10 +499,11 @@ public class FrameworkScheduler implements Scheduler {
         TaskID mesosId = status.getTaskId();
         MesosTask nt = mesosIdToMesosTask.get(mesosId);
         if (nt == null) {
-          throw new RuntimeException(
-              "Received status update for unknown task " + status.getTaskId());
+          LOG.warn("Received status update for unknown task " +
+              status.getTaskId());
+        } else {
+          removeTask(nt);
         }
-        removeTask(nt);
       }
     }
   }
@@ -603,6 +604,7 @@ public class FrameworkScheduler implements Scheduler {
   }
 
   private void removeTask(MesosTask nt) {
+    if (nt == null) return;
     synchronized (jobTracker) {
       LOG.info("Removing task with mesos id " + nt.mesosId +
                "assigned = " + nt.isAssigned() + "; " +

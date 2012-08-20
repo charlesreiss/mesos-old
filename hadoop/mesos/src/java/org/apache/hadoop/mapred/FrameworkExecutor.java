@@ -215,7 +215,7 @@ public class FrameworkExecutor implements Executor, ProgressIndicator {
       if (prevStatus != null) {
         curProgress -= prevStatus.getProgress();
       }
-      newStatuses.put(status.getTaskID(), status);
+      newStatuses.put(status.getTaskID(), (TaskStatus) status.clone());
       if (status.getIsMap()) {
         mapProgress += curProgress;
       } else {
@@ -231,7 +231,6 @@ public class FrameworkExecutor implements Executor, ProgressIndicator {
           Resource.newBuilder().setName("reduce").setScalar(
             Value.Scalar.newBuilder().setValue(reduceProgress).build()
           ).setType(Value.Type.SCALAR).build()
-
       ).build();
     d.sendProgress(p);
     prevStatuses = newStatuses;
@@ -240,4 +239,4 @@ public class FrameworkExecutor implements Executor, ProgressIndicator {
   // TODO(Charles): Need to handle terminations!
   private HashMap<TaskAttemptID, TaskStatus> prevStatuses
     = new HashMap<TaskAttemptID, TaskStatus>();
-}
+
