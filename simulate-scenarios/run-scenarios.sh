@@ -12,6 +12,7 @@ VALGRIND='../build-linux/libtool --mode=execute valgrind --tool=callgrind --cach
 SIMULATE='../build-linux/src/mesos-simulate --fake_interval=0.5 --no_create_work_dir --norequest_usage_reoffer_delay=0.001'
 
 export GLOG_minloglevel=1
+export GLOG_log_dir=/scratch/charles/mesos-logs
 #export GLOG_v=1
 #export GLOG_logtostderr=1
 

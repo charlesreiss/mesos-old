@@ -15,7 +15,7 @@ parser.add_argument('--memory_accuracy', default=5.0, type=float,
                     help='Round interval for memory requests.')
 parser.add_argument('--fixed_memory', default=None, type=float,
                     help='Fixed value for memory requests')
-parser.add_argument('--cpu_request', default=2.0, type=float,
+parser.add_argument('--cpu_request', default=None, type=float,
                     help='CPU requested')
 parser.add_argument('--cpu_max', default=2.0, type=float,
                     help='Maximum CPU used')
@@ -137,6 +137,8 @@ def make_scenario(offset):
         myargs.memory_round_func = make_round_memory(FACTOR)
       elif args.vary_cpu:
         myargs.cpu_round_func = lambda x: (0.5 + offset / 5.0) * x
+      elif args.cpu_request is not None:
+        myargs.request_cpu = args.cpu_request
 
     if args.memory_accuracy > 0.0 and 'memory_round_func' not in vars(myargs):
       myargs.memory_round_func = make_round_memory(args.memory_accuracy)

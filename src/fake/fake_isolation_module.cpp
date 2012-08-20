@@ -426,7 +426,7 @@ bool FakeIsolationModule::tick() {
       }
     }
 
-    VLOG(1) << "Total used " << totalUsed;
+    VLOG(1) << "Total used " << totalUsed << ": eCpu " << extraCpu;
 
     // 2a) If using free CPU is enabled, distribute it.
     if (extraCpu) {
