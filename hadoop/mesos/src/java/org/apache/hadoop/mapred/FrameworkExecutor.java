@@ -239,4 +239,4 @@ public class FrameworkExecutor implements Executor, ProgressIndicator {
   // TODO(Charles): Need to handle terminations!
   private HashMap<TaskAttemptID, TaskStatus> prevStatuses
     = new HashMap<TaskAttemptID, TaskStatus>();
-
+}
