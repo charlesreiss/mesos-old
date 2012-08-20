@@ -27,10 +27,11 @@ message UsageLogRecord {
   repeated StatusUpdate running_start = 8;
 
   repeated AllocatorEstimate allocator_estimate = 10;
+  repeated ExecutorEstimate executor_estimate = 12;
 
   repeated ExitedExecutorMessage exit = 11;
 
-  // Next available number: 12
+  // Next available number: 13
 }
 
 message ExecutorEstimate {

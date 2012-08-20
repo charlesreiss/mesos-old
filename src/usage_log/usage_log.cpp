@@ -127,6 +127,9 @@ void UsageRecorder::recordAllocatorEstimates(const AllocatorEstimates& estimates
   foreach (const AllocatorEstimate& estimate, estimates.estimate()) {
     getRecord(estimate.time())->add_allocator_estimate()->MergeFrom(estimate);
   }
+  foreach (const ExecutorEstimate& estimate, estimates.executor()) {
+    getRecord(process::Clock::now())->add_executor_estimate()->MergeFrom(estimate);
+  }
 }
 
 // FIXME TEST
