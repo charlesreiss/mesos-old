@@ -116,6 +116,7 @@ public class FrameworkScheduler implements Scheduler {
   private int cpusPerTask;
   private int memPerTask;
   private long localityWait;
+  private int memPerExecutor;
 
   private Map<String, TaskTrackerInfo> ttInfos =
     new HashMap<String, TaskTrackerInfo>();
@@ -143,6 +144,7 @@ public class FrameworkScheduler implements Scheduler {
     this.jobTracker = mesosSched.jobTracker;
     cpusPerTask = conf.getInt("mapred.mesos.task.cpus", 1);
     memPerTask = conf.getInt("mapred.mesos.task.mem", 1024);
+    memPerExecutor = conf.getInt("mapred.mesos.executor.mem", 256);
     localityWait = conf.getLong("mapred.mesos.localitywait", 5000);
   }
 
@@ -352,6 +354,7 @@ public class FrameworkScheduler implements Scheduler {
         .setCommand(CommandInfo.newBuilder()
                     .setValue(execPath).build())
         .setData(com.google.protobuf.ByteString.copyFrom(initArg))
+        .addResources(makeResource("mem", memPerExecutor)).
         .setExecutorId(EXECUTOR_ID)
         .build();
     } catch (IOException e) {
