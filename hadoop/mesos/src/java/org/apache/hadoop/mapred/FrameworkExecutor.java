@@ -202,6 +202,18 @@ public class FrameworkExecutor implements Executor, ProgressIndicator {
     return instance;
   }
 
+  double limitProgress(double progress) {
+    if (progress <= 0.0) {
+      return 0.0;
+    } else if (progress >= 1.0) {
+      return 1.0;
+    } else if (progress != progress) {
+      return 0.0;
+    } else {
+      return progress;
+    }
+  }
+
   @Override
   public void requestProgress(ExecutorDriver d) {
     double mapProgress = 0.0;
@@ -211,9 +223,10 @@ public class FrameworkExecutor implements Executor, ProgressIndicator {
     for (TaskStatus status : taskTracker.getRunningTaskStatuses()) {
       double curProgress = 0.0;
       TaskStatus prevStatus = prevStatuses.get(status.getTaskID());
-      curProgress += status.getProgress();
+
+      curProgress += limitProgress(status.getProgress());
       if (prevStatus != null) {
-        curProgress -= prevStatus.getProgress();
+        curProgress -= limitProgress(prevStatus.getProgress());
       }
       newStatuses.put(status.getTaskID(), (TaskStatus) status.clone());
       if (status.getIsMap()) {
