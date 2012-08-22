@@ -254,6 +254,7 @@ private:
 
   process::Future<uint64_t> outerOomNotifier;
   CgroupOOMPolicy oomPolicy;
+  unsigned long long slaveMemory;
 };
 
 } // namespace mesos {

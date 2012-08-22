@@ -235,26 +235,27 @@ void CgroupsIsolationModule::initialize(
   resourceChangedHandlers["cpus"] = &CgroupsIsolationModule::cpusChanged;
   resourceChangedHandlers["mem"] = &CgroupsIsolationModule::memChanged;
 
+  // XXX share with slave
+  slaveMemory = 1024L * 1024L * 1024L;
+  if (flags.resources.isNone()) {
+    Try<long> osMemory = os::memory();
+    if (osMemory.isSome()) {
+      slaveMemory = osMemory.get();
+    } else {
+      LOG(ERROR) << "Couldn't determine system memory: " << osMemory.error();
+    }
+  } else {
+    Resources slaveResources = Resources::parse(flags.resources.get());
+    slaveMemory = static_cast<long>(
+      slaveResources.get("mem", Value::Scalar()).value() * 1024.0 * 1024.0
+    );
+  }
+
   if (flags.cgroup_outer_container) {
     Try<bool> create =
       cgroups::createCgroup(hierarchy, flags.cgroup_outer_container_name);
     if (create.isError()) {
       LOG(ERROR) << "Failed to create outer container: " << create.error();
-    }
-    // XXX share with slave
-    long slaveMemory = 1024L * 1024L * 1024L;
-    if (flags.resources.isNone()) {
-      Try<long> osMemory = os::memory();
-      if (osMemory.isSome()) {
-        slaveMemory = osMemory.get();
-      } else {
-        LOG(ERROR) << "Couldn't determine system memory: " << osMemory.error();
-      }
-    } else {
-      Resources slaveResources = Resources::parse(flags.resources.get());
-      slaveMemory = static_cast<long>(
-        slaveResources.get("mem", Value::Scalar()).value() * 1024.0 * 1024.0
-      );
     }
     Try<bool> setMemoryResult =
       cgroups::writeControl(hierarchy,
@@ -691,22 +692,6 @@ Try<bool> CgroupsIsolationModule::memChanged(
                  << executorId << " of framework " << frameworkId;
   } else if (flags.cgroup_enforce_memory_limits) {
     double mem = memResource.get().scalar().value();
-    size_t limitInBytes =
-      std::max((size_t)mem, MIN_MEMORY_MB) * 1024LL * 1024LL;
-
-    Try<bool> set =
-      cgroups::writeControl(hierarchy,
-                            getCgroupName(frameworkId, executorId),
-                            "memory.limit_in_bytes",
-                            stringify(limitInBytes));
-    if (set.isError()) {
-      return Try<bool>::error(set.error());
-    }
-
-    LOG(INFO) << "Write memory.limit_in_bytes = " << limitInBytes
-              << " for executor " << executorId
-              << " of framework " << frameworkId;
-
     if (flags.cgroup_enforce_swap_limits) {
       double memSwap = mem + flags.cgroup_swap_limit_extra;
 
@@ -719,6 +704,7 @@ Try<bool> CgroupsIsolationModule::memChanged(
                               "memory.memsw.limit_in_bytes",
                               stringify(limitInBytes));
       if (set.isError()) {
+        LOG(ERROR) << set.error() << " while writing memory.memsw.limit..";
         return Try<bool>::error(set.error());
       }
 
@@ -726,6 +712,24 @@ Try<bool> CgroupsIsolationModule::memChanged(
                 << " for executor " << executorId
                 << " of framework " << frameworkId;
     }
+
+    size_t limitInBytes =
+      std::min(slaveMemory,
+          std::max((size_t)mem, MIN_MEMORY_MB) * 1024LL * 1024LL);
+
+    Try<bool> set =
+      cgroups::writeControl(hierarchy,
+                            getCgroupName(frameworkId, executorId),
+                            "memory.limit_in_bytes",
+                            stringify(limitInBytes));
+    if (set.isError()) {
+      LOG(ERROR) << set.error() << " while writing memory.limit..";
+      return Try<bool>::error(set.error());
+    }
+
+    LOG(INFO) << "Write memory.limit_in_bytes = " << limitInBytes
+              << " for executor " << executorId
+              << " of framework " << frameworkId;
   }
 
   return true;
