@@ -2,7 +2,7 @@ diff --git a/conf/mapred-site.xml b/conf/mapred-site.xml
 index 970c8fe..f9f272d 100644
 --- a/conf/mapred-site.xml
 +++ b/conf/mapred-site.xml
-@@ -4,5 +4,16 @@
+@@ -4,5 +4,20 @@
  <!-- Put site-specific property overrides in this file. -->
  
  <configuration>
@@ -18,5 +18,9 @@ index 970c8fe..f9f272d 100644
 +  <property>
 +    <name>mapred.mesos.master</name>
 +    <value>local</value>
++  </property>
++  <property>
++    <name>mapred.task.tracker.task-controller</name>
++    <value>org.apache.hadoop.mapred.MyTaskController</value>
 +  </property>
  </configuration>

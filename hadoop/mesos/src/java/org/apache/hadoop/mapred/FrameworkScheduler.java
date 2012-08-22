@@ -354,7 +354,7 @@ public class FrameworkScheduler implements Scheduler {
         .setCommand(CommandInfo.newBuilder()
                     .setValue(execPath).build())
         .setData(com.google.protobuf.ByteString.copyFrom(initArg))
-        .addResources(makeResource("mem", memPerExecutor)).
+        .addResources(makeResource("mem", memPerExecutor))
         .setExecutorId(EXECUTOR_ID)
         .build();
     } catch (IOException e) {
