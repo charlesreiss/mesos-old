@@ -150,6 +150,16 @@ public:
         "Enforce cgroup CPU shares (at all)",
         true);
 
+    add(&Flags::cgroup_enforce_swap_limits,
+        "cgroup_enforce_swap_limits",
+        "Enforce cgroup memory + swap limits",
+        true);
+
+    add(&Flags::cgroup_swap_limit_extra,
+        "cgroup_swap_limit_extra",
+        "Enforce cgroup memory + swap limits",
+        256.0);
+
     add(&Flags::cgroup_oom_policy,
         "cgroup_oom_policy",
         "OOM kill policy for cgroups isolation module (kill, kill-priority)",
@@ -188,6 +198,8 @@ public:
   bool cgroup_outer_container_memory_ratio;
   bool cgroup_enforce_memory_limits;
   bool cgroup_enforce_cpu_limits;
+  bool cgroup_enforce_swap_limits;
+  double cgroup_swap_limit_extra;
 
   std::string cgroup_oom_policy;
 #ifdef __linux__

@@ -499,6 +499,8 @@ void CgroupsIsolationModule::processExited(pid_t pid, int status)
     }
 
     unregisterCgroupInfo(frameworkId, executorId);
+  } else {
+    LOG(ERROR) << "Process exited with no associated cgroup: " << pid;
   }
 }
 
@@ -704,6 +706,26 @@ Try<bool> CgroupsIsolationModule::memChanged(
     LOG(INFO) << "Write memory.limit_in_bytes = " << limitInBytes
               << " for executor " << executorId
               << " of framework " << frameworkId;
+
+    if (flags.cgroup_enforce_swap_limits) {
+      double memSwap = mem + flags.cgroup_swap_limit_extra;
+
+      size_t limitInBytes =
+        std::max((size_t)memSwap, MIN_MEMORY_MB) * 1024LL * 1024LL;
+
+      Try<bool> set =
+        cgroups::writeControl(hierarchy,
+                              getCgroupName(frameworkId, executorId),
+                              "memory.memsw.limit_in_bytes",
+                              stringify(limitInBytes));
+      if (set.isError()) {
+        return Try<bool>::error(set.error());
+      }
+
+      LOG(INFO) << "Write memory.memsw.limit_in_bytes = " << limitInBytes
+                << " for executor " << executorId
+                << " of framework " << frameworkId;
+    }
   }
 
   return true;
