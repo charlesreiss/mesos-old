@@ -113,7 +113,9 @@ void CgroupsIsolationModule::initialize(
   requiredSubsystems.insert("memory");
   requiredSubsystems.insert("freezer");
 
-  optionalSubsystems.insert("blkio");
+  if (flags.cgroup_no_blkio) {
+    optionalSubsystems.insert("blkio");
+  }
 
   // Probe cgroups subsystems.
   hashset<std::string> enabledSubsystems;
@@ -610,12 +612,14 @@ Option<ResourceStatistics> CgroupsIsolationModule::collectResourceStatistics(
                memStatResult.get()) {
     stat.miscAbsolute["mem_" + key] = value;
   }
-  insertStats(hierarchy, getCgroupName(frameworkId, executorId),
-      "blkio.time", "disk_time_", &stat.miscCounters);
-  insertStats(hierarchy, getCgroupName(frameworkId, executorId),
-      "blkio.io_serviced", "disk_serviced_", &stat.miscCounters);
-  insertStats(hierarchy, getCgroupName(frameworkId, executorId),
-      "blkio.io_service_bytes", "disk_bytes_", &stat.miscCounters);
+  if (!flags.cgroup_no_blkio) {
+    insertStats(hierarchy, getCgroupName(frameworkId, executorId),
+        "blkio.time", "disk_time_", &stat.miscCounters);
+    insertStats(hierarchy, getCgroupName(frameworkId, executorId),
+        "blkio.io_serviced", "disk_serviced_", &stat.miscCounters);
+    insertStats(hierarchy, getCgroupName(frameworkId, executorId),
+        "blkio.io_service_bytes", "disk_bytes_", &stat.miscCounters);
+  }
 
   return stat;
 }

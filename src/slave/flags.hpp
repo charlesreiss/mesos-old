@@ -163,7 +163,12 @@ public:
     add(&Flags::cgroup_oom_policy,
         "cgroup_oom_policy",
         "OOM kill policy for cgroups isolation module (kill, kill-priority)",
-        "kill");
+        "kill-priority");
+
+    add(&Flags::cgroup_no_blkio,
+        "cgroup_no_blkio",
+        "Disable blkio monitoring",
+        false);
 
 #ifdef __linux__
     add(&Flags::cgroups_hierarchy_root,
@@ -200,6 +205,8 @@ public:
   bool cgroup_enforce_cpu_limits;
   bool cgroup_enforce_swap_limits;
   double cgroup_swap_limit_extra;
+
+  bool cgroup_no_blkio;
 
   std::string cgroup_oom_policy;
 #ifdef __linux__
