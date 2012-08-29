@@ -67,7 +67,8 @@ struct ResourceEstimates {
   void clearUsage(double now, bool clearCharge);
   void setGuess(double now, const Resources& guess);
   // TODO(charles): call after/before set guess?
-  void setTasks(double now, int tasks);
+  // Returns true if updated guess.
+  bool setTasks(double now, int tasks);
   void setMin(double now, const Resources& min);
   void setTime(double now);
 

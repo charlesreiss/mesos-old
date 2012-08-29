@@ -228,26 +228,31 @@ ResourceEstimates::setGuess(double now, const Resources& guess) {
 }
 
 
-void
+bool
 ResourceEstimates::setTasks(double now, int newTasks) {
   LOG(INFO) << "adjusting tasks with newTasks = " << newTasks;
-  if (lastUsedPerTask.isSome()) {
-    // TODO(charles): expire these estimates???
-    Resources zeroTasks;
-    if (lastUsedForZero.isSome()) {
-      zeroTasks = lastUsedForZero.get();
-    }
-    setGuess(now, zeroTasks +
-                  multiplyResources(lastUsedPerTask.get(), newTasks));
-  } else if (curTasks > 0 && newTasks > 0) {
-    setGuess(now, multiplyResources(nextUsedResources,
-                                    double(newTasks) / curTasks));
-  }
-  // TODO(charles): aggregate task counts??
+  bool updated = false;
   if (curTasks != newTasks) {
+    if (lastUsedPerTask.isSome()) {
+      // TODO(charles): expire these estimates???
+      Resources zeroTasks;
+      if (lastUsedForZero.isSome()) {
+        zeroTasks = lastUsedForZero.get();
+      }
+      setGuess(now, zeroTasks +
+                    multiplyResources(lastUsedPerTask.get(), newTasks));
+      updated = true;
+    } else if (curTasks > 0 && newTasks > 0) {
+      setGuess(now, multiplyResources(nextUsedResources,
+                                      double(newTasks) / curTasks));
+      updated = true;
+    }
+
+    // TODO(charles): aggregate task counts??
     setTaskTime = now;
     curTasks = newTasks;
   }
+  return updated;
 }
 
 void
@@ -317,7 +322,7 @@ UsageTrackerImpl::estimateFor(const FrameworkID& frameworkId,
 UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
     : lastTickTime(0.0), smoothUsage(conf_.get<bool>("norequest_smooth", false))
 {
-  if (conf_.get<double>("norequest_halflife", -1.0) > 0.0) {
+  if (conf_.get<double>("norequest_halflife", -1.0) >= 0.0) {
     smoothDecay =
       weightFromHalfLife(conf_.get<double>("norequest_halflife", -1.0));
     smoothDecayMem =
@@ -360,10 +365,11 @@ UsageTrackerImpl::placeUsage(const FrameworkID& frameworkId,
                              double now) {
   ResourceEstimates* executor = estimateFor(frameworkId, executorId, slaveId);
   executor->setMin(now, minResources);
-  if (estResources.isSome()) {
+  bool updatedGuess = executor->setTasks(now, numTasks);
+  if (!updatedGuess && estResources.isSome()) {
+    // XXX FIXME: When should we use task-based guess??
     executor->setGuess(now, estResources.get());
   }
-  executor->setTasks(now, numTasks);
 }
 
 void
