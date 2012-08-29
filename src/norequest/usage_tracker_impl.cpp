@@ -320,7 +320,8 @@ UsageTrackerImpl::estimateFor(const FrameworkID& frameworkId,
 }
 
 UsageTrackerImpl::UsageTrackerImpl(const Configuration& conf_)
-    : lastTickTime(0.0), smoothUsage(conf_.get<bool>("norequest_smooth", false))
+    : lastTickTime(0.0), smoothUsage(conf_.get<bool>("norequest_smooth", false)),
+      taskInferences(conf_.get<bool>("norequest_tasks", true))
 {
   if (conf_.get<double>("norequest_halflife", -1.0) >= 0.0) {
     smoothDecay =
@@ -365,7 +366,10 @@ UsageTrackerImpl::placeUsage(const FrameworkID& frameworkId,
                              double now) {
   ResourceEstimates* executor = estimateFor(frameworkId, executorId, slaveId);
   executor->setMin(now, minResources);
-  bool updatedGuess = executor->setTasks(now, numTasks);
+  bool updatedGuess = false;
+  if (taskInferences) {
+    updatedGuess = executor->setTasks(now, numTasks);
+  }
   if (!updatedGuess && estResources.isSome()) {
     // XXX FIXME: When should we use task-based guess??
     executor->setGuess(now, estResources.get());

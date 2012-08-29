@@ -162,6 +162,8 @@ private:
   void smoothUsageUpdate(Resources* observation, double duration,
                          const Resources& oldUsage);
 
+  bool taskInferences;
+
   ResourceEstimates* estimateFor(const FrameworkID& frameworkId,
                                  const ExecutorID& executorId,
                                  const SlaveID& slaveId);
