@@ -14,10 +14,11 @@ AC_LANG([C++])
 AC_CONFIG_MACRO_DIR([m4])
 
 # Initialize automake.
-AM_INIT_AUTOMAKE([-Wall -Werror foreign])
+AM_INIT_AUTOMAKE([-Wall foreign])
 
 # Initialize libtool (LT_OUTPUT builds ./libtool immediately, needed
 # if we want to do tests with libtool during configuration).
+AC_PROG_LIBTOOL
 LT_PREREQ([2.2])
 LT_INIT
 LT_LANG([C++])
