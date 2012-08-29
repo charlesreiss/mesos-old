@@ -34,6 +34,7 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 
 # Initialize libtool (LT_OUTPUT builds ./libtool immediately, needed
 # if we want to do tests with libtool during configuration).
+AC_PROG_LIBTOOL
 LT_PREREQ([2.2])
 LT_INIT
 LT_LANG([C++])
