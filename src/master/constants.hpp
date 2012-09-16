@@ -45,7 +45,7 @@ const int32_t MAX_MEM = 1024 * 1024 * Megabyte;
 const double SLAVE_PING_TIMEOUT = 15.0;
 
 // Maximum number of ping timeouts until slave is considered failed.
-const int MAX_SLAVE_PING_TIMEOUTS = 5;
+const int MAX_SLAVE_PING_TIMEOUTS = 60;
 
 // Maximum number of completed frameworks to store in the cache.
 // TODO(thomasm): Make configurable.
